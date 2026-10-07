@@ -193,8 +193,10 @@ games have reached the next phase ("4/6 at rhythm ×2"), and calls out each step
 switch**: while the run is calm a game holds you about 12 beats, then 9, 7, 5 as the run climbs, and only 3 near
 the top; the switch comes on a peak of the run's curve (a calm run still moves you on, slowly). A game's first visit
 always gets at least 6 beats, and the calm games keep their breather. **Stages** are
-stretches of beats: Stage 1 · learn (beats 0–29) lets r climb only every 5th beat, Stage 2 · warm
-(30–59) every 2nd, Stage 3 · wild (60–99) and Stage 4 · chaos (100+) every beat. On a frozen beat r
+stretches of beats: Stage 1 · learn (beats 0–59) lets r climb only every 10th beat, Stage 2 · warm
+(60–119) every 4th, Stage 3 · wild (120–199) and Stage 4 · chaos (200+) every 2nd: a game takes ~134 of its own
+beats to reach r = 4. **The run's r = 4 is hard**: a game only counts as there once it has held r = 4 for 30 beats,
+and losing its lives starts it over, so every game has to ride the top together ("held n/30"). On a frozen beat r
 stays but x walks, so the nine events and **Fig's moods still land: a hint of what's coming** (the
 banner says so). Morphs need more tenure early (10, 8, 6, 4 beats). As the stages get harder the
 **world expands, sideways more than up**: its width grows ×1, 1.15, 1.3, 1.45 (400 → 580) while the

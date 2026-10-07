@@ -974,7 +974,12 @@ games switch**: `runTenure()` by the run's phase (calm 12 beats, rhythm ×2 9, r
 curve** (`S.runEv.peak`) switches once the hold is served, golden and mirror need half the hold, and a run that
 stays calm moves you on anyway at twice the hold (`why` 'drift'). The window still rotates every beat and a calm
 organ's own 🧘 hold still keeps you for its beats. The organs' own curves drive everything else in play.
-`__shell().run` (r, n, x, hold); `force('climb')` adds 20 beats to the live organ's curve (tests). Tests:
+**r = 4 is hard to reach** for the run: a game counts as at r = 4 only once its own curve has held it `TOP_HOLD` (30)
+beats (`curve.top`, counted in `beat()`; `orgR` reads it as 3.99 until then), and losing that game's lives restarts its
+clock, so the run stays at CHAOS until all six have ridden the top together (HUD "· held n/30", the lowest of them).
+**Doubled beats**: `STAGES` beats 0/60/120/200, `climbEvery` 10/4/2/2, so a game reaches r = 4 after ~134 of its own
+beats (was ~67). `__shell().run` (r, n, x, hold); `force('climb')` adds 20 to the live organ's n, `force('top')` puts it
+at r = 4 with the hold served (tests; `t_top`). Tests:
 `t_runstates` (one game to r = 4 leaves the run calm, 1/6 … 5/6; the sixth lifts it to the shared phase), `t_switch` (a calm run holds ~12 beats; pushed to r = 4, wild games switch every 1–3).
 **The run's stages, zoom and lenses** (shell.js): `STAGES` (beats, climbEvery, zoom, tenure, lens
 seconds); `stepCurve(c, { freeze })` keeps n and r but lands everything else (fib off, since n didn't
