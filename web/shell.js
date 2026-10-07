@@ -86,6 +86,16 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   const livesOf = (k) => S.lives[k] ?? 3;
   let resetPending = null;
   let active = null, prev = null, transition = null, tenure = 0, lastUsed = new Map(), running = false;
+  // 🕰️ every organ keeps its own chaos clock: its own curve and its own beats (so its own stage). A morph parks the
+  // organ you leave and picks up the one you enter where it left off; one you haven't met yet starts calm, at Stage 1,
+  // close in, so every game gets its easy first look however late in the run you reach it.
+  let clocks = new Map();
+  function useClock(o) {
+    if (active) clocks.set(active, { curve: S.curve, beats: S.beats });
+    const c = clocks.get(o), fresh = !c; S.curve = c ? c.curve : makeCurve(); S.beats = c ? c.beats : 0;
+    const st = STAGES[stageOf()]; zoomTo = st.zoom; widenTo = st.widen;
+    return fresh;
+  }
   // 🧘 calm within the chaos: beats left in the hold a calm organ (CALM.organs) opens on entry
   let calm = 0;
   // ⚡ a glitch: seconds left of the flicker a held peak sets off (the theme is another organ's meanwhile)
@@ -229,7 +239,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function beat() {
     const held = calm > 0, st0 = stageOf(), stg = STAGES[st0];
     const frozen = !held && stg.climbEvery > 1 && (S.beats % stg.climbEvery) !== 0;   // 🎚️ an early stage: r climbs only every few beats
-    const ev = stepCurve(S.curve, { hold: held, freeze: frozen }); S.beats += 1; tenure += 1; tally(ev, S.tally);
+    const ev = stepCurve(S.curve, { hold: held, freeze: frozen }); S.beats += 1; S.allBeats += 1; S.maxR = Math.max(S.maxR || 0, S.curve.r); tenure += 1; tally(ev, S.tally);
     if (stageOf() !== st0) { const ns = STAGES[stageOf()]; wave('stage', true); banner(`🎚️ ${ns.name.toUpperCase()}`, st0 === 0 ? 'r climbs faster now · the board zooms out' : st0 === 1 ? 'r climbs every beat · the board zooms out' : 'the top of the curve · the whole board'); sfx('twist'); zoomTo = ns.zoom; widenTo = ns.widen; }
     // 🟢 Fig's mood moved: say so, recolour the room, and its pillar's events pay double (the bond, in points)
     if (ev.moodChanged) { wave('mood'); banner(`🟢 ${MOOD_NAME[ev.mood]}`, st0 < 2 && ev.mood !== 'calm' ? `${MOOD_SAY[ev.mood]} · a hint of what's coming` : MOOD_SAY[ev.mood]); applyPalTheme(ev.mood);
@@ -247,7 +257,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (morphs && !transition && !S.over && !held) {   // 🧘 nothing morphs during a calm
       let to = null, why = '';
       if (ev.window) { to = nextOrgan(); why = 'window'; }
-      else if (ev.golden) { to = [...organs].filter((o) => o !== active).sort((a, b) => (lastUsed.get(a) || 0) - (lastUsed.get(b) || 0))[0]; why = 'golden'; }
+      else if (ev.golden) { to = [...organs].filter((o) => o !== active).sort((a, b) => (lastUsed.get(a) ?? -1) - (lastUsed.get(b) ?? -1))[0]; why = 'golden'; }
       else if (ev.mirror && prev && prev !== active) { to = prev; why = 'mirror'; }
       else if (ev.peak && tenure >= minTenure()) { to = nextOrgan(); why = 'peak'; }
       if (to && to !== active) morphTo(to, why);
@@ -257,13 +267,14 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function morphTo(to, why) {
     const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height; snap.getContext('2d').drawImage(cv, 0, 0);
     const anchor = active.leave?.() || null;
-    lastUsed.set(active, S.beats); prev = active; active = to; tenure = 0; S.morphs += 1;
+    // 🟢 the morph is done in the mood Fig is in as you leave: Wild tears, Mirror folds, Boxy tiles, Golden spirals (calm: a plain pull-in)
+    const mood = S.curve.mood || 'calm';
+    lastUsed.set(active, S.allBeats); const fresh = useClock(to); prev = active; active = to; tenure = 0; S.morphs += 1;
     active.enter(prev.key, anchor);
-    applyTheme(); openCalm();
-    // 🟢 the morph is done in the mood Fig is in: Wild tears, Mirror folds, Boxy tiles, Golden spirals (calm: a plain pull-in)
-    const mood = S.curve.mood || 'calm', strips = Array.from({ length: 14 }, (_, i) => ({ i, vx: (Math.random() - 0.5) * 2.4, rot: (Math.random() - 0.5) * 0.9, col: ['#3DD6C6', '#FF5A4A', '#B9A6FF'][i % 3] }));
+    applyTheme(); openCalm(); applyPalTheme(S.curve.mood || 'calm'); pal.set({ r: S.curve.r, mood: S.curve.mood || 'calm' });
+    const strips = Array.from({ length: 14 }, (_, i) => ({ i, vx: (Math.random() - 0.5) * 2.4, rot: (Math.random() - 0.5) * 0.9, col: ['#3DD6C6', '#FF5A4A', '#B9A6FF'][i % 3] }));
     transition = { t: 0, dur: reduceMotion ? 0.05 : (mood === 'phi' ? 1.2 : mood === 'bit' ? 1.0 : 0.9), snap, why, anchor, mood, strips };
-    if (!reduceMotion) fly(transition.dur); wave('morph', true); banner(`${to.icon} ${to.name.toUpperCase()}`, `${to.verb} · ${WHY[why]}`); sfx(why === 'golden' ? 'birdie' : 'twist');
+    if (!reduceMotion) fly(transition.dur); wave('morph', true); banner(`${to.icon} ${to.name.toUpperCase()}`, `${to.verb} · ${WHY[why]} · ${fresh ? 'its own curve, from calm' : `back to its ${STAGES[stageOf()].name}, r ${S.curve.r.toFixed(2)}`}`); sfx(why === 'golden' ? 'birdie' : 'twist');
   }
   function applyTheme(th = active?.theme) { if (!th) return; Object.entries(th).forEach(([k, v]) => stage.style.setProperty(`--${k}`, v)); }
   // ---------------------------------------------------------------- the loop
@@ -365,12 +376,13 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function resetOrgan() {   // the organ's lives are gone: it starts over, easy, and the run pays a heart
     const how = resetPending; resetPending = null; S.lives[active.key] = 3; S.hearts -= 1; S.how = how;
     if (S.hearts <= 0) { over(how); return; }
+    S.curve = makeCurve(); S.beats = 0; tenure = 0; { const st = STAGES[0]; zoomTo = st.zoom; widenTo = st.widen; } pal.set({ r: S.curve.r, mood: 'calm' }); applyPalTheme('calm');   // its own clock starts over too
     active.start(); active.enter(null, null); applyTheme(); host.ui(''); calm = 0; if (isCalm(active.key)) openCalm();
     banner(`🔁 ${active.name.toUpperCase()} STARTS OVER · ❤️ −1`, `${how} · the run has ${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); sfx('buzz'); navigator.vibrate?.(80);
   }
   function startRun() {
-    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0;
-    tenure = 0; prev = null; transition = null; lastUsed = new Map(); zoom = zoomTo = 1; widen = widenTo = 1; clearLens(); size();
+    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r;
+    tenure = 0; prev = null; transition = null; lastUsed = new Map(); clocks = new Map(); active = null; zoom = zoomTo = 1; widen = widenTo = 1; clearLens(); size();
     organs.forEach((o) => o.start());
     active = organs[Math.floor(Math.random() * organs.length)]; active.enter(null, null); applyTheme(); calm = 0;
     $('over').hidden = true; running = true; sfx('click'); pal.wake(); pal.set({ r: S.curve.r, mood: 'calm' }); applyPalTheme('calm'); $('spal').hidden = false;
@@ -387,7 +399,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const board = data?.top?.length ? `<ol class="board">${data.top.map((r, i) => `<li class="${r.player === me.id ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.score.toLocaleString()}</b></li>`).join('')}</ol>` : '';
     const stats = organs.map((o) => o.endStats?.()).filter(Boolean).join(' · ');
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2>${data?.record ? '<p style="color:var(--gold);font-weight:900">🏆 Your new best!</p>' : data ? `<p class="muted small">Your best: ${data.best.toLocaleString()}</p>` : ''}
-      <p class="muted small">${esc(stats)}${morphs ? ` · ${S.morphs} morph${S.morphs === 1 ? '' : 's'}` : ''} · chaos reached r = ${S.curve.r.toFixed(2)}</p>
+      <p class="muted small">${esc(stats)}${morphs ? ` · ${S.morphs} morph${S.morphs === 1 ? '' : 's'}` : ''} · chaos reached r = ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</p>
       ${data?.chaos ? `<p class="small">${ratingLine(data.chaos)}</p>` : ''}
       ${error ? `<p class="small" style="color:#FF9A7A">Couldn't save: ${esc(error.message || '')}</p>` : ''}${board}
       <button class="go" id="again">${esc(again)}</button>`);
@@ -400,7 +412,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
   addEventListener('keydown', (e) => { if (running && !S.over) active?.keydown?.(e); });
   addEventListener('keyup', (e) => { if (running && !S.over) active?.keyup?.(e); });
-  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
+  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
     tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
   // ---------------------------------------------------------------- go
   (async () => {

@@ -947,6 +947,15 @@ leftover canvas becomes `host.ox` / `host.oy` margins painted in the organ's `--
 `setTransform(k, 0, 0, k, host.ox, host.oy)`, and hilltop's ridge is 101 samples `W / 100` apart
 (`SP()`). `toWorld` subtracts both margins and clamps to the world. `__shell()` reports `W`, `widen`,
 `oy`.
+**🕰️ Every organ has its own chaos clock** (shell.js `clocks`, `useClock(o)`): the run used to share one curve, so
+the last organ you reached was already in chaos before its easy first look. Now `morphTo` parks the organ you
+leave (`{ curve, beats }`) and loads the one you enter; one not met yet starts on a fresh `makeCurve()` at beat 0
+(Stage 1, close in, its long tenure); `zoomTo`/`widenTo` follow the organ's own stage, the morph banner says
+"its own curve, from calm" or "back to its Stage n, r …", and the morph itself plays in the mood you left in.
+`resetOrgan` restarts the organ's clock with it. `S.allBeats` is the run's own count (`lastUsed` for the golden
+dive's least-recently-used pick) and `S.maxR` the highest r any organ reached (the end card). `__shell()` has
+`clocks` (per organ beats and r) and `allBeats`. Test (scratch): `t_clocks2` (push one organ to Stage 4, the
+others open at Stage 1, it comes back at Stage 4).
 **The run's stages, zoom and lenses** (shell.js): `STAGES` (beats, climbEvery, zoom, tenure, lens
 seconds); `stepCurve(c, { freeze })` keeps n and r but lands everything else (fib off, since n didn't
 move); the beat freezes when `S.beats % climbEvery !== 0`; a stage change banners and sets `zoomTo`,
