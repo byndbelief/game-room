@@ -269,7 +269,8 @@ legs and a much wider fairway (44, 66, 88 … 190), with bumpers (course 3+), sa
 fairway sits centred in the field. Par is the bends + 1 (+1 for two
 or more bumpers, +1 for water), par + 2 putts allowed; make the course's par over three holes and you move
 up, miss it and you play it again; birdies and eagles pay, and a course made pays 300 × the course.
-Squirrel Chaos Day 1 is a single fractal tree and one small squirrel at a time, no acorns; Day 2 two trees
+Squirrel Chaos Day 1 is a single fractal tree and one small squirrel at a time, no acorns, seen close in (the
+camera follows the squirrel and the stapler, up to 2.4×, easing out on Day 2 and showing the whole wood from Day 3); Day 2 two trees
 and a few, Day 3 the wood. Hilltop in Stage 1 digs in two tanks at most, firing slowly, with no wind.
 Fractal Dash at Depth 1 in Stage 1 runs slower with no chasms and spike rows of two. Salvo in Stage 1
 sails three short slow ships and nobody fires back.

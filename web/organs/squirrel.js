@@ -76,10 +76,32 @@ function grow(seed, lvl) {
   const eyes = []; for (let i = 0; i < (lvl - 1) * 7; i++) eyes.push({ x: 20 + r() * (W - 40), y: 80 + r() * (ground - 160), ph: r() * 6.28, rate: 0.6 + r() * 0.8, gap: 5 + r() * 3 });
   return { seed, H: H(), W, ground, segs, trunks, tips, knot, eyes, hue: [34, 28, 22, 16][Math.min(3, lvl - 1)] };
 }
+// 🎥 the camera: Day 1 at Stage 1 starts close in on the action (the stapler, the squirrels, crates and acorns, up to
+// CAM_MAX), never wider than the whole of the one tree; Day 2 eases out to at most 1.6×, and from Day 3 or a wider stage
+// it shows the whole wood. Taps go back through it (`unCam`), so aiming is exact at any zoom.
+const CAM_MAX = 2.4;
+let cam = { z: 1, x: 0, y: 0 };
+function camTarget() {
+  const Hh = H(), st = host?.stage?.() || 1, whole = { z: 1, x: W / 2, y: Hh / 2 };
+  if (!forest || !game || level >= 3 || st >= 2) return whole;
+  const cap = level === 1 ? CAM_MAX : 1.6, box = { x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 }, take = (x, y, m) => { box.x0 = Math.min(box.x0, x - m); box.x1 = Math.max(box.x1, x + m); box.y0 = Math.min(box.y0, y - m); box.y1 = Math.max(box.y1, y + m); };
+  const sp = STAPLER(); take(sp.x, sp.y - 20, 50); take(sp.x, forest.ground + 10, 20);
+  game.squirrels.forEach((sq) => { const p = sqPos(sq); take(p.x, p.y, 70); });
+  game.crates.forEach((c) => { if (c.y >= forest.ground - 16) take(c.x, c.y, 60); });   // a crate still parachuting in doesn't pull the camera up the sky game.acorns.forEach((a) => { const p = acornPos(a); take(p.x, p.y, 50); });
+  if (!game.squirrels.length) forest.trunks.forEach((t) => { take(t.x2, t.y2, 60); });   // nothing yet: frame the trunk and the stapler
+  const tb = { x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 }; forest.segs.forEach((g) => { tb.x0 = Math.min(tb.x0, g.x1, g.x2); tb.x1 = Math.max(tb.x1, g.x1, g.x2); tb.y0 = Math.min(tb.y0, g.y1, g.y2); tb.y1 = Math.max(tb.y1, g.y1, g.y2); });
+  const zTree = Math.max(1, Math.min(W / (tb.x1 - tb.x0 + 60), Hh / (forest.ground + 20 - tb.y0 + 40)));
+  const z = Math.max(1, Math.min(cap, Math.max(Math.min(zTree, cap), Math.min(W / (box.x1 - box.x0), Hh / (box.y1 - box.y0)))));
+  const hw = W / (2 * z), hh = Hh / (2 * z);
+  return { z, x: Math.max(hw, Math.min(W - hw, (box.x0 + box.x1) / 2)), y: Math.max(hh, Math.min(Hh - hh, (box.y0 + box.y1) / 2)) };
+}
+function camStep(dt, snap) { const t = camTarget(); if (snap || !cam.x) { cam = { ...t }; return; } const e = Math.min(1, dt * 1.4); cam.z += (t.z - cam.z) * e; cam.x += (t.x - cam.x) * e; cam.y += (t.y - cam.y) * e; }
+const unCam = (p) => ({ x: cam.x + (p.x - W / 2) / cam.z, y: cam.y + (p.y - H() / 2) / cam.z });
 const posOn = (s, t) => ({ x: s.x1 + (s.x2 - s.x1) * t, y: s.y1 + (s.y2 - s.y1) * t });
 
 // ---------------------------------------------------------------- state
 function newGame() {
+  cam = { z: 1, x: 0, y: 0 };   // snaps to its target on the first frame
   level = 1;
   forest = grow((Date.now() & 0xffffff) | 1, level);
   game = { ammo: AMMO, reloadT: 0, time: 0, squirrels: [], staples: [], pins: [], fx: [], stuck: [], leaves: [],
@@ -325,6 +347,7 @@ function nextLevel() {
 
 // ---------------------------------------------------------------- the loop
 function update(dt) {
+  if (game && !game.dive) camStep(dt);
   W = host?.W || W;   // 🎚️ the world widens with the stage
   const g = game;
   if (g.dive) {
@@ -390,11 +413,12 @@ function draw(t) {
   const cv = host.cv, k = host.k, Hh = H();
   if (!forest) forest = grow(12345, 1);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  let z = 1, fx = W / 2, fy = Hh / 2, fade = 0;
-  if (game?.dive) {   // into the knot (zooming in, the forest around it fading) or out of the new one's knot
+  if (!cam.x) cam = { z: 1, x: W / 2, y: Hh / 2 };
+  let z = cam.z, fx = cam.x, fy = cam.y, fade = 0;
+  if (game?.dive) {   // into the knot (zooming in from wherever the camera is, the forest fading) or out of the new one's knot to its camera
     const e = Math.min(1, game.dive.t / game.dive.dur), s = e * e * (3 - 2 * e);
-    if (game.dive.phase === 'in') { z = Math.pow(26, s); fx = forest.knot.x; fy = forest.knot.y; fade = s; }
-    else { z = 0.04 + 0.96 * s; fade = 1 - s; }
+    if (game.dive.phase === 'in') { z = cam.z * Math.pow(26 / cam.z, s); fx = cam.x + (forest.knot.x - cam.x) * s; fy = cam.y + (forest.knot.y - cam.y) * s; fade = s; }
+    else { if (!game.dive.cam) { camStep(0, true); game.dive.cam = true; } z = 0.04 + (cam.z - 0.04) * s; fade = 1 - s; }
   }
   const sky = ctx.createLinearGradient(0, 0, 0, cv.height);
   const d = game ? dark() : 0;
@@ -568,13 +592,13 @@ const organ = {
   leave() { hold = null; bar = null; return game ? STAPLER() : null; },
   update, draw, onBeat,
   resize() { W = host?.W || W; if (forest && (Math.abs(forest.H - H()) > 1 || Math.abs(forest.W - W) > 1)) forest = grow(forest.seed, level); },   // the trees stand on the new ground
-  pointer(type, p) { if (type === 'down') { hold = p; if (game) game.nailT = 0.09; fire(p.x, p.y); } else if (type === 'move') { if (hold) hold = p; } else hold = null; },
+  pointer(type, p) { p = unCam(p); if (type === 'down') { hold = p; if (game) game.nailT = 0.09; fire(p.x, p.y); } else if (type === 'move') { if (hold) hold = p; } else hold = null; },
   keydown(e) { if ((e.key === 'r' || e.key === 'R') && game) reload(); },
   hudLine: () => (game ? `Day ${level}${host.morphs ? '' : ` of ${LEVELS}`} · ${Math.max(0, Math.ceil(level * LEVEL_S - game.time))}s${game.kept.length ? ` · 📎 ${game.kept.length} kept` : ''}` : ''),
   level: () => level,
   overText: (how) => (how === 'sleeps' ? ['🌘 IT SLEEPS AGAIN', 'For now. It counted every one.'] : how === 'bonked' ? ['💫 KNOCKED OUT', 'Too many acorns to the head. The forest keeps your staples.'] : ['RUN OVER', '']),
   endStats: () => (game ? `🐿️ ${game.hits} hits from ${game.shots} staples${game.shots ? ` (${Math.round((100 * game.hits) / game.shots)}%)` : ''}, day ${level}` : ''),
-  debug: () => game && ({ score: S.score, level, perch: game.perch, stapler: STAPLER(), trunks: forest?.trunks.length, squirrels: game.squirrels.length, owls: game.owls?.length || 0, cones: game.cones?.length || 0, snakes: game.snakes?.length || 0, W, kept: game.kept.length, glitch: game.glitch, eye: game.eye.open, twist: game.twist?.kind || null, stare: game.stare, whispers: game.fx.filter((f) => f.kind === 'whisper').length,
+  debug: () => game && ({ score: S.score, level, cam: { ...cam }, unCam, perch: game.perch, stapler: STAPLER(), trunks: forest?.trunks.length, squirrels: game.squirrels.length, owls: game.owls?.length || 0, cones: game.cones?.length || 0, snakes: game.snakes?.length || 0, W, kept: game.kept.length, glitch: game.glitch, eye: game.eye.open, twist: game.twist?.kind || null, stare: game.stare, whispers: game.fx.filter((f) => f.kind === 'whisper').length,
     skipTo: (l) => { level = l - 1; game.time = level * LEVEL_S; }, forceTwist: (k) => { game.twist = { kind: k, until: game.time + 6, wind: 70 }; if (k === 'stare') game.stare = 1.6; if (k === 'static') game.glitch = 6; },
     hearts: S.hearts, weapon: game.weapon, arsenal: { ...game.arsenal }, crates: game.crates.map((c) => ({ x: c.x, y: c.y, w: c.w })), acorns: game.acorns.map(acornPos), ammo: game.ammo, dive: !!game.dive, over: S.over, r: S.curve.r,
     squirrels: game.squirrels.map((sq) => ({ ...sqPos(sq), size: sq.size, hop: !!sq.hop })), W, H: H() }),

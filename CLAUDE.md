@@ -903,6 +903,12 @@ lowest circle top at x (`topOf`) plus a little noise; bulbs more than 2.2 r away
 touches three base bulbs' trees. `BANDS` are stroked under the ridge at +7, +15, … px in `draw`. putt.js
 `corridor`: `span = min(1, 0.4 + 0.12 × course)` narrows the walk's x-bounds around the middle; turns
 × 1.15 from course 4. Test: `t_coast` (ground samples, Putt spans 44 → 272 by course 6).
+**🎥 Squirrel Chaos starts close in** (squirrel.js `cam`, `camTarget`/`camStep`/`unCam`): Day 1 at Stage 1 frames the
+action (the stapler, live squirrels, landed crates, acorns in flight; the trunk tops when no squirrel is out) up to
+`CAM_MAX` 2.4×, never wider than the whole single tree; Day 2 at most 1.6×; Day 3 or Stage 2+ the whole wood. It eases
+(1.4/s) in `update`, `draw` composes it into the transform, dives start from it and land on the new day's target,
+`newGame` snaps it, and `pointer` maps taps back through it (`unCam`). A crate still parachuting in isn't framed.
+`__sq()` has `cam` and `unCam`. Test: `t_sqcam2` (Day 1 holds 1.5–2.4×, a screen point round-trips exactly).
 **Fractal Dash and Squirrel Chaos centre with the zoom-out.** fractal.js: `PX` is a `let` eased to `W × 0.5`
 from Stage 2 (`g.centred`), drones spawn behind (`x = cam − 40`, negative `vx`) 40% of the time once
 centred and are culled off either edge; dash-kill radius `R + 20`, shard radius `R + 20`. squirrel.js:
