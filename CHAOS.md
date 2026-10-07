@@ -186,9 +186,10 @@ through a glitch (a glitch wears the mood of the moment, and names whose move le
 
 The Chaos Run (`run.html`) eases into chaos so a new player can learn the organs. **Every organ keeps its own
 clock**: its own curve and its own beats, so its own stage. The first time the run brings you to a game it starts
-calm, at Stage 1, close in, whatever the run has been through; come back later and it picks up where you left it. Above them all runs **the run's own curve**: it climbs as
-the games climb together (the average of their progress, unmet games counting from calm), shows as the small 🌐 run
-meter under the game's own, and calls out its phases for the whole run. **The run's curve decides how often the games
+calm, at Stage 1, close in, whatever the run has been through; come back later and it picks up where you left it. Above them all runs **the run's own curve**, and it only
+moves through states the games share: it sits in the lowest phase every game has reached (unmet games count as calm)
+and steps up only when the last one gets there. It shows as the small 🌐 run meter under the game's own, with how many
+games have reached the next phase ("4/6 at rhythm ×2"), and calls out each step for the whole run. **The run's curve decides how often the games
 switch**: while the run is calm a game holds you about 12 beats, then 9, 7, 5 as the run climbs, and only 3 near
 the top; the switch comes on a peak of the run's curve (a calm run still moves you on, slowly). A game's first visit
 always gets at least 6 beats, and the calm games keep their breather. **Stages** are

@@ -92,13 +92,16 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   // organ you leave and picks up the one you enter where it left off; one you haven't met yet starts calm, at Stage 1,
   // close in, so every game gets its easy first look however late in the run you reach it.
   let clocks = new Map();
-  // 🌐 the run's own curve rides on top of them all: its r is where the organs are together (the mean of their beats,
-  // the ones not met yet counting from calm), its x walks the logistic map at that r, and when it crosses a phase the
-  // whole run is told. The organs' curves drive the play; this one is the run's progress, shown under the meter.
+  // 🌐 the run's own curve rides on top of them all, and it only moves through states the games share: its phase is the
+  // lowest phase every game has reached (the ones not met yet count as calm), and its r sits at that phase's start, so
+  // it steps calm → rhythm ×2 → ×4 → 8, 16… → chaos → r = 4 only when the last game gets there. Its x walks the logistic
+  // map at that r, and each step is news for the whole run. `runNext` is the phase it's waiting for and how many have it.
+  const orgR = (o) => (o === active ? S.curve.r : (clocks.get(o)?.curve.r ?? CHAOS.R0));
   function stepRun() {
-    const ns = organs.map((o) => (o === active ? S.curve.n : (clocks.get(o)?.curve.n || 0))), n = ns.reduce((a, b) => a + b, 0) / ns.length;
-    const r0 = S.run.r; S.run.n = Math.floor(n); S.run.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * n); S.runEv = stepCurve(S.run, { freeze: true });
-    CHAOS.PHASES.filter(([at]) => r0 < at && S.run.r >= at).forEach(([, name, say]) => { banner(`🌐 THE RUN · ${name}`, `all the games together: ${say}`); wave('peak'); });
+    const rs = organs.map(orgR), low = Math.min(...rs), k = CHAOS.PHASES.filter(([at]) => low >= at).length;
+    const r0 = S.run.r; S.run.r = k ? CHAOS.PHASES[k - 1][0] : CHAOS.R0; S.run.n = k; S.runEv = stepCurve(S.run, { freeze: true });
+    const nx = CHAOS.PHASES[k]; S.runNext = nx ? { name: nx[1], have: rs.filter((r) => r >= nx[0]).length, of: rs.length } : null;
+    CHAOS.PHASES.filter(([at]) => r0 < at && S.run.r >= at).forEach(([, name, say]) => { banner(`🌐 THE RUN · ${name}`, `every game has reached it: ${say}`); wave('peak'); });
   }
   function useClock(o) {
     if (active) clocks.set(active, { curve: S.curve, beats: S.beats });
@@ -243,7 +246,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     $('lvl').textContent = `Stage ${stageOf() + 1}${active?.hudLine?.() ? ' · ' + active.hudLine() : ''}`;
     $('phase').textContent = meterText(S.curve);
     drawMeter(meter, S.curve);
-    if (morphs && S.run) { drawMeter($('runmeter'), S.run); $('runphase').textContent = `🌐 run · ${meterText(S.run)}`; }
+    if (morphs && S.run) { drawMeter($('runmeter'), S.run); $('runphase').textContent = `🌐 run · ${meterText(S.run)}${S.runNext ? ` · ${S.runNext.have}/${S.runNext.of} at ${S.runNext.name.toLowerCase()}` : ''}`; }
     const v = $('verb');
     v.hidden = true; if (true) return;   // the hint pills are gone: Fig and the field say what's happening
     const armed = morphs && tenure >= minTenure() - 1 && !S.curve.window && calm <= 0;
@@ -428,7 +431,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
   addEventListener('keydown', (e) => { if (running && !S.over) active?.keydown?.(e); });
   addEventListener('keyup', (e) => { if (running && !S.over) active?.keyup?.(e); });
-  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure() }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
+  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure(), next: S.runNext }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
     tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why === 'climb') { S.curve.n += 20; S.curve.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * S.curve.n); return; } if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
   // ---------------------------------------------------------------- go
   (async () => {

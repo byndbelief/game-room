@@ -956,9 +956,12 @@ leave (`{ curve, beats }`) and loads the one you enter; one not met yet starts o
 dive's least-recently-used pick) and `S.maxR` the highest r any organ reached (the end card). `__shell()` has
 `clocks` (per organ beats and r) and `allBeats`. Test (scratch): `t_clocks2` (push one organ to Stage 4, the
 others open at Stage 1, it comes back at Stage 4).
-**🌐 The run's curve** (`S.run`, `stepRun()` after every beat on a run): n = the mean of every organ's own n (not
-met yet = 0), r = R0 + DR · that mean, x stepped on the logistic map at that r (`stepCurve(…, { freeze: true })`);
-its phase crossings banner "🌐 THE RUN · …". Drawn small under the organ's meter (`#runmeter`, `#runphase`, run
+**🌐 The run's curve** (`S.run`, `stepRun()` after every beat on a run) **only moves through states the games share**:
+its phase is the lowest phase every organ has reached (`orgR`; not met yet = R0, calm), its r sits at that phase's
+start (2.9, 3, 3.449, 3.544, 3.5699, 4) and n is the phase index, so it steps only when the last game gets there; x is
+stepped on the logistic map at that r (`stepCurve(…, { freeze: true })`); each step banners "🌐 THE RUN · …" (every
+game has reached it). `S.runNext` is the phase it's waiting for and how many organs have it (the HUD reads
+"🌐 run · calm · r 2.90 · 4/6 at rhythm ×2"). Drawn small under the organ's meter (`#runmeter`, `#runphase`, run
 pages only); the end card says how far the run got and the highest r one game reached. It also **sets how often
 games switch**: `runTenure()` by the run's phase (calm 12 beats, rhythm ×2 9, rhythm ×4 7, chaos 5, r ≥ 3.8 3),
 `minTenure()` = that, but at least `FIRST_LOOK` (6) on a game's first visit (`S.firstLook`); a **peak on the run's
@@ -966,7 +969,7 @@ curve** (`S.runEv.peak`) switches once the hold is served, golden and mirror nee
 stays calm moves you on anyway at twice the hold (`why` 'drift'). The window still rotates every beat and a calm
 organ's own 🧘 hold still keeps you for its beats. The organs' own curves drive everything else in play.
 `__shell().run` (r, n, x, hold); `force('climb')` adds 20 beats to the live organ's curve (tests). Tests:
-`t_runcurve`, `t_switch` (a calm run holds ~12 beats; pushed to r = 4, wild games switch every 1–3).
+`t_runstates` (one game to r = 4 leaves the run calm, 1/6 … 5/6; the sixth lifts it to the shared phase), `t_switch` (a calm run holds ~12 beats; pushed to r = 4, wild games switch every 1–3).
 **The run's stages, zoom and lenses** (shell.js): `STAGES` (beats, climbEvery, zoom, tenure, lens
 seconds); `stepCurve(c, { freeze })` keeps n and r but lands everything else (fib off, since n didn't
 move); the beat freezes when `S.beats % climbEvery !== 0`; a stage change banners and sets `zoomTo`,
