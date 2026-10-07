@@ -956,6 +956,11 @@ leave (`{ curve, beats }`) and loads the one you enter; one not met yet starts o
 dive's least-recently-used pick) and `S.maxR` the highest r any organ reached (the end card). `__shell()` has
 `clocks` (per organ beats and r) and `allBeats`. Test (scratch): `t_clocks2` (push one organ to Stage 4, the
 others open at Stage 1, it comes back at Stage 4).
+**🌐 The run's curve** (`S.run`, `stepRun()` after every beat on a run): n = the mean of every organ's own n (not
+met yet = 0), r = R0 + DR · that mean, x stepped on the logistic map at that r (`stepCurve(…, { freeze: true })`);
+its phase crossings banner "🌐 THE RUN · …". Drawn small under the organ's meter (`#runmeter`, `#runphase`, run
+pages only); the end card says how far the run got and the highest r one game reached. It's a readout of the
+run's progress: the organs' own curves still drive play. `__shell().run` (r, n, x). Test: `t_runcurve`.
 **The run's stages, zoom and lenses** (shell.js): `STAGES` (beats, climbEvery, zoom, tenure, lens
 seconds); `stepCurve(c, { freeze })` keeps n and r but lands everything else (fib off, since n didn't
 move); the beat freezes when `S.beats % climbEvery !== 0`; a stage change banners and sets `zoomTo`,

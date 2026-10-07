@@ -186,7 +186,9 @@ through a glitch (a glitch wears the mood of the moment, and names whose move le
 
 The Chaos Run (`run.html`) eases into chaos so a new player can learn the organs. **Every organ keeps its own
 clock**: its own curve and its own beats, so its own stage. The first time the run brings you to a game it starts
-calm, at Stage 1, close in, whatever the run has been through; come back later and it picks up where you left it. **Stages** are
+calm, at Stage 1, close in, whatever the run has been through; come back later and it picks up where you left it. Above them all runs **the run's own curve**: it climbs as
+the games climb together (the average of their progress, unmet games counting from calm), shows as the small 🌐 run
+meter under the game's own, and calls out its phases for the whole run. **Stages** are
 stretches of beats: Stage 1 · learn (beats 0–29) lets r climb only every 5th beat, Stage 2 · warm
 (30–59) every 2nd, Stage 3 · wild (60–99) and Stage 4 · chaos (100+) every beat. On a frozen beat r
 stays but x walks, so the nine events and **Fig's moods still land: a hint of what's coming** (the

@@ -33,6 +33,8 @@ const SHELL_CSS = `
   .shud .hearts small{display:block;font-size:11px;letter-spacing:2px;color:var(--muted,#ccc)}
   .chaosm{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
   .chaosm canvas{width:92px;height:34px;background:#0008;border-radius:8px}
+  .chaosm #runmeter{height:17px;opacity:.85}
+  .chaosm #runphase{font-size:9px;opacity:.8}
   .spal{position:absolute;left:4px;top:76px;width:60px;height:60px;pointer-events:none;filter:drop-shadow(0 4px 8px #000a)}   /* under the score, off the field (Hilltop's tank lives bottom-left) */
   .verb{display:none !important;position:absolute;left:68px;right:8px;top:76px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;pointer-events:none;font-size:12px;font-weight:900;text-shadow:0 2px 4px #000c}   /* up top beside the pal, under the score: the field stays clear */
   .verb b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -70,7 +72,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   stage.insertAdjacentHTML('beforeend', `
     <div class="shud" aria-live="off">
       <div><div class="score" id="score">0</div><div class="hearts" id="hearts">❤️❤️❤️</div><div class="combo" id="combo"></div><div class="lvl" id="lvl"></div></div>
-      <div class="chaosm"><canvas id="meter" width="184" height="68" aria-hidden="true"></canvas><span id="phase">calm</span></div>
+      <div class="chaosm"><canvas id="meter" width="184" height="68" aria-hidden="true"></canvas><span id="phase">calm</span><canvas id="runmeter" width="184" height="34" aria-hidden="true" hidden></canvas><span id="runphase" hidden></span></div>
     </div>
     <canvas class="spal" id="spal" width="144" height="144" aria-hidden="true" hidden></canvas>
     <div class="verb" id="verb" hidden></div>
@@ -90,6 +92,14 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   // organ you leave and picks up the one you enter where it left off; one you haven't met yet starts calm, at Stage 1,
   // close in, so every game gets its easy first look however late in the run you reach it.
   let clocks = new Map();
+  // 🌐 the run's own curve rides on top of them all: its r is where the organs are together (the mean of their beats,
+  // the ones not met yet counting from calm), its x walks the logistic map at that r, and when it crosses a phase the
+  // whole run is told. The organs' curves drive the play; this one is the run's progress, shown under the meter.
+  function stepRun() {
+    const ns = organs.map((o) => (o === active ? S.curve.n : (clocks.get(o)?.curve.n || 0))), n = ns.reduce((a, b) => a + b, 0) / ns.length;
+    const r0 = S.run.r; S.run.n = Math.floor(n); S.run.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * n); stepCurve(S.run, { freeze: true });
+    CHAOS.PHASES.filter(([at]) => r0 < at && S.run.r >= at).forEach(([, name, say]) => { banner(`🌐 THE RUN · ${name}`, `all the games together: ${say}`); wave('peak'); });
+  }
   function useClock(o) {
     if (active) clocks.set(active, { curve: S.curve, beats: S.beats });
     const c = clocks.get(o), fresh = !c; S.curve = c ? c.curve : makeCurve(); S.beats = c ? c.beats : 0;
@@ -229,6 +239,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     $('lvl').textContent = `Stage ${stageOf() + 1}${active?.hudLine?.() ? ' · ' + active.hudLine() : ''}`;
     $('phase').textContent = meterText(S.curve);
     drawMeter(meter, S.curve);
+    if (morphs && S.run) { drawMeter($('runmeter'), S.run); $('runphase').textContent = `🌐 run · ${meterText(S.run)}`; }
     const v = $('verb');
     v.hidden = true; if (true) return;   // the hint pills are gone: Fig and the field say what's happening
     const armed = morphs && tenure >= minTenure() - 1 && !S.curve.window && calm <= 0;
@@ -239,7 +250,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function beat() {
     const held = calm > 0, st0 = stageOf(), stg = STAGES[st0];
     const frozen = !held && stg.climbEvery > 1 && (S.beats % stg.climbEvery) !== 0;   // 🎚️ an early stage: r climbs only every few beats
-    const ev = stepCurve(S.curve, { hold: held, freeze: frozen }); S.beats += 1; S.allBeats += 1; S.maxR = Math.max(S.maxR || 0, S.curve.r); tenure += 1; tally(ev, S.tally);
+    const ev = stepCurve(S.curve, { hold: held, freeze: frozen }); S.beats += 1; S.allBeats += 1; S.maxR = Math.max(S.maxR || 0, S.curve.r); tenure += 1; tally(ev, S.tally); if (morphs) stepRun();
     if (stageOf() !== st0) { const ns = STAGES[stageOf()]; wave('stage', true); banner(`🎚️ ${ns.name.toUpperCase()}`, st0 === 0 ? 'r climbs faster now · the board zooms out' : st0 === 1 ? 'r climbs every beat · the board zooms out' : 'the top of the curve · the whole board'); sfx('twist'); zoomTo = ns.zoom; widenTo = ns.widen; }
     // 🟢 Fig's mood moved: say so, recolour the room, and its pillar's events pay double (the bond, in points)
     if (ev.moodChanged) { wave('mood'); banner(`🟢 ${MOOD_NAME[ev.mood]}`, st0 < 2 && ev.mood !== 'calm' ? `${MOOD_SAY[ev.mood]} · a hint of what's coming` : MOOD_SAY[ev.mood]); applyPalTheme(ev.mood);
@@ -381,7 +392,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     banner(`🔁 ${active.name.toUpperCase()} STARTS OVER · ❤️ −1`, `${how} · the run has ${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); sfx('buzz'); navigator.vibrate?.(80);
   }
   function startRun() {
-    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r;
+    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r; S.run = makeCurve(); $('runmeter').hidden = $('runphase').hidden = !morphs;
     tenure = 0; prev = null; transition = null; lastUsed = new Map(); clocks = new Map(); active = null; zoom = zoomTo = 1; widen = widenTo = 1; clearLens(); size();
     organs.forEach((o) => o.start());
     active = organs[Math.floor(Math.random() * organs.length)]; active.enter(null, null); applyTheme(); calm = 0;
@@ -399,7 +410,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const board = data?.top?.length ? `<ol class="board">${data.top.map((r, i) => `<li class="${r.player === me.id ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.score.toLocaleString()}</b></li>`).join('')}</ol>` : '';
     const stats = organs.map((o) => o.endStats?.()).filter(Boolean).join(' · ');
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2>${data?.record ? '<p style="color:var(--gold);font-weight:900">🏆 Your new best!</p>' : data ? `<p class="muted small">Your best: ${data.best.toLocaleString()}</p>` : ''}
-      <p class="muted small">${esc(stats)}${morphs ? ` · ${S.morphs} morph${S.morphs === 1 ? '' : 's'}` : ''} · chaos reached r = ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</p>
+      <p class="muted small">${esc(stats)}${morphs ? ` · ${S.morphs} morph${S.morphs === 1 ? '' : 's'}` : ''} · ${morphs ? `the run reached r = ${S.run.r.toFixed(2)} · ` : ''}chaos reached r = ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}${morphs ? ' in one game' : ''}</p>
       ${data?.chaos ? `<p class="small">${ratingLine(data.chaos)}</p>` : ''}
       ${error ? `<p class="small" style="color:#FF9A7A">Couldn't save: ${esc(error.message || '')}</p>` : ''}${board}
       <button class="go" id="again">${esc(again)}</button>`);
@@ -412,7 +423,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
   addEventListener('keydown', (e) => { if (running && !S.over) active?.keydown?.(e); });
   addEventListener('keyup', (e) => { if (running && !S.over) active?.keyup?.(e); });
-  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
+  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
     tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
   // ---------------------------------------------------------------- go
   (async () => {
