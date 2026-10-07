@@ -112,7 +112,7 @@ One organ makes an ordinary game page (`squirrel.html`, `fractal.html`). Several
 
 | cue | morph |
 |---|---|
-| a **peak**, after ≥ 6 beats in this organ (3 in chaos) | flips to the next organ: the world twists |
+| a **peak on the run's curve**, after the hold the run's curve sets (12 beats calm … 3 at the top) | flips to the next organ: the world twists |
 | the **mirror** | brings back the organ before |
 | the **window** | rotates every beat (the rhythm of 3) |
 | the **golden cut** | dives into the organ you've been away from longest (a long zoom) |
@@ -188,7 +188,10 @@ The Chaos Run (`run.html`) eases into chaos so a new player can learn the organs
 clock**: its own curve and its own beats, so its own stage. The first time the run brings you to a game it starts
 calm, at Stage 1, close in, whatever the run has been through; come back later and it picks up where you left it. Above them all runs **the run's own curve**: it climbs as
 the games climb together (the average of their progress, unmet games counting from calm), shows as the small 🌐 run
-meter under the game's own, and calls out its phases for the whole run. **Stages** are
+meter under the game's own, and calls out its phases for the whole run. **The run's curve decides how often the games
+switch**: while the run is calm a game holds you about 12 beats, then 9, 7, 5 as the run climbs, and only 3 near
+the top; the switch comes on a peak of the run's curve (a calm run still moves you on, slowly). A game's first visit
+always gets at least 6 beats, and the calm games keep their breather. **Stages** are
 stretches of beats: Stage 1 · learn (beats 0–29) lets r climb only every 5th beat, Stage 2 · warm
 (30–59) every 2nd, Stage 3 · wild (60–99) and Stage 4 · chaos (100+) every beat. On a frozen beat r
 stays but x walks, so the nine events and **Fig's moods still land: a hint of what's coming** (the

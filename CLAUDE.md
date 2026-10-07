@@ -959,8 +959,14 @@ others open at Stage 1, it comes back at Stage 4).
 **🌐 The run's curve** (`S.run`, `stepRun()` after every beat on a run): n = the mean of every organ's own n (not
 met yet = 0), r = R0 + DR · that mean, x stepped on the logistic map at that r (`stepCurve(…, { freeze: true })`);
 its phase crossings banner "🌐 THE RUN · …". Drawn small under the organ's meter (`#runmeter`, `#runphase`, run
-pages only); the end card says how far the run got and the highest r one game reached. It's a readout of the
-run's progress: the organs' own curves still drive play. `__shell().run` (r, n, x). Test: `t_runcurve`.
+pages only); the end card says how far the run got and the highest r one game reached. It also **sets how often
+games switch**: `runTenure()` by the run's phase (calm 12 beats, rhythm ×2 9, rhythm ×4 7, chaos 5, r ≥ 3.8 3),
+`minTenure()` = that, but at least `FIRST_LOOK` (6) on a game's first visit (`S.firstLook`); a **peak on the run's
+curve** (`S.runEv.peak`) switches once the hold is served, golden and mirror need half the hold, and a run that
+stays calm moves you on anyway at twice the hold (`why` 'drift'). The window still rotates every beat and a calm
+organ's own 🧘 hold still keeps you for its beats. The organs' own curves drive everything else in play.
+`__shell().run` (r, n, x, hold); `force('climb')` adds 20 beats to the live organ's curve (tests). Tests:
+`t_runcurve`, `t_switch` (a calm run holds ~12 beats; pushed to r = 4, wild games switch every 1–3).
 **The run's stages, zoom and lenses** (shell.js): `STAGES` (beats, climbEvery, zoom, tenure, lens
 seconds); `stepCurve(c, { freeze })` keeps n and r but lands everything else (fib off, since n didn't
 move); the beat freezes when `S.beats % climbEvery !== 0`; a stage change banners and sets `zoomTo`,

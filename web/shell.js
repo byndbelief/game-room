@@ -97,7 +97,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   // whole run is told. The organs' curves drive the play; this one is the run's progress, shown under the meter.
   function stepRun() {
     const ns = organs.map((o) => (o === active ? S.curve.n : (clocks.get(o)?.curve.n || 0))), n = ns.reduce((a, b) => a + b, 0) / ns.length;
-    const r0 = S.run.r; S.run.n = Math.floor(n); S.run.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * n); stepCurve(S.run, { freeze: true });
+    const r0 = S.run.r; S.run.n = Math.floor(n); S.run.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * n); S.runEv = stepCurve(S.run, { freeze: true });
     CHAOS.PHASES.filter(([at]) => r0 < at && S.run.r >= at).forEach(([, name, say]) => { banner(`🌐 THE RUN · ${name}`, `all the games together: ${say}`); wave('peak'); });
   }
   function useClock(o) {
@@ -215,7 +215,11 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   ];   // zoom: the visible height grows by 1/zoom; widen: the world's width grows by widen — sideways more than up
   const stageOf = () => { let i = 0; STAGES.forEach((st, j) => { if (S.beats >= st.beats) i = j; }); return i; };
   let zoom = 1, zoomTo = 1, widen = 1, widenTo = 1;
-  const minTenure = () => (S.curve.r >= 3.5699 ? Math.min(3, STAGES[stageOf()].tenure) : STAGES[stageOf()].tenure);
+  // 🌐 the run's curve sets how long a game holds you: calm 12 beats, rhythm ×2 9, rhythm ×4 7, chaos 5, near the top 3;
+  // a game's first visit always gets FIRST_LOOK beats, so its easy first look is never cut short
+  const FIRST_LOOK = 6;
+  const runTenure = () => { const r = S.run?.r ?? CHAOS.R0; return r < 3 ? 12 : r < 3.449 ? 9 : r < 3.5699 ? 7 : r < 3.8 ? 5 : 3; };
+  const minTenure = () => (S.firstLook ? Math.max(FIRST_LOOK, runTenure()) : runTenure());
   // 🔍 LENSES: Fig's personalities bend the picture itself. A new mood may put a lens on: Wild Fig inverts the
   // colours, Mirror Fig mirrors the screen (and your touches), Boxy Fig leaves only the wireframe, Golden Fig
   // turns it gold. Short in the early stages (a hint), longer later.
@@ -268,19 +272,20 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (morphs && !transition && !S.over && !held) {   // 🧘 nothing morphs during a calm
       let to = null, why = '';
       if (ev.window) { to = nextOrgan(); why = 'window'; }
-      else if (ev.golden) { to = [...organs].filter((o) => o !== active).sort((a, b) => (lastUsed.get(a) ?? -1) - (lastUsed.get(b) ?? -1))[0]; why = 'golden'; }
-      else if (ev.mirror && prev && prev !== active) { to = prev; why = 'mirror'; }
-      else if (ev.peak && tenure >= minTenure()) { to = nextOrgan(); why = 'peak'; }
+      else if (ev.golden && tenure >= Math.ceil(minTenure() / 2)) { to = [...organs].filter((o) => o !== active).sort((a, b) => (lastUsed.get(a) ?? -1) - (lastUsed.get(b) ?? -1))[0]; why = 'golden'; }
+      else if (ev.mirror && prev && prev !== active && tenure >= Math.ceil(minTenure() / 2)) { to = prev; why = 'mirror'; }
+      else if (S.runEv?.peak && tenure >= minTenure()) { to = nextOrgan(); why = 'peak'; }   // 🌐 a peak on the run's curve, not the game's
+      else if (tenure >= minTenure() * 2) { to = nextOrgan(); why = 'drift'; }   // a calm run still moves you on, slowly
       if (to && to !== active) morphTo(to, why);
     }
   }
-  const WHY = { window: '🔁 the window turns the world', golden: '🌻 the golden cut: a dive', mirror: '✨ the mirror: back to the world before', peak: '⚡ a peak: the world twists' };
+  const WHY = { window: '🔁 the window turns the world', golden: '🌻 the golden cut: a dive', mirror: '✨ the mirror: back to the world before', peak: '🌐 a peak on the run: the world twists', drift: '🌐 the run moves you on' };
   function morphTo(to, why) {
     const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height; snap.getContext('2d').drawImage(cv, 0, 0);
     const anchor = active.leave?.() || null;
     // 🟢 the morph is done in the mood Fig is in as you leave: Wild tears, Mirror folds, Boxy tiles, Golden spirals (calm: a plain pull-in)
     const mood = S.curve.mood || 'calm';
-    lastUsed.set(active, S.allBeats); const fresh = useClock(to); prev = active; active = to; tenure = 0; S.morphs += 1;
+    lastUsed.set(active, S.allBeats); const fresh = useClock(to); S.firstLook = fresh; prev = active; active = to; tenure = 0; S.morphs += 1;
     active.enter(prev.key, anchor);
     applyTheme(); openCalm(); applyPalTheme(S.curve.mood || 'calm'); pal.set({ r: S.curve.r, mood: S.curve.mood || 'calm' });
     const strips = Array.from({ length: 14 }, (_, i) => ({ i, vx: (Math.random() - 0.5) * 2.4, rot: (Math.random() - 0.5) * 0.9, col: ['#3DD6C6', '#FF5A4A', '#B9A6FF'][i % 3] }));
@@ -392,7 +397,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     banner(`🔁 ${active.name.toUpperCase()} STARTS OVER · ❤️ −1`, `${how} · the run has ${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); sfx('buzz'); navigator.vibrate?.(80);
   }
   function startRun() {
-    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r; S.run = makeCurve(); $('runmeter').hidden = $('runphase').hidden = !morphs;
+    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r; S.run = makeCurve(); S.runEv = null; S.firstLook = true; $('runmeter').hidden = $('runphase').hidden = !morphs;
     tenure = 0; prev = null; transition = null; lastUsed = new Map(); clocks = new Map(); active = null; zoom = zoomTo = 1; widen = widenTo = 1; clearLens(); size();
     organs.forEach((o) => o.start());
     active = organs[Math.floor(Math.random() * organs.length)]; active.enter(null, null); applyTheme(); calm = 0;
@@ -423,8 +428,8 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
   addEventListener('keydown', (e) => { if (running && !S.over) active?.keydown?.(e); });
   addEventListener('keyup', (e) => { if (running && !S.over) active?.keyup?.(e); });
-  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
-    tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
+  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure() }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
+    tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why === 'climb') { S.curve.n += 20; S.curve.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * S.curve.n); return; } if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
   // ---------------------------------------------------------------- go
   (async () => {
     if (!(await signedIn())) return;
