@@ -59,6 +59,11 @@ const SHELL_CSS = `
   .sover .board{list-style:none;margin:0;padding:0;width:100%;max-width:280px;display:flex;flex-direction:column;gap:4px;text-align:left}
   .sover .board li{display:flex;justify-content:space-between;padding:6px 10px;border-radius:10px;background:#0006}
   .sover .board li.me{outline:2px solid var(--gold,#F5C542)}
+  .sover .ostats{list-style:none;margin:0;padding:0;width:100%;display:flex;flex-direction:column;gap:3px;text-align:left;font-size:13px;color:var(--muted,#ccc)}
+  .sover .ostats li{display:grid;grid-template-columns:24px 1fr;align-items:center;gap:6px;padding:4px 8px;border-radius:9px;background:#ffffff0a}
+  .sover .ostats .si{font-size:16px;text-align:center}
+  .sover .rchips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;font-size:12px}
+  .sover .rchips span{padding:3px 9px;border-radius:999px;background:#ffffff12;color:var(--muted,#ccc)} .sover .rchips b{color:#fff}
   .sover .organs{display:flex;gap:10px;justify-content:center;font-size:28px}
   @media (prefers-reduced-motion:reduce){.sbanner{animation:none}.verb b.next{animation:none}}`;
 
@@ -421,9 +426,12 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const level = Math.max(1, Math.min(99, morphs ? 1 + S.morphs : active.level?.() || 1));
     const { data, error } = await sb.rpc('solo_submit', { p_game: key, p_score: S.score, p_level: level, p_events: S.tally });
     const board = data?.top?.length ? `<ol class="board">${data.top.map((r, i) => `<li class="${r.player === me.id ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.score.toLocaleString()}</b></li>`).join('')}</ol>` : '';
-    const stats = organs.map((o) => o.endStats?.()).filter(Boolean).join(' · ');
+    // one row per game (its icon, then its numbers), then the run's numbers as chips: easier to read than one long line
+    const rows = organs.map((o) => o.endStats?.()).filter(Boolean).map((t) => { const i = t.indexOf(' '); return `<li><span class="si">${esc(t.slice(0, i))}</span><span>${esc(t.slice(i + 1))}</span></li>`; }).join('');
+    const chips = [morphs && `🧬 <b>${S.morphs}</b> morph${S.morphs === 1 ? '' : 's'}`, morphs && `🌐 run <b>r ${S.run.r.toFixed(2)}</b>`, `🌀 ${morphs ? 'best game ' : ''}<b>r ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</b>`].filter(Boolean).map((c) => `<span>${c}</span>`).join('');
+    const stats = `${rows ? `<ul class="ostats">${rows}</ul>` : ''}<div class="rchips">${chips}</div>`;
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2>${data?.record ? '<p style="color:var(--gold);font-weight:900">🏆 Your new best!</p>' : data ? `<p class="muted small">Your best: ${data.best.toLocaleString()}</p>` : ''}
-      <p class="muted small">${esc(stats)}${morphs ? ` · ${S.morphs} morph${S.morphs === 1 ? '' : 's'}` : ''} · ${morphs ? `the run reached r = ${S.run.r.toFixed(2)} · ` : ''}chaos reached r = ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}${morphs ? ' in one game' : ''}</p>
+      ${stats}
       ${data?.chaos ? `<p class="small">${ratingLine(data.chaos)}</p>` : ''}
       ${error ? `<p class="small" style="color:#FF9A7A">Couldn't save: ${esc(error.message || '')}</p>` : ''}${board}
       <button class="go" id="again">${esc(again)}</button>`);
