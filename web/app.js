@@ -1088,7 +1088,7 @@ async function statsView() {
   const body = document.getElementById('statsBody');
   if (!body) return;
   if (error) { body.innerHTML = `<p class="error">Couldn't load the scoreboard: ${esc(friendly(error))}</p>`; return; }
-  const ps = data.players || [];
+  const ps = (data.players || []).filter((p) => !p.bot);   // robots stay off the board: standings, stats, hall of fame, head to head
   const who = (p) => `${p.bot ? '🤖 ' : ''}${p.id === me.id ? 'You' : esc(p.username)}`;
   if (data.since) document.getElementById('since').textContent = `All-time, since ${new Date(data.since).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}`;
   const chaosBoard = chaosRatingsHTML(ratings || [], who);
@@ -1120,7 +1120,7 @@ async function statsView() {
     award('🔥', 'Hottest streak', 'streak', (v) => `${v} win${v === 1 ? '' : 's'} in a row`),
   ].join('');
   const byId = Object.fromEntries(ps.map((p) => [p.id, p]));
-  const h2h = (data.h2h || []).filter((h) => h.a_wins + h.b_wins).map((h) => {
+  const h2h = (data.h2h || []).filter((h) => h.a_wins + h.b_wins && byId[h.a] && byId[h.b]).map((h) => {
     const a = byId[h.a], b = byId[h.b];
     return `<li><span>${who(a)}</span><b class="${h.a_wins > h.b_wins ? 'lead' : ''}">${h.a_wins}</b><span class="dash">–</span><b class="${h.b_wins > h.a_wins ? 'lead' : ''}">${h.b_wins}</b><span>${who(b)}</span></li>`;
   }).join('');

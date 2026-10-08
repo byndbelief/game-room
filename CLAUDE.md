@@ -435,6 +435,7 @@ username. A new account only becomes a robot once it's in `public.bots`.
   writes one row to `results` (trigger on status → over) with per-player numbers taken at that
   moment, so deleting games never erases history. Players can't read `results`; the page calls
   `family_stats()`, which returns totals, streaks and head-to-head only.
+  Robots are left off the page (`statsView` drops `p.bot` players and any head-to-head with one).
   Each player has a **trophy case** (`#player=<id>`, `010_trophies.sql` → `player_trophies()`):
   a shelf with a cup per Gauntlet title, and badges (`BADGES` in `app.js`) earned from the same log.
 - **Player pictures:** `AVATARS` in `common.js` maps a username to a file in `web/avatars/` or an emoji
