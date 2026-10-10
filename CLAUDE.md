@@ -1106,6 +1106,21 @@ own car via `pocketSeed().car` (`drawSlotCar`). Win `{nitro: 3.5 | 5 beating the
 `pocketThings`, `pkThing`, `nitro`, `slowT`, `toScreen`. Note: `__shell().force('hurt')` isn't a hurt (it falls through to a
 morph); use `__shell().hurt()`. 6× throttle: Rally deep 6–7 fps (the organ's own going-under is the cost), the slot car 34–37.
 Test (scratch): `t_pk_slotcar`.
+**💠 Inside a shard (pockets/shard.js, the Mandelbrot set, 22 s).** Offered on a big shard floating ~120 ahead of Fig (`g.pk`,
+`drawPocketShard`; `pocketSpot` also calls `shardPocket.prepare(3)`, the tunnel search in 3 ms slices; mirrored under the 🪞
+twist). The tunnel (400 units, 100 cells of 4) is the plane in log-polar round the nucleus of a baby set: a random point near
+the edge (escape count 25–200), Newton for a period of 3–30 gives the nucleus and its size σ (4e-4 to 2e-2); across is the
+angle over a wedge, falling is log radius from 2.2σ·Z (Z 60–250) to 2.2σ at `LG` 1500. A cell is solid when its distance
+estimate is under the row's threshold (~`FILL` 0.55 of the row, `WALL` 5 to `WMAX` 120); within 2.2σ is the bulb. `runPrep`
+(`TRIES` 40) keeps every column Fig could reach (`CL` 2 clear, `SH` 2 a row) until one touches the bulb; `pathOf` backtracks
+the way down and the 💠 shards (+40) sit on it (no way found: the best try with soft walls that only slow). Fig falls at `VF`
+112 and steers toward the finger, a held side or keys (≤ 250/s); a wall bounces Fig up (vy −150). Drawn coarse first, then
+exact strips `CH` 96 tall within 4 ms a frame, in the world's palette (sky + escape bands, ground with an edge rim, a gold
+bulb). Win `{dash, heal, shield: 3 + ½ a shard ≤ 7}`: full dash, `host.heal` (+150 if full) and `g.shield` (spikes, bolts and
+drones can't hurt, drones smashed, a chasm bounces you out: `safe()`, `drawShield`, a turning Sierpiński); any return clears
+the hazards just ahead and gives 1.2 s. `__pk()` has `auto`, `steer`, `pathX`, `win`, `lose`; `__fd()` adds `guard`, `drain`,
+`spikeHere`, `shield`, `lives`. 6× throttle: Fractal deep 15–17 fps, the shard 17–23. Tests (scratch): `t_pk_shard`,
+`t_pk_shard2`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the

@@ -177,10 +177,14 @@ falls in. A pocket is never ruled by the logistic curve. Each has its own chaoti
   bob for ten seconds; that scribble, smoothed and closed into one clean loop, is the slot-car track, so no two are alike. It
   keeps swinging in the corner while you race.
 
+- **💠 Inside a shard: the Mandelbrot set**, z → z² + c. Each pocket finds a new baby copy of the whole set somewhere on its
+  edge (Newton's method on z_p(c) = 0) and falls toward it, zooming in, so the tunnel is the set's own coast seen closer and
+  closer. Nobody chooses the walls: they're whatever the set looks like there. The only randomness is where you fall in, and
+  a search makes sure there's a way down.
+
 A win brings something small back up (a mulligan, a free putt and a fix; full armour, a shield, a crate). Failing only costs
 the time. The curve keeps beating above you, so the run can still rip you out: the deepest jolt, four frames out (pocket,
-game, run, box), +750. The other games' pockets will each bring their own system (a cellular automaton, a double pendulum, a
-Lorenz flow, a Collatz walk…).
+game, run, box), +750.
 
 ## 🧘 Calm within the chaos
 

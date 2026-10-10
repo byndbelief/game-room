@@ -6,7 +6,11 @@
 // balance fills the dash, the golden cut lays a spiral of shards. Every 22 s the world zooms into a
 // copy of itself, a depth deeper: faster, rougher, and a new world (`WORLDS`: Sierpiński Dawn, Fern Valley, Koch
 // Snowfields, Mandelbrot Magma, Julia Lagoon, Pythagoras Woods, Dragon Curve Canyon, Lightning Plateau).
+// 🕳️ Its pocket (deep enough, a shard floats just ahead of you and glows: tap it): INSIDE A SHARD (pockets/shard.js), a
+// fall down the edge of the Mandelbrot set, zooming in, to a baby copy of it at the bottom; landing on it brings up a
+// full dash, a life and a shard shield (no spike, bolt, drone or chasm can touch you while it lasts).
 import { fibMult, CHAOS } from '../chaos.js';
+import shardPocket from './pockets/shard.js';
 import { drawPal } from '../pals.js';
 
 let W = 400, DEPTH_S = 22, GRAV = 1500, JUMP = 520, DASH_MAX = 1.4, PX = 96, R = 13;   // PX: where you stand on screen; R: your size
@@ -88,7 +92,7 @@ function newGame() {
   depth = 1;
   game = { seed: Math.floor(Math.random() * 1e6), cam: 0, speed: 175, time: 0, dive: null, ko: false,
     py: 0, vy: 0, onGround: true, jumps: 0, dash: DASH_MAX, dashing: false, inv: 0,
-    dist: 0, paid: 0, shards: 0, obs: [], parts: [], trail: [], twist: null, twistAt: -9, dark: 0, shake: 0, fog: 0 };
+    dist: 0, paid: 0, shards: 0, obs: [], parts: [], trail: [], twist: null, twistAt: -9, dark: 0, shake: 0, fog: 0, shield: 0, pk: null };
   game.py = groundY(PX) - R; game.centred = false;
 }
 // One beat of the chaos curve (the box, CHAOS.md): what x lands on decides what's coming up the road.
@@ -149,6 +153,7 @@ function update(dt) {
   if (g.py >= floor && g.vy >= 0 && !gap) { const hard = g.vy; g.py = floor; g.vy = 0; if (!g.onGround) { g.onGround = true; g.jumps = 0; puff(px, g.py + R, 4 + Math.min(8, Math.floor(hard / 120)), true); if (g.twist?.k === 'bounce') { g.vy = -JUMP * 0.8; g.onGround = false; g.jumps = 1; sfx('putt', { power: 0.5 }); } } }
   else g.onGround = false;
   if (g.inv > 0) g.inv -= dt;
+  if (g.shield > 0) g.shield = Math.max(0, g.shield - dt);   // 💠 the shard shield from the pocket
   if (g.py > H() + 40) return fall();
   // Obstacles: spikes hurt (unless you're dashing), shards score, and everything behind you is gone.
   g.obs = g.obs.filter((o) => {
@@ -158,12 +163,12 @@ function update(dt) {
       if (Math.hypot(dx, dy) < R + 20) { collect(o.x, sy); return false; }   // shards come to you
     } else if (o.type === 'bolt') {
       o.t -= dt;
-      if (o.t <= 0 && !o.struck) { o.struck = true; o.flash = 0.3; sfx('thud'); if (Math.abs(o.x - px) < 24 && g.inv <= 0) hurt('zapped'); }
+      if (o.t <= 0 && !o.struck) { o.struck = true; o.flash = 0.3; sfx('thud'); if (Math.abs(o.x - px) < 24 && !safe()) hurt('zapped'); }
       if (o.struck) { o.flash -= dt; return o.flash > 0; }
     } else if (o.type === 'drone') {
       o.x -= o.vx * dt; o.ph += dt * 3; const dy = (groundY(o.x) - o.lift + Math.sin(o.ph) * 8) - g.py, dx = o.x - px;
-      if (Math.hypot(dx, dy) < R + (g.dashing ? 20 : 11)) { if (g.dashing) { host.add(150); host.cue?.('kill', o.x - g.cam, g.py + dy); for (let i = 0; i < 12; i++) g.parts.push({ x: o.x, y: g.py + dy, vx: (Math.random() - 0.5) * 260, vy: (Math.random() - 0.8) * 260, t: 0, life: 0.5, c: i % 3 ? '#FF5FB0' : '#FFD1EA', k: i % 2 ? 3 : 0, s: 4 }); g.parts.push({ x: o.x, y: g.py + dy, vx: 0, vy: 0, t: 0, life: 0.35, c: '#FFD1EA', k: 2, s: 6, r: 34, gr: 0 }); sfx('boom', { size: 0.6 }); return false; } if (g.inv <= 0) hurt('droned'); }
-    } else if (o.type === 'spike' && g.inv <= 0 && !g.dashing) {
+      if (Math.hypot(dx, dy) < R + (g.dashing || g.shield > 0 ? 20 : 11)) { if (g.dashing || g.shield > 0) { host.add(150); host.cue?.('kill', o.x - g.cam, g.py + dy); for (let i = 0; i < 12; i++) g.parts.push({ x: o.x, y: g.py + dy, vx: (Math.random() - 0.5) * 260, vy: (Math.random() - 0.8) * 260, t: 0, life: 0.5, c: i % 3 ? '#FF5FB0' : '#FFD1EA', k: i % 2 ? 3 : 0, s: 4 }); g.parts.push({ x: o.x, y: g.py + dy, vx: 0, vy: 0, t: 0, life: 0.35, c: '#FFD1EA', k: 2, s: 6, r: 34, gr: 0 }); sfx('boom', { size: 0.6 }); return false; } if (!safe()) hurt('droned'); }
+    } else if (o.type === 'spike' && !safe() && !g.dashing) {
       const w = o.n * 14;
       if (px + R * 0.6 > o.x && px - R * 0.6 < o.x + w && g.py + R > groundY(o.x + w / 2) + quake - 15) hurt('spiked');
     }
@@ -198,9 +203,10 @@ function hurt(how) {
   host.banner(how === 'spiked' ? 'OUCH' : how === 'zapped' ? 'ZAP' : how === 'droned' ? 'DRONED · dash through them' : 'SPLASH', `${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`);
   return false;
 }
+const safe = () => game.inv > 0 || game.shield > 0;
 function fall() {
   const g = game;
-  if (hurt('fell')) return;
+  if (g.shield > 0) { g.vy = -JUMP * 0.9; sfx('boing'); } else if (hurt('fell')) return;   // 💠 the shield bounces you out of a chasm
   // Back on solid ground just past the chasm.
   const gap = inGap(g.cam + PX) || g.obs.filter((o) => o.type === 'gap' && o.x + o.w < g.cam + PX).pop();
   if (gap) g.cam = gap.x + gap.w + 12 - PX;
@@ -618,6 +624,7 @@ function draw(t) {
   // Fig's shadow on the ground
   { const gy = gyScreen(PX); if (gy === gy) { const up = Math.max(0, gy - (g.py + R)), s = Math.max(0.3, 1 - up / 160); ctx.globalAlpha = A * 0.35 * s; ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.ellipse(PX, gy + 1, R * 1.1 * s, R * 0.28 * s, 0, 0, 7); ctx.fill(); ctx.globalAlpha = A; } }
   drawObstacles(g, wd, L, Hh, t, quake);
+  if (g.pk && host.pocket?.offering?.()) drawPocketShard(g, wd, L, t);
   drawAmbient(g, wd, Hh, t);
   // 🌑 Blackout: only a circle of your own glow.
   if (g.dark > 0.02) { const dg = ctx.createRadialGradient(PX, g.py, 30, PX, g.py, 110); dg.addColorStop(0, '#0000'); dg.addColorStop(1, `rgba(4,3,12,${0.97 * g.dark})`); ctx.fillStyle = dg; ctx.fillRect(-W, -Hh, W * 3, Hh * 3); }
@@ -632,12 +639,13 @@ function draw(t) {
     for (let i = 2; i >= 1; i--) { const py = g.trail[Math.max(0, g.trail.length - 1 - i * 3)] ?? g.py; ctx.save(); ctx.translate(PX - i * 12, py); ctx.rotate(lean); ctx.scale(1.25, 0.85); drawPal(mood, ctx, { x: 0, y: 0, s: R, t: t / 1000, r: S.curve.r, face: 1, alpha: A * (0.36 - i * 0.12) }); ctx.restore(); }
     ctx.globalAlpha = A;
   }
-  if (g.inv <= 0 || Math.floor(t / 70) % 2 === 0) {
+  if (g.inv <= 0 || g.shield > 0 || Math.floor(t / 70) % 2 === 0) {
     ctx.save(); ctx.translate(PX, g.py); ctx.rotate(lean);
     if (g.dashing) ctx.scale(1.25, 0.85);
-    drawPal(mood, ctx, { x: 0, y: 0, s: R, t: t / 1000, r: S.curve.r, face: 1, hurt: g.inv > 0, alpha: A });   // 🟢 you are Fig, leaning into the run
+    drawPal(mood, ctx, { x: 0, y: 0, s: R, t: t / 1000, r: S.curve.r, face: 1, hurt: g.inv > 0 && !(g.shield > 0), alpha: A });   // 🟢 you are Fig, leaning into the run
     ctx.restore();
   }
+  if (g.shield > 0) drawShield(g, wd, t);
   ctx.globalAlpha = 1;
   // 🌊 going under: the deeper you're zoned in, the more the run becomes a tunnel: triangles open toward you from the
   // vanishing point ahead, each with the Sierpiński hole in it, and streaks rush past at your speed
@@ -647,6 +655,20 @@ function draw(t) {
     ctx.strokeStyle = `rgba(255,255,255,${0.22 * f})`; ctx.lineWidth = 1.5; for (let i = 0; i < 14; i++) { const y = ((i * 61.7) % Hh), x = W - ((t / 2 + i * 137) % (W + 200)), L = 40 + 60 * f; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + L, y); ctx.stroke(); }
     ctx.restore(); } }
   if (g.dive) { ctx.setTransform(k, 0, 0, k, host.ox || 0, host.oy || 0); ctx.fillStyle = `rgba(255,255,255,${(g.dive.t / g.dive.dur) ** 3 * 0.9})`; ctx.fillRect(0, 0, W, Hh); }
+}
+
+// 💠 the way into the pocket: a shard bigger than the rest, floating just ahead of you, turning slowly
+function drawPocketShard(g, wd, L, t) {
+  const p = g.pk, x = p.sx, y = p.y, pu = 0.5 + 0.5 * Math.sin(t / 260);
+  glow(x, y, 30 + pu * 10, wd.shard, 0.7 + 0.25 * pu); glow(x, y, 16, '#FFFFFF', 0.35 + 0.3 * pu);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(t / 900) * 0.35); ctx.drawImage(L.shard, -24, -26, 48, 48); ctx.restore();
+}
+// 💠 the shard shield: a turning Sierpiński round you, fading in its last second
+function drawShield(g, wd, t) {
+  const a = Math.min(1, g.shield) * (0.75 + 0.25 * Math.sin(t / 120)), r = R * 2.1;
+  glow(PX, g.py, r * 1.5, wd.shard, 0.35 * a);
+  ctx.save(); ctx.translate(PX, g.py); ctx.rotate(t / 700); ctx.globalAlpha = A * a; ctx.strokeStyle = wd.shard; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+  ctx.beginPath(); sierp(ctx, 0, r * 0.18, r * 2, 1); ctx.stroke(); ctx.restore(); ctx.globalAlpha = A;
 }
 
 // ---------------------------------------------------------------- the organ
@@ -667,6 +689,26 @@ const organ = {
   pointer(type) { if (type === 'down') press(); else if (type === 'up') release(); },
   keydown(e) { if (e.repeat) return; if (e.code === 'Space' || e.code === 'ArrowUp' || e.key === 'w') { e.preventDefault(); jump(); } if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ArrowRight') { if (game && game.dash > 0.15) game.dashing = true; } },
   keyup(e) { if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ArrowRight') release(); },
+  // 🕳️ the pocket: a shard floating just ahead of you is the way in (it keeps pace with you while it glows)
+  pocket: shardPocket,
+  pocketSpot() {
+    const g = game; if (!g || g.dive || S.over) return null;
+    shardPocket.prepare?.(3);   // find the spot in the set while the shard glows, so the dive is instant
+    const sx = Math.min(W - 40, PX + 120), gy = groundY(g.cam + sx), ty = Math.max(70, gy - 70) + Math.sin(g.time * 2.2) * 5;
+    if (!g.pk) g.pk = { sx, y: ty }; g.pk.sx += (sx - g.pk.sx) * 0.15; g.pk.y += (ty - g.pk.y) * 0.08;
+    return { x: g.twist?.k === 'mirror' ? W - g.pk.sx : g.pk.sx, y: g.pk.y, r: 20, icon: '💠' };
+  },
+  pocketSeed: () => ({ world: world(), depth, seed: Math.floor(Math.random() * 1e9) }),
+  pocketReward(res) {
+    release(); const g = game; if (!g) return; g.pk = null;
+    g.inv = Math.max(g.inv, 1.2); g.obs = g.obs.filter((o) => o.type === 'shard' || o.x > g.cam + W + 40 || o.x + (o.w || (o.n || 0) * 14) < g.cam + PX - 30);   // a breath on the way back: nothing under your feet yet
+    if (!res) return; const gf = res.gift || {};
+    if (gf.dash) g.dash = DASH_MAX;
+    if (gf.heal) { if ((S.lives?.[organ.key] ?? 3) < 3) host.heal(1); else host.add(150); }
+    if (gf.shield) { g.shield = gf.shield; g.inv = Math.max(g.inv, 0.2); }
+    for (let i = 0; i < 18; i++) g.parts.push({ x: g.cam + PX, y: g.py, vx: (Math.random() - 0.5) * 280, vy: (Math.random() - 0.8) * 280, t: 0, life: 0.7, c: i % 2 ? world().shard : '#FFFFFF', k: i % 3 ? 1 : 3, s: 5 });
+    g.parts.push({ x: g.cam + PX, y: g.py, vx: 0, vy: 0, t: 0, life: 0.5, c: world().shard, k: 2, s: 8, r: 46, gr: 0 }); sfx('chime', { hi: true });
+  },
   hudLine: () => (game ? `${world().icon} Depth ${depth} · ${Math.floor(game.dist / 10).toLocaleString()} m · ${Math.max(0, Math.ceil(depth * DEPTH_S - game.time))}s` : ''),
   level: () => depth,
   overText: (how) => [how === 'fell' ? '🕳️ INTO THE DEEP' : how === 'zapped' ? '⚡ ZAPPED' : how === 'spiked' ? '💥 SPIKED' : 'RUN OVER', ''],
@@ -674,6 +716,7 @@ const organ = {
   debug: () => game && ({ score: S.score, depth, drones: game.obs.filter((o) => o.type === 'drone').length, W, hearts: S.hearts, dist: game.dist, speed: game.speed, py: game.py, onGround: game.onGround, dashing: game.dashing, dash: game.dash, r: S.curve.r, over: S.over,
     obs: game.obs.map((o) => ({ ...o, sx: o.x - game.cam })), twist: game.twist?.k || null, W, H: H(), PX, groundY: groundY(game.cam + PX), gyAt: (sx) => groundY(game.cam + sx),
     world: world().key, worldName: world().name, parts: game.parts.length, looks: [...looks.keys()], look: () => looks.get((depth - 1) % WORLDS.length), goDepth: (n) => { depth = Math.max(1, n) - 1; game.time = depth * DEPTH_S; dive(); },   // 🗺️ jump to a depth's world (tests)
+    shield: game.shield, inv: game.inv, drain: () => { game.dash = 0; }, guard: (sec = 30) => { game.shield = sec; }, spikeHere: () => { game.obs.push({ type: 'spike', x: game.cam + PX - 14, n: 3 }); }, lives: S.lives?.fractal ?? 3, pocketSpot: game.pk && { x: game.pk.sx, y: game.pk.y },
     force: (k) => { const t = TWISTS.find((x) => x.k === k); game.twist = { ...t, t: 0 }; game.twistAt = game.time; S.hearts = 3; }, jump, hurt: () => hurt('spiked') }),
 };
 export default organ;
