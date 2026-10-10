@@ -5,8 +5,12 @@
 // them all for a moment, a Fibonacci beat may drop a crate, a golden beat sends a golden squirrel.
 // Each day ends by diving into the knothole of the middle tree, into a deeper, darker forest: the
 // pinned ones stay, eyes open in the trees, the picture tears, and on day 4 the knothole wakes.
+// 🕳️ Its pocket (deep enough, the knothole glows: tap it): INTO THE KNOTHOLE (pockets/knothole.js), a fall down the
+// hollow trunk through rows of roots whose gaps follow the tent map; the stash at the bottom sends up a heart and a
+// weapon crate.
 import { fibMult } from '../chaos.js';
 import { drawPal } from '../pals.js';
+import knotPocket from './pockets/knothole.js';
 
 let W = 400, LEVELS = 4, LEVEL_S = 30, AMMO = 12, RELOAD_S = 1.1, MAX_SQ = 16;
 const dark = () => Math.min(1, (level - 1) / 3);   // 0 on day 1, 1 on day 4
@@ -829,7 +833,8 @@ function drawForest(t, se, k) {
     ctx.fillStyle = se.bark[2]; ctx.beginPath(); ctx.ellipse(kn.x, kn.y, 8.5, 11.5, 0, 0, 7); ctx.fill();
     ctx.fillStyle = se.bark[1]; ctx.beginPath(); ctx.ellipse(kn.x + 0.6, kn.y + 0.6, 7.2, 10.2, 0, 0, 7); ctx.fill();
     ctx.fillStyle = '#120A05'; ctx.beginPath(); ctx.ellipse(kn.x + 0.4, kn.y + 0.8, 5.6, 8.4, 0, 0, 7); ctx.fill();
-    if (game && level >= 2 && Math.sin(t / 1300) > 0.85) { ctx.fillStyle = '#FF3A2A'; ctx.beginPath(); ctx.arc(kn.x + 1.5, kn.y - 1, 1.6, 0, 7); ctx.arc(kn.x - 2, kn.y - 1.2, 1.3, 0, 7); ctx.fill(); }   // something peeks
+    if (game && host.pocket?.offering?.()) { const pu = 0.5 + 0.5 * Math.sin(t / 240); ctx.fillStyle = `rgba(255,200,110,${0.55 + 0.35 * pu})`; ctx.beginPath(); ctx.ellipse(kn.x + 0.4, kn.y + 1.6, 3.6 + pu, 5.6 + pu, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#FFF1C8'; ctx.beginPath(); ctx.ellipse(kn.x + 0.4, kn.y + 2.4, 1.6, 2.4, 0, 0, 7); ctx.fill(); }   // 🕳️ warm light down in the knot: the way into the pocket
+    else if (game && level >= 2 && Math.sin(t / 1300) > 0.85) { ctx.fillStyle = '#FF3A2A'; ctx.beginPath(); ctx.arc(kn.x + 1.5, kn.y - 1, 1.6, 0, 7); ctx.arc(kn.x - 2, kn.y - 1.2, 1.3, 0, 7); ctx.fill(); }   // something peeks
   }
 }
 function drawEyes(t) {
@@ -992,6 +997,23 @@ const organ = {
   pointer(type, p) { p = unCam(p); if (type === 'down') { hold = p; if (game) game.nailT = 0.09; fire(p.x, p.y); } else if (type === 'move') { if (hold) hold = p; } else hold = null; },
   keydown(e) { if ((e.key === 'r' || e.key === 'R') && game) reload(); },
   hudLine: () => (game ? `Day ${level}${host.morphs ? '' : ` of ${LEVELS}`} · ${Math.max(0, Math.ceil(level * LEVEL_S - game.time))}s${game.kept.length ? ` · 📎 ${game.kept.length} kept` : ''}` : ''),
+  // 🕳️ the pocket: the knothole in the middle trunk (where each Day dives) is the way in, and what comes up out of it
+  pocket: knotPocket,
+  pocketSpot() {
+    if (!game || !forest || game.dive || S.over) return null;
+    const kn = forest.knot, x = W / 2 + (kn.x - cam.x) * cam.z, y = H() / 2 + (kn.y - cam.y) * cam.z;   // through the camera, into the shell's world
+    if (x < 12 || x > W - 12 || y < 40 || y > H() - 20) return null;
+    return { x, y, r: Math.max(12, 10 * cam.z + 4), icon: '🌰' };
+  },
+  pocketSeed: () => ({ season: season(), level, seed: Math.floor(Math.random() * 1e9) }),
+  pocketReward(res) {
+    hold = null; if (!game) return; game.acorns = []; game.cones = []; game.stun = 0;   // a breath on the way back up: nothing in the air at your head
+    if (!res) return; const gf = res.gift || {}, st = STAPLER();
+    if (gf.heart) host.heal(gf.heart);
+    if (gf.crate && WEAPONS[gf.crate]) { game.arsenal[gf.crate] = (game.arsenal[gf.crate] || 0) + WEAPONS[gf.crate].ammo; game.weapon = gf.crate; renderBar(); }
+    game.fx.push({ kind: 'text', x: st.x, y: st.y - 44, text: `❤️${gf.crate && WEAPONS[gf.crate] ? ` · ${WEAPONS[gf.crate].icon} ${game.arsenal[gf.crate]}` : ''}${gf.acorns ? ` · 🌰 ${gf.acorns}` : ''}`, life: 1.6, col: '#FFE08A', big: true });
+    burst(st.x, st.y - 20, ['#C98B4A', '#F5C542', '#FFF'], 18); sfx('chime', { hi: true });
+  },
   level: () => level,
   overText: (how) => (how === 'sleeps' ? ['🌘 IT SLEEPS AGAIN', 'For now. It counted every one.'] : how === 'bonked' ? ['💫 KNOCKED OUT', 'Too many acorns to the head. The forest keeps your staples.'] : ['RUN OVER', '']),
   endStats: () => (game ? `🐿️ ${game.hits} hits from ${game.shots} staples${game.shots ? ` (${Math.round((100 * game.hits) / game.shots)}%)` : ''}, day ${level}` : ''),
@@ -999,7 +1021,7 @@ const organ = {
     skipTo: (l) => { level = l - 1; game.time = level * LEVEL_S; }, forceTwist: (k) => { game.twist = { kind: k, until: game.time + 6, wind: 70 }; if (k === 'stare') game.stare = 1.6; if (k === 'static') game.glitch = 6; },
     give: (w) => { game.arsenal[w] = (game.arsenal[w] || 0) + WEAPONS[w].ammo; game.weapon = w; renderBar(); }, fxKinds: game.fx.map((f) => f.kind),
     season: season().key, look: { wood: !!look.wood, ks: look.wood?.ks || 0, px: look.wood?.px || 0, back: !!look.back, sprites: look.spr.size, amb: look.amb.length, live: look.live },
-    hearts: S.hearts, weapon: game.weapon, arsenal: { ...game.arsenal }, crates: game.crates.map((c) => ({ x: c.x, y: c.y, w: c.w })), acorns: game.acorns.map(acornPos), ammo: game.ammo, dive: !!game.dive, over: S.over, r: S.curve.r,
+    hearts: S.hearts, pocketSpot: organ.pocketSpot(), weapon: game.weapon, arsenal: { ...game.arsenal }, crates: game.crates.map((c) => ({ x: c.x, y: c.y, w: c.w })), acorns: game.acorns.map(acornPos), ammo: game.ammo, dive: !!game.dive, over: S.over, r: S.curve.r,
     squirrels: game.squirrels.map((sq) => ({ ...sqPos(sq), size: sq.size, hop: !!sq.hop })), W, H: H() }),
 };
 export default organ;

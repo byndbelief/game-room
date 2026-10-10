@@ -1058,6 +1058,17 @@ arrows/WASD). Darkness thins where the lamp has been (`see`); the lamp (3.3 cell
 each), the core = the costliest-to-reach cell; the roof falls in over the last 6 s. Win `{armor, shield, crate: ore >= 3}`;
 `pocketReward` always clears enemy shells and holds their fire 1.6 s. Note (6× throttle): Hilltop deep runs 9–10 fps, its
 burrow 23–28; Putt deep 21, the cup 31–38.
+**🌰 Into the knothole (pockets/knothole.js, the tent map, 22 s).** Offered on the middle trunk's knothole (the one each Day
+dives into; `pocketSpot` maps `forest.knot` through the camera, none during a dive), which glows warm while it's up. A hollow
+trunk 400 wide (centred by `offX()` in a wider world) falls through `ROWS` 12 rows of roots `GAPY` 112 apart to the stash;
+each row's gap centre is the next iterate of x' = 1.99·min(x, 1 − x) (gap 104 → 78 wide), one more fold picks the stash's
+crate. Fig falls (gravity 430, cap 235) on two leaf wings: a tap flaps (vy −175 and a push toward the tap), a hold drifts
+toward the finger, keys Space/↑/W and ←/A, →/D. Roots are capsules (`RT` 8): a bump bounces Fig and stuns it 0.55 s
+(`bumps`), never a life. 🌰 acorns between rows (+40). The trunk is one cached canvas in the season's colours; each frame
+draws only the visible slice plus sprites. Win `{heart: 1, crate, acorns}`: `pocketReward` heals (`host.heal`) and loads the
+crate into `game.arsenal`/`game.weapon` (`renderBar`); either way it clears acorns, pinecones and stun. `__pk()` has `gaps`,
+`rows`, `fig`, `passed`, `got`, `bumps`, `flaps`, `crate`, `flap(x)`, `auto(on)`, `toScreen`, `win`, `lose`, `beat`. 6×
+throttle: Squirrel deep ~18 fps, the knothole 25–32. Test (scratch): `t_pk_knothole`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the
