@@ -30,7 +30,9 @@ function ridge(seed) {
 const SP = () => W / 100;
 const hAt = (x) => { const i = Math.max(0, Math.min(99, x / SP())), a = Math.floor(i), t = i - a; return g.h[a] + (g.h[Math.min(100, a + 1)] - g.h[a]) * t; };
 const stage = () => host.stage?.() || 1;   // 🎚️ the run's stage: the world grows and fills around you
-function newGame() { g = { h: [], tanks: [], shells: [], fx: [], meteors: [], moles: [], lakes: [], balloons: [], worms: [], drones: [], drops: [], arty: null, beams: [], holes: [], jets: [], droneT: 8, bolts: [], wormT: 4, moleT: 4, serpT: 3, balloonT: 5, centred: false, me: { x: 44 }, wind: 0, twist: null, time: 0, fireT: 3, shield: 0, split: 0, big: 0, seed: Math.floor(Math.random() * 1e6), night: 0 }; g.h = ridge(g.seed); killsN = 0; shotsN = 0; addTank(); }
+// 🛡 your tank has armour: a shell dents it by how close it lands, and only an empty bar costs one of the organ's lives
+const ARMOR = 100, DMG_MIN = 18, DMG_MAX = 34, GRACE = 0.5, REPAIR_AFTER = 4, REPAIR = 6;
+function newGame() { g = { h: [], tanks: [], shells: [], fx: [], meteors: [], moles: [], lakes: [], balloons: [], worms: [], drones: [], drops: [], arty: null, beams: [], holes: [], jets: [], droneT: 8, bolts: [], wormT: 4, moleT: 4, serpT: 3, balloonT: 5, centred: false, me: { x: 44, armor: ARMOR, calmT: 0 }, wind: 0, twist: null, time: 0, fireT: 3, shield: 0, split: 0, big: 0, seed: Math.floor(Math.random() * 1e6), night: 0 }; g.h = ridge(g.seed); killsN = 0; shotsN = 0; addTank(); }
 function addTank(gold = false, quiet = false) {
   if (g.tanks.length >= (stage() === 1 ? 2 : 5 + Math.min(3, stage() - 1))) return;   // Stage 1: two at most
   // Stage 1: they line up on the right. From Stage 2 they come from both sides, never within 70 of you.
@@ -198,8 +200,14 @@ function boom(x, y, r, mine) {
     g.tanks.filter((t) => Math.abs(t.x - x) < r + TANK_W / 2 && Math.abs(hAt(t.x) - 8 - y) < r + 14).forEach((t) => hitTank(t));
   } else if (Math.abs(g.me.x - x) < r + TANK_W / 2) {
     if (g.shield) { g.shield = 0; g.fx.push({ kind: 'text', x: g.me.x, y: hAt(g.me.x) - 30, text: '🛡️ BOUNCED', life: 1 }); sfx('clack'); return; }
-    S.combo = 0; navigator.vibrate?.(100);
-    g.hurtT = 1.2; host.cue?.('near', g.me.x, hAt(g.me.x) - 10); host.hurt('shelled') || host.banner('DIRECT HIT', `${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`);
+    if (g.hurtT > 1.2 - GRACE) return;
+    const dmg = Math.round(DMG_MIN + (DMG_MAX - DMG_MIN) * Math.max(0, 1 - Math.abs(g.me.x - x) / (r + TANK_W / 2)));
+    g.me.armor -= dmg; g.me.calmT = 0; navigator.vibrate?.(60);
+    g.hurtT = 1.2; host.cue?.('near', g.me.x, hAt(g.me.x) - 10);
+    g.fx.push({ kind: 'text', x: g.me.x, y: hAt(g.me.x) - 34, text: `−${dmg} 🛡`, life: 0.9 });
+    if (g.me.armor > 0) return;
+    S.combo = 0; navigator.vibrate?.(120); g.me.armor = ARMOR;
+    host.hurt('shelled') || host.banner('DIRECT HIT', `${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`);
   }
 }
 function update(dt) {
@@ -232,6 +240,7 @@ function update(dt) {
   { const fresh = g.fresh || (g.fresh = ridge(g.seed)), rate = g.twist?.kind === 'regrow' ? 0.8 : 0.18; g.h = g.h.map((v, i) => v + (fresh[i] - v) * Math.min(1, dt * rate)); }
   // they fire back, more often the wilder the curve; tanks set by the window hold their fire
   if (g.hurtT > 0) g.hurtT -= dt;
+  g.me.calmT += dt; if (g.me.calmT > REPAIR_AFTER && g.me.armor < ARMOR) g.me.armor = Math.min(ARMOR, g.me.armor + REPAIR * dt);   // 🔧 armour mends when nothing has landed for a while
   g.fireT -= dt * (1 + Math.max(0, S.curve.r - 2.9)) / (st === 1 ? 1.8 : 1);   // 🎚️ Stage 1: they fire slowly, and there is no wind
   if (st === 1) g.wind *= Math.max(0, 1 - dt * 2);
   if (g.fireT <= 0) { g.fireT = 2.2 + Math.random() * 2; const t = g.tanks.filter((q) => !q.quiet)[Math.floor(Math.random() * g.tanks.filter((q) => !q.quiet).length)];
@@ -508,6 +517,8 @@ function draw(t) {
     if (!b.dropped) { ctx.fillStyle = '#1A1420'; ctx.beginPath(); ctx.arc(b.x, b.y + 31, 3.2, 0, 7); ctx.fill(); ctx.fillStyle = '#FF5A3A'; ctx.beginPath(); ctx.arc(b.x + 1.5, b.y + 28.2, 1 + 0.5 * Math.sin(t / 60), 0, 7); ctx.fill(); } });
   g.tanks.forEach((tk) => { if (night > 0.5 && tk.flash <= 0) return; drawTank(tk.x, tk.hue, tk.flash, false, tk.gold, tk); if (tk.quiet) { ctx.fillStyle = '#C9B8FF'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🔁', tk.x, hAt(tk.x) - 30); } });
   drawTank(g.me.x, 0, 0, true, false, null);
+  if (g.me.armor < ARMOR) { const ax = g.me.x - 16, ay = hAt(g.me.x) - 40, f = Math.max(0, g.me.armor) / ARMOR;   // 🛡 your armour, shown once it's dented
+    ctx.fillStyle = 'rgba(8,4,16,0.6)'; ctx.fillRect(ax - 1, ay - 1, 34, 5); ctx.fillStyle = f > 0.5 ? '#5BE3B0' : f > 0.25 ? '#F5C542' : '#FF5C7A'; ctx.fillRect(ax, ay, 32 * f, 3); }
   if (g.shield) { const sy2 = hAt(g.me.x) - 10, pu = 1 + 0.05 * Math.sin(t / 200); glowAt('127,211,247', g.me.x, sy2, 30 * pu, 0.35); ctx.strokeStyle = '#BFEFFF'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(g.me.x, sy2, 22 * pu, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); ctx.strokeStyle = '#7FD3F788'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(g.me.x, sy2, 22 * pu, 0, 7); ctx.stroke(); }
   if (drag) {   // the slingshot: the band from where you pressed, a dotted forecast (fading, coloured by power), the landing ring and a power arc round the tank
     const dx = drag.x - drag.x0, dy = drag.y - drag.y0, d = Math.min(160, Math.hypot(dx, dy)), a = Math.atan2(-dy, -dx), mt = muzzle(g.me.x, a, true), pw = d / 160;
@@ -574,7 +585,7 @@ const organ = {
   level: () => 1 + Math.floor(killsN / 5),
   overText: (how) => (how === 'shelled' ? ['💥 KNOCKED OUT', 'Too many direct hits.'] : ['RUN OVER', '']),
   endStats: () => (g ? `💥 ${killsN} K.O. from ${shotsN} shells` : ''),
-  debug: () => g && ({ ...(() => ({ me: g.me.x, tanks: g.tanks.length, moles: g.moles.length, lakes: g.lakes.length, balloons: g.balloons.length, worms: g.worms.length, wormsAt: g.worms.map((w) => ({ ...wormHead(w), phase: w.phase, t: w.t })), arty: g.arty, beams: g.beams.length, holes: g.holes.length, jets: g.jets.length, bolts: g.bolts.length, give: (k) => { g.arty = { kind: k, n: ARTY[k].n }; renderBar(); }, fire, tesla, tankXs: g.tanks.map((t) => [t.x, hAt(t.x)]), eshells: g.shells.filter((s) => !s.mine).map((s) => [Math.round(s.x), Math.round(s.vx)]), kinds: Object.keys(ARTY), drones: g.drones.length, drops: g.drops.map((c) => ({ x: c.x, y: c.y, kind: c.kind, down: c.down })), tap, stage: stage(), twist: (kind) => { g.twist = { kind, until: g.time + 6 }; } }))() }),
+  debug: () => g && ({ ...(() => ({ me: g.me.x, armor: g.me.armor, hitMe: (x, r = 20) => boom(x, hAt(x) - 4, r, false), tanks: g.tanks.length, moles: g.moles.length, lakes: g.lakes.length, balloons: g.balloons.length, worms: g.worms.length, wormsAt: g.worms.map((w) => ({ ...wormHead(w), phase: w.phase, t: w.t })), arty: g.arty, beams: g.beams.length, holes: g.holes.length, jets: g.jets.length, bolts: g.bolts.length, give: (k) => { g.arty = { kind: k, n: ARTY[k].n }; renderBar(); }, fire, tesla, tankXs: g.tanks.map((t) => [t.x, hAt(t.x)]), eshells: g.shells.filter((s) => !s.mine).map((s) => [Math.round(s.x), Math.round(s.vx)]), kinds: Object.keys(ARTY), drones: g.drones.length, drops: g.drops.map((c) => ({ x: c.x, y: c.y, kind: c.kind, down: c.down })), tap, stage: stage(), twist: (kind) => { g.twist = { kind, until: g.time + 6 }; } }))() }),
   shellsN: () => g?.shells.filter((s) => s.mine).length, debug0: () => g && ({ tanks: g.tanks.map((t) => ({ x: t.x, y: hAt(t.x), gold: t.gold, quiet: t.quiet })), me: { x: g.me.x, y: hAt(g.me.x) }, shells: g.shells.length, kills: killsN, wind: g.wind, twist: g.twist?.kind || null, W, H: H(), fire }),
 };
 export default organ;

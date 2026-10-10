@@ -912,6 +912,10 @@ toward the bow, wakes, fire and smoke on hit cells, a gold shimmer, shells with 
 flashes on a hit, bubble-trail torpedoes, planes with shadows, a gunboat whose turret follows your aim (`g.aim`), a
 vignette. `__sv()` has `give`, `crate`, `crates`, `fire`, `arm`, `sinking`, `waves`. Tests (scratch): `t_htarms`,
 `t_frac`, `t_tesla`, `t_salvo2`, `t_salvo3`.
+**Hilltop's armour (hilltop.js).** Your tank has `ARMOR` (100) on `g.me.armor`: an enemy blast dents it by `DMG_MIN`–`DMG_MAX`
+(18–34, by how close it lands) with `GRACE` (0.5 s) after a hit, and only an empty bar calls `host.hurt` (and refills),
+so a life takes 3+ shells instead of one. It mends at `REPAIR` (6/s) after `REPAIR_AFTER` (4 s) with nothing landing; a
+bar shows over the tank once it's dented. `__ht()` has `armor` and `hitMe(x, r)`. Test (scratch): `t_htarmor`.
 **Hilltop's look (hilltop.js, page only).** Static layers are drawn once into offscreen canvases in `look`, rebuilt for a new
 `g.seed`: the sky as day/night strips (`initSky`, blended by `g.night`), three midpoint-displacement ranges (`mountainImg`:
 snow far, pines near, night copies; parallax by `(g.me.x − W/2) × 0.04/0.08/0.14`), the rock (`rockImg`), haze, glow
