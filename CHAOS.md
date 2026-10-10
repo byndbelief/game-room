@@ -143,7 +143,7 @@ debug`. The host gives `cv, ctx, W, H, k, dpr, reduceMotion, S, banner, add, hur
 morphs`. Adding an organ to the run is one import and one array entry. The organs so far, and their verbs:
 🐿️ Squirrel Chaos (tap to staple) · 🔺 Fractal Dash (tap to jump, hold to dash) · ⚓ Salvo (tap the sea to
 fire, tap torpedoes) · ⛳ Putt (drag back and let go) · 💥 Hilltop (drag to aim, let go to fire) · 🏎️ Rally (hold a side to steer) · ⚔️ War (tap or drag a card
-to beat theirs; a tie is a WAR). Hilltop, Salvo and Putt are the multiplayer games' DNA in thirty-second bites, solo: every cell of a ship must burn; five
+to beat theirs; a tie is a WAR) · 🎰 Chaos Pinball (tap a side to flip, hold and let go to launch). Hilltop, Salvo and Putt are the multiplayer games' DNA in thirty-second bites, solo: every cell of a ship must burn; five
 putts a cup on a green of fractal bumps; a fractal ridge that craters, and tanks that fire back.
 
 ## 🕳️ Pockets: one level deeper, random in their own way
@@ -181,6 +181,11 @@ falls in. A pocket is never ruled by the logistic curve. Each has its own chaoti
   edge (Newton's method on z_p(c) = 0) and falls toward it, zooming in, so the tunnel is the set's own coast seen closer and
   closer. Nobody chooses the walls: they're whatever the set looks like there. The only randomness is where you fall in, and
   a search makes sure there's a way down.
+
+- **🎰 Into the billiard: a Bunimovich stadium.** Two half circles joined by straight sides. A ball on a round table bounces
+  in a neat pattern forever, and on a rectangle too; joined, the pattern breaks: one path in time fills the whole table, and
+  two balls a thousandth of a degree apart go together for a few bounces, then anywhere. A ghost Fig starts 0.06° off your
+  path so you can watch the two split, and one long path is printed on the felt in gold dust: it covers everything.
 
 A win brings something small back up (a mulligan, a free putt and a fix; full armour, a shield, a crate). Failing only costs
 the time. The curve keeps beating above you, so the run can still rip you out: the deepest jolt, four frames out (pocket,

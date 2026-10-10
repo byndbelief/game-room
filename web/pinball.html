@@ -6,8 +6,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="r4box">
-  <title>Chaos Run · r4box</title>
-  <meta name="theme-color" content="#0E0A1E">
+  <title>Chaos Pinball</title>
+  <meta name="theme-color" content="#0B0918">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Sora:wght@400;600;800&display=swap">
   <style>
-  /* The run wears whichever organ is live: the stage's --bg and --gold follow it (shell.js applyTheme). */
-  :root{color-scheme:dark;--bg:#0E0A1E;--panel:#1A1433;--line:#3E3480;--ink:#F3F1FF;--muted:#BDB6E6;--gold:#F5C542;--bannerc:#FFE08A;
+  /* One look: a pinball table in r4box ink-violet, gold and teal. The HUD comes from shell.js. */
+  :root{color-scheme:dark;--bg:#0B0918;--panel:#171331;--line:#3E3480;--ink:#F3F1FF;--muted:#BDB6E6;--gold:#F5C542;--cyan:#3DD6C6;--bannerc:#FFE08A;
     --display:"Bungee","Arial Black",Impact,sans-serif;--body:"Nunito",system-ui,-apple-system,"Segoe UI",sans-serif}
   *{box-sizing:border-box}
   html,body{background:var(--bg);margin:0;height:100%}
@@ -24,11 +24,11 @@
   [hidden]{display:none!important}
   .wrap{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
   .topnav{display:flex;align-items:center;gap:10px;min-height:40px}
-  .topnav a{color:var(--gold);font-weight:800;text-decoration:none}
+  .topnav a{color:var(--cyan);font-weight:800;text-decoration:none}
   h1,h2{font-family:var(--display);font-weight:400;margin:0;line-height:1.05}
   h1{font-size:clamp(20px,5.5vw,30px)}
   button{font:inherit;font-weight:800;cursor:pointer;border-radius:12px;border:1.5px solid var(--line);background:var(--panel);color:var(--ink);padding:10px 16px}
-  button.go{background:var(--gold);border-color:var(--gold);color:#2A2100;font-size:18px;padding:12px 22px}
+  button.go{background:var(--cyan);border-color:var(--cyan);color:#002A26;font-size:18px;padding:12px 22px}
   #play{position:relative}
   .stage{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 14px 34px #0009;touch-action:none;user-select:none;-webkit-user-select:none;background:var(--bg)}
   #cv{display:block;width:100%;cursor:pointer}
@@ -39,24 +39,16 @@
 </head>
 <body>
 <div class="wrap">
-  <nav class="topnav gtop"><a href="./">← r4box</a><h1 class="intop">🧬 Chaos Run</h1></nav>
-  <section id="play"><div class="stage" id="stage"><canvas id="cv" aria-label="The run: worlds that morph into each other as the chaos curve says"></canvas></div></section>
+  <nav class="topnav gtop"><a href="./">← r4box</a><h1 class="intop">🎰 Chaos Pinball</h1></nav>
+  <section id="play"><div class="stage" id="stage"><canvas id="cv" aria-label="A pinball table: tap the left or right half of the screen to flip"></canvas></div></section>
 </div>
 <script type="module">
   import { runShell } from './shell.js';
-  import squirrel from './organs/squirrel.js';
-  import fractal from './organs/fractal.js';
-  import salvo from './organs/salvo.js';
-  import putt from './organs/putt.js';
-  import hilltop from './organs/hilltop.js';
-  import rally from './organs/rally.js';
-  import war from './organs/war.js';
   import pinball from './organs/pinball.js';
   runShell({
-    organs: [squirrel, putt, fractal, hilltop, salvo, rally, war, pinball], key: 'run', title: 'Chaos Run', icon: '🧬', again: 'Run again',
-    intro: `<p>One run, many worlds. <b>The chaos curve morphs one game into the next</b>: a peak twists the world, the mirror brings back the one before, the golden cut dives you into the one you've been away from longest.</p>
-      <p class="muted small">Every world has three lives of its own and starts over easy when they're gone, for one of the run's hearts. Fig in the corner is you.</p>
-      <p class="muted small">🐿️ tap to staple · 🔺 tap to jump, hold to dash · ⚓ tap the sea · ⛳ drag back and let go · 💥 drag to aim · 🏎️ hold a side to steer · ⚔️ tap a card to beat theirs · 🎰 tap a side to flip</p>`,
+    organs: [pinball], key: 'pinball', title: 'Chaos Pinball', icon: '🎰', again: 'Play again',
+    intro: `<p><b>Fig is the ball.</b> <b>Hold anywhere and let go</b> to launch (or pull down: further is harder). <b>Tap the left or right half</b> of the screen to flip. Two fingers close together, or a quick swipe up, nudges the table. Not too often!</p>
+      <p class="muted small">Every family game is on the table: ⚓ sink the two ships on the right, 💥 the cannon top right fires at the tank (any flipper), ⛳ the cup in the middle, 🐿️ catch the squirrel on the ramp, 🏎️ laps round the top, ⚔️ hit the higher card, 🔺 spin the spinner. Beat all seven for R = 4. The chaos curve twists the table: multiballs, magnets, antigravity, a mirror table.</p>`,
   });
 </script>
 </body>

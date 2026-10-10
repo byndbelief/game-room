@@ -1023,6 +1023,40 @@ and glow are sprites built once (`buildSprites`, faces lazily); the velvet table
 has the state plus `play(i, li), forceWar(li), setLane, setHand, twist(k), beat(ev), skip, winRound, drain, empty,
 timeout(li), screen, handPos, lanePos`. Tests (scratch): `t_runwar` (every hand kind, a real tap and drag, every twist and
 event, a round, lives and reset, depth, morph and back; 6× throttle Stage 4: 25.6 fps vs Salvo 19.0), `t_wrdeep`.
+**🎰 Chaos Pinball (organs/pinball.js, the run's eighth organ, wild; pinball.html on its own, 085).** A real table in table
+units (400 × 720, y down), fitted under the HUD by `layout()` (`L.ts/tx/ty`, a 128 × 22 dot-matrix display above it at
+`L.dy`). The left/right half of the screen is the left/right flipper (`g.ptr` by pointerId; keys ← → / Z M). With a ball
+waiting in the shooter lane and nothing in play, any press is the plunger (hold up to 0.9 s or pull down 140 units; Space /
+↓ / Enter). A second finger within 0.18 s and 80 units of the first, or a swipe up of 60 in 0.3 s (↑ / N), is a `nudge()`;
+the `tilt` meter decays 0.35/s, DANGER at 2.4, TILT at 4.2 (`tiltT` 4 s: flippers dead). Physics: `step()` at 240 Hz, split so
+no ball (plus the flippers' tip speed) moves more than 0.33 R per substep; walls are capsule segments (`SEGS`, `hitSeg`; the
+shooter-lane gate is one way), the top a true arc (`hitArc`), bumpers circles kicking to `KICK()`, flippers moving capsules
+handing the ball their surface speed (`hitFlip`, up 26 rad/s, down 18), ball-on-ball, VMAX 2800. `sensors()` counts
+`escapes` and `bad` (a ball inside a wall, bumper, sling or under a guide); tests assert both 0. Features are the family's
+games, each lighting a `ring` lamp: ⚓ five drop targets as two ships (`dropHit`, `SHIPS`), 💥 the scoop's cannon
+(`capture('scoop')`, the aim sweeps `aimX()` along `HILL_Y`, any flipper or 4 s fires an airborne shot, a bullseye within 22
+of the moving tank, two light it), ⛳ the saucer as a cup (strokes = flips that sent a ball since the last cup, ≤ 1 a hole
+in one; jackpot 6,180 there), 🐿️ the ramp (`RAMP` path, a 1D ride, rolls back if slow; the squirrel at `RAMP_SQ`), 🏎️ the
+left orbit (3 laps = a race), ⚔️ two card standups (`hitWar`, ties need both), 🔺 the spinner (Fibonacci full turns
+8/13/21/34 = depths). All seven: `wizard()` (R = 4: three balls, ×4 30 s). F-I-G lanes raise `mult` (≤ 5). Scoring: `score()`
+× mult × gold × fib × R = 4; shots go through `feature()` (combo, `fibMult(min(combo, 5))`). Beats (`onBeat` → `beatNow`):
+peak surge (`surgeT`; from Stage 2 at x > 0.9 a ball); big a twist (`TWISTS`: anti, magnet, wander on the logistic map at
+r = 3.9, sierp splitting 1 → 3 → 9, wind); gold `goldT`; gift `saveT`; mirror `g.mirror` 12 s (a view flip about x = 200,
+`toTable` mirrors touches); window three balls (`multiball`, fed through the shooter lane); golden `jackpot`; fib `fibT`;
+balance both kickbacks (`kick`). Stages: `FLIPL` 74/70/67/64, `SAVER` 12/9/7/6 s, `GRAV` 1000–1300, a centre post only at
+Stage 1. A drain with no save or `saveBank` is `host.hurt('drained')` ('🕳️ OUCH · DRAINED'). The playfield, its blacklight
+copy (`look.uv`, 🌊 deep) and the ramp are cached canvases; the DMD is an ImageData of 128 × 22 dots under a cached dot mask,
+re-rendered only when its text changes. Scores run large (multipliers stack). Linked from the lobby's Practice after Rally.
+`window.__pb()` (state, `launch`, `flip`, `place`, `drain`, `nudge`, `quiet`, `force`, `twist`, `sink`, `light`, `fire`,
+`addBalls`, `auto`, `save`, `deal`, `tank`, `holdSquirrel`, `screen`, `sim(sec)`). 085 applied to production 2026-10-10 (via
+`apply_migration`; its one `drop constraint if exists` went through this time). 6× throttle Stage 4: pinball 31 fps (3 balls),
+deep 25. Tests (scratch): `t_pinball` (incl. a 60 s real-time and a 20 simulated-minute fuzz: 0 escapes), `t_runpinball`.
+**🎱 Into the billiard (pockets/stadium.js, a Bunimovich stadium, 20 s).** Offered on the cup (not while a ball sits in it).
+A stadium (half-width `a`, straight half-length `b`) where Fig rolls at constant speed (230 + 18·(stage − 1), × 1.03 a beat up
+top) with no friction; you only place a paddle (tap) and turn it (drag; Q/E, WASD). Roll over 3 lamps (🛟 💰 ❤️). A ghost Fig
+starts 0.06° off and is respawned when it drifts away (`split`); one long stadium path is printed on the felt. Win `{save: 1,
+jackpot: 1, heal: 1}` → `saveBank` + 1, `jackpot`, `host.heal(1)`; any return freezes the table 0.8 s and gives a 3 s save.
+`__pk()` has `inside`, `lightNext`, `aimAt(i)`, `win`, `lose`. 6× throttle: the billiard 33–35 fps.
 **🕳️ Pockets: a game inside the game (shell.js, organs/pockets/).** One level below an organ. Once `deepF()` ≥ `POCKET.DEEP`
 (0.5), after 2+ beats in the organ, outside the cooldown and not mid-morph, the shell asks the organ's `pocketSpot()` →
 `{x, y, r, icon}` every frame and draws the offer (glow, two rising rings, the icon, "tap"). It lapses after `OFFER` (8 s) or
