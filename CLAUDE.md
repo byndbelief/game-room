@@ -969,6 +969,17 @@ while a widening stage regrows (plain strokes meanwhile, `look.live`). Squirrels
 `paintSquirrel`; eye at (8.6, −6) for the glowing eyes); `ambStep`/`drawAmb` ~20 petals/motes/leaves/ash; fx `pow`, `spark`,
 `flash`, `smoke`, `flutter`; `muzzle()` kicks the stapler (`game.kick`); `vignette()` painted once per size. A mid-line `//`
 in `camTarget` had switched off framing acorns in flight; fixed. `__sq()` adds `season`, `look`, `fxKinds`, `give(w)`.
+**Fractal Dash's worlds and look (fractal.js, page only).** Every depth is a world, `WORLDS[(depth − 1) % 8]` (`world()`):
+🌌 Sierpiński Dawn, 🌿 Fern Valley (Barnsley `fern`), ❄️ Koch Snowfields (`kochPts`/`kochFlake`), 🔥 Mandelbrot Magma (`mandel`),
+🌊 Julia Lagoon (`julia`), 🌳 Pythagoras Woods (`pyth`), 🐉 Dragon Curve Canyon (`dragonPts`), 🌩️ Lightning Plateau (not ⚡, a
+shell cue); looks only. `dive()` banners `"<icon> DEPTH n · <NAME>"`, `hudLine` leads with the icon. Static art per world in
+`lookFor(wi, k, Hh, full)` → `looks`: an opaque sky (`skyFor`), three parallax tiles `TILE` 640 wide cropped to their band
+`LB` (`bgLayer`), a texture strip as a `repeat-x` pattern scrolled by `snap`ped offsets (`texTile`), plant sprites
+(`plantImg`), the shard sprite; rebuilt when k or H changes by a third; the next world is built a step a frame in the
+last 6 s before a dive. The ground is sampled once a frame (`sampleGround` → `gys`, `gyScreen`, `frameGaps`) and drawn by
+`drawGround` (pattern fill, four bands from the rim `Path2D`, glow, edge, shine). Glows are cached sprites (`glowOf`/`glow`,
+`'lighter'`), never `shadowBlur`. Particles have kinds (`k` 0–4, `gr` gravity), capped at 260; `g.trail` feeds the dash
+afterimages. `__fd()` adds `world`, `worldName`, `parts`, `looks`, `look()`, `goDepth(n)`. Same fps as before at 6× throttle.
 **Fractal Dash and Squirrel Chaos centre with the zoom-out.** fractal.js: `PX` is a `let` eased to `W × 0.5`
 from Stage 2 (`g.centred`), drones spawn behind (`x = cam − 40`, negative `vx`) 40% of the time once
 centred and are culled off either edge; dash-kill radius `R + 20`, shard radius `R + 20`. squirrel.js:
