@@ -172,6 +172,11 @@ falls in. A pocket is never ruled by the logistic curve. Each has its own chaoti
   always has. The deck is the walk: halving and halving makes runs of falling cards, then an odd one leaps the deck up out of
   nowhere (its peak a golden Ace). The trail of hailstone numbers is the hint, and a sharp eye learns which suits fall.
 
+- **🏎️ Through the toaster: a double pendulum.** One arm hinged on the end of another, plain physics, and the smallest change
+  in how it starts sends it somewhere else entirely after a few swings. Every pocket lets a fresh one go and traces the outer
+  bob for ten seconds; that scribble, smoothed and closed into one clean loop, is the slot-car track, so no two are alike. It
+  keeps swinging in the corner while you race.
+
 A win brings something small back up (a mulligan, a free putt and a fix; full armour, a shield, a crate). Failing only costs
 the time. The curve keeps beating above you, so the run can still rip you out: the deepest jolt, four frames out (pocket,
 game, run, box), +750. The other games' pockets will each bring their own system (a cellular automaton, a double pendulum, a

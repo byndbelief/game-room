@@ -1092,6 +1092,20 @@ heal: 1}`: two J–A cards into the hand (the lowest goes to the pile to make ro
 `pocketReward` always gives every waiting lane its whole fuse back. `__pk()` reports `step` (not `phase`: the shell
 overwrites that), `nextDir`, `btn`, `call(dir)`, `right()`, `wrongCall()`. 6× throttle: War deep 21–24 fps, the ladder 32–42.
 Test (scratch): `t_pk_ladder`.
+**🏎️ Through the toaster (pockets/slotcar.js, a double pendulum, 22 s).** Offered on the thing coming up the road (rally.js
+`pocketThings`: the toaster, or 🎢 the course's ramp, or a fork's centrepiece 🍎🧸☕🔮⛲, `THING_ICON`) only while you're driving
+and it's on screen `POCKET_CLEAR` (120) to `POCKET_FAR` (900) table units ahead (lapses at `POCKET_KEEP` 70; `toScreen` is
+`toTable`'s inverse); while offered the race runs at `POCKET_SLOW` (0.45) and eases back over `POCKET_EASE` 1.2 s (`g.slowT`).
+Coming up, win or not, `popThrough()` sets you out past the thing in a lane clear of solids, at speed. Inside: a seeded
+double pendulum (RK4) swung 10 s; the outer bob's trace is detrended, low-passed to harmonics ±5, plus the smallest circle
+that gives one loop, bends tighter than `RMIN` 22 eased out, stretches 1.7 track widths apart, `N` 360 points. Hold anywhere
+(or Space/↑/W) = throttle, release = brake; v²|κ| past `GRIP` builds slip, at 1 the car leaves the slot (`FLY` 0.65 s, back
+still, blinking). `calibrate()` drives a perfect run so 3 laps take `IDEAL` 14 s; the 👻 replays it in `GHOST` 17.5 s. Rally's
+own car via `pocketSeed().car` (`drawSlotCar`). Win `{nitro: 3.5 | 5 beating the ghost, heal: 1}` → `g.nitro` (flame ×1.6 over
+2 s) and `host.heal`. `__pk()` has `auto`, `flyOff`, `lap`, `win`, `lose`, `track`, `inflate`, `fair`; `__rl()` adds
+`pocketThings`, `pkThing`, `nitro`, `slowT`, `toScreen`. Note: `__shell().force('hurt')` isn't a hurt (it falls through to a
+morph); use `__shell().hurt()`. 6× throttle: Rally deep 6–7 fps (the organ's own going-under is the cost), the slot car 34–37.
+Test (scratch): `t_pk_slotcar`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the

@@ -8,8 +8,12 @@
 // peak stands a toy soldier on the road, the window spins the table, the mirror swaps you with the rival ahead, the
 // balance drains the milk, the golden cut lays pennies (161), a big hop drops a cereal box, gift is a bumper, fib a
 // nitro. Twists: 🧲 fridge magnet, 🌀 ceiling fan, 🔦 lights out, 🐈 the cat's paw.
+// 🕳️ Its pocket (deep enough, the thing coming up the road glows while it's still well ahead: the toaster or the ramp, a
+// fork's centrepiece; tap it): THROUGH THE TOASTER (pockets/slotcar.js), a slot-car loop traced by a double pendulum;
+// three laps bring up a burst of nitro and a life, and either way you come out the far side of the thing.
 import { fibMult } from '../chaos.js';
 import { drawPal } from '../pals.js';
+import slotcarPocket from './pockets/slotcar.js';
 
 let W = 400, R = 13, VMAX = 150, TURN = 3.1, CAR = 1.5, ACCEL = 1.5;   // R: a car's radius; CAR: how big the cars are drawn
 const TWISTS = [
@@ -423,6 +427,8 @@ function drive(c, dt, steer, brake, isMe) {
 }
 function update(dt) {
   W = host?.W || W;
+  // 🕳️ while the pocket calls, the race slows (time to tap it, no time to crash), and eases back in after you come up
+  { let f = host.pocket?.offering?.() ? POCKET_SLOW : 1; if (g.slowT > 0) { g.slowT = Math.max(0, g.slowT - dt); f = Math.min(f, 1 - (1 - POCKET_SLOW) * (g.slowT / POCKET_EASE)); } dt *= f; }
   g.time += dt;
   if (g.fin) { g.fin.t += dt; g.fin.conf.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.vx *= Math.pow(0.4, dt); p.r += p.vr * dt; }); if (g.fin.t > FIN_T) g.fin = null; }
   if (g.twist && g.time > g.twist.until) { g.twist = null; g.paw = null; }
@@ -1276,7 +1282,7 @@ function draw(t) {
     if (vh.key !== 'ufo' && !OFF.carx) { const ra = c.a + cth, sh = Math.sin(ra) * 5; ctx.fillStyle = '#FFFFFF26'; ctx.beginPath(); ctx.ellipse(sh, -Math.cos(ra) * 3, 6, 3.2, 0, 0, 7); ctx.fill(); }   // a reflection that slides over the body as it turns
     if (c.brk || dk > 0.1) { ctx.globalCompositeOperation = 'lighter'; [-5.5, 5.5].forEach((y) => { if (c.brk) { ctx.fillStyle = '#FF2A2A55'; ctx.beginPath(); ctx.arc(bk, y, 5.5, 0, 7); ctx.fill(); ctx.fillStyle = '#FF6A6A'; ctx.beginPath(); ctx.arc(bk, y, 1.8, 0, 7); ctx.fill(); } if (dk > 0.1) { ctx.fillStyle = '#FFF2A866'; ctx.beginPath(); ctx.arc(12, y * 0.9, 3.6, 0, 7); ctx.fill(); } }); ctx.globalCompositeOperation = 'source-over'; }   // brake lights, headlamps in the dark
     if (mine && re >= 0) { ctx.fillStyle = '#15151B88'; ctx.beginPath(); ctx.arc(sx, 0, 3.5, 0, 7); ctx.fill(); } else if (mine) drawPal(g.glitch ? (g.glitchPal || 'fig') : (S.curve.mood || 'calm'), ctx, { x: sx, y: 0, s: 6, t: t / 1000, r: S.curve.r, face: 1, hurt: c.spin > 0 || c.fall > 0 }); else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, 0, 3.2, 0, 7); ctx.fill(); ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(sx, 0, 1.6, 0, 7); ctx.fill(); ctx.fillStyle = '#ffffffaa'; ctx.beginPath(); ctx.arc(sx - 0.9, -0.9, 0.8, 0, 7); ctx.fill(); }
-    if (mine && g.bumper) { ctx.strokeStyle = '#C9B8FF'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.stroke(); } if (mine && g.nitro > 0) { ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.moveTo(bk, -3); ctx.lineTo(bk - 11 - Math.random() * 8, 0); ctx.lineTo(bk, 3); ctx.fill(); ctx.fillStyle = '#FFE36B'; ctx.beginPath(); ctx.moveTo(bk, -1.5); ctx.lineTo(bk - 6 - Math.random() * 4, 0); ctx.lineTo(bk, 1.5); ctx.fill(); }
+    if (mine && g.bumper) { ctx.strokeStyle = '#C9B8FF'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.stroke(); } if (mine && g.nitro > 0) { const nf = g.nitro > 2 ? 1.6 : 1; ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.moveTo(bk, -3 * nf); ctx.lineTo(bk - (11 + Math.random() * 8) * nf, 0); ctx.lineTo(bk, 3 * nf); ctx.fill(); ctx.fillStyle = '#FFE36B'; ctx.beginPath(); ctx.moveTo(bk, -1.5 * nf); ctx.lineTo(bk - (6 + Math.random() * 4) * nf, 0); ctx.lineTo(bk, 1.5 * nf); ctx.fill(); }   // 🔥 a pocket's long burst burns bigger
     ctx.restore(); ctx.globalAlpha = 1;
     if (mine && re >= 0) {   // Fig, out of the car and big, carrying it: two little arms down to the roof
       const fx = c.x + upX * (lift + 30), fy = c.y + upY * (lift + 30) + Math.sin(t / 70) * 1.5, cx = c.x + upX * lift, cy = c.y + upY * lift;
@@ -1333,6 +1339,52 @@ function draw(t) {
     f.conf.forEach((p) => { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.globalAlpha = Math.max(0, 1 - out); ctx.fillStyle = p.col; ctx.fillRect(-p.sz / 2, -p.sz / 4, p.sz, p.sz / 2); ctx.restore(); });
     ctx.save(); ctx.globalAlpha = Math.max(0, 1 - out); const s = Math.min(1, e / 0.25), big = 1 + 0.25 * (1 - s); ctx.translate(W / 2, Hh * 0.13 + 58); ctx.scale(big, big); ctx.font = '400 30px Bungee, Impact, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 7; ctx.strokeStyle = '#2A1408'; const txt = f.place === 1 ? `🏆 ${f.nth}!` : `🏁 ${f.nth}`; ctx.strokeText(txt, 0, 0); ctx.fillStyle = f.place === 1 ? '#FFE36B' : '#FFFFFF'; ctx.fillText(txt, 0, 0); ctx.restore(); }
 }
+// ---------------------------------------------------------------- 🕳️ the pocket: through the thing coming up the road
+// The way in is the toaster (or the course's ramp) or a fork's centrepiece, offered only while you're driving and it's
+// coming up on screen well ahead of you (POCKET_CLEAR table units to its near side; once up, it lapses at POCKET_KEEP), so
+// the offer never puts you into it. While it's offered the race runs at POCKET_SLOW. Coming back up, win or not, you come out the far side of the thing.
+const POCKET_CLEAR = 120, POCKET_KEEP = 70, POCKET_FAR = 900, POCKET_SLOW = 0.45, POCKET_EASE = 1.2;
+const THING_ICON = { toaster: '🍞', ramp: '🎢', fruitbowl: '🍎', toybox: '🧸', mug: '☕', snowglobe: '🔮', fountain: '⛲' };
+function toScreen(p) {   // a table point → the organ's world units, through the chase camera (toTable's inverse)
+  const th = g.camA + (g.turn || 0), dx = p.x - g.me.x, dy = p.y - g.me.y;
+  return { x: W / 2 + g.zoom * (Math.cos(th) * dx - Math.sin(th) * dy), y: H() * CAR_Y + g.zoom * (Math.sin(th) * dx + Math.cos(th) * dy) };
+}
+function pocketThings() {   // the ramp and the forks' centrepieces: where each is and how much road it takes up
+  const out = [];
+  g.items.forEach((i) => { if (i.kind === 'toaster') out.push({ thing: TH().ramp === 'toaster' ? 'toaster' : 'ramp', x: i.x, y: i.y, s: i.s, half: 20, r: 20 }); });
+  g.solids.forEach((o) => { if (o.island) out.push({ thing: o.kind, x: o.x, y: o.y, s: o.s, half: o.cr + 10, r: o.cr, island: true }); });
+  return out;
+}
+function pocketSpot() {
+  if (!g?.me || g.go > 0 || g.fin || g.done || g.camA == null || !g.zoom || S.over) return null;
+  const me = g.me; if (me.fall > 0 || me.rescue || me.air > 0 || me.spin > 0 || me.v < 50) return null;
+  const L = g.track.len, Hh = H(), up = host.pocket?.offering?.(); let best = null;
+  pocketThings().forEach((c) => { const ahead = (c.s - me.s) * L - c.half; if (ahead < (up ? POCKET_KEEP : POCKET_CLEAR) || ahead > POCKET_FAR) return;
+    const p = toScreen(c); if (p.x < 26 || p.x > W - 26 || p.y < Hh * 0.12 || p.y > Hh * CAR_Y - (up ? 40 : 70)) return;
+    if (!best || ahead < best.ahead) best = { ...c, ahead, sx: p.x, sy: p.y }; });
+  if (!best) return null;
+  g.pkThing = best; return { x: best.sx, y: best.sy, r: Math.max(18, Math.min(32, best.r * g.zoom * 0.5)), icon: THING_ICON[best.thing] || '🍞' };
+}
+function drawSlotCar(c2, x, y, a, sc, t, o = {}) {   // Rally's own ride, for the pocket's slot track (Fig at the wheel; the ghost in white)
+  const keep = ctx; ctx = c2;
+  try {
+    const vh = VH(), ghost = !!o.ghost, body = ghost ? '#F4F4F8' : '#22E0C8', dark = ghost ? '#9AA0B0' : '#0B8C7E', light = ghost ? '#FFFFFF' : '#9FF7EC';
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.scale(sc, sc);
+    WHEEL.roll = o.roll || 0; WHEEL.st = 0; SUNL.x = 0.6 * Math.cos(a) + 0.8 * Math.sin(a); SUNL.y = -0.6 * Math.sin(a) + 0.8 * Math.cos(a);
+    drawVehicle(vh, body, dark, light, !ghost, t, { v: o.v || 0, n: 1 });
+    if (!ghost) drawPal(S.curve.mood || 'calm', ctx, { x: vh.seat, y: 0, s: 6, t: t / 1000, r: S.curve.r, face: 1, hurt: !!o.hurt });
+    ctx.restore();
+  } finally { ctx = keep; }
+}
+function popThrough() {   // out the far side of the thing you went in by, in a lane clear of anything solid, at speed along the road
+  const c = g.pkThing, me = g.me; g.pkThing = null; if (!c || !me) return;
+  const L = g.track.len, isl = c.island ? g.islands.find((q) => Math.abs(q.s - c.s) < 1e-6) : null, sk = c.s + ((isl ? isl.lh : c.half) + 50) / L; if (sk <= me.s || sk >= FINISH - 0.01) return;
+  const p0 = at(sk), w = g.track.w, clear = (q) => !g.solids.some((o) => Math.hypot(o.x - q.x, o.y - q.y) < o.cr + R + 14) && !g.items.some((i) => (i.kind === 'hole' || i.kind === 'milk') && Math.hypot(i.x - q.x, i.y - q.y) < i.r + R + 6);
+  let lat = 0; for (const l of [0, -0.22, 0.22, -0.32, 0.32]) { if (clear(spotOn(sk, l * w))) { lat = l * w; break; } }
+  const q = spotOn(sk, lat), v = Math.max(me.v || 0, topSpeed() * 0.6);
+  Object.assign(me, { x: q.x, y: q.y, a: p0.a, s: sk, prevS: sk, lat, v, vs: v, vx: Math.cos(p0.a) * v, vy: Math.sin(p0.a) * v, spin: 0, w: 0, air: 0, fall: 0 });
+  for (let i = 0; i < 14; i++) { const an = Math.random() * 6.28, sp = 60 + Math.random() * 140; g.fx.push({ kind: 'bit', x: q.x, y: q.y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 14, sz: 2 + Math.random() * 3, col: ['#FFE36B', '#22E0C8', '#FFFFFF'][i % 3], life: 0.6 }); }
+}
 const position = () => { const me = g.me; let ahead = 0; g.rivals.forEach((r) => { if (r.done || (!(r.out > 0) && r.s > me.s)) ahead += 1; }); return `${ahead + 1}/`; };
 const progress = () => Math.max(0, Math.min(1, (g.me.s - sOf(GRID)) / (FINISH - sOf(GRID))));
 const side = (p) => (p.x < W / 2 ? 'left' : 'right');
@@ -1345,6 +1397,21 @@ const organ = {
   enter(from) { if (!g) newGame(); host.ui(''); held = {}; },
   leave() { held = {}; return g?.me ? { x: W / 2, y: H() / 2 } : null; },
   update, draw, onBeat,
+  // 🕳️ the pocket: through the thing coming up the road, and what comes back out of it
+  pocket: slotcarPocket,
+  pocketSpot,
+  pocketSeed() {
+    const th = TH(); if (!g.pkThing) g.pkThing = pocketThings().filter((c) => c.s > g.me.s).sort((a, b) => a.s - b.s)[0] || null;
+    let surf = null; try { surf = tex(th.surf); } catch { surf = null; }
+    return { seed: Math.floor(Math.random() * 1e9), thing: g.pkThing?.thing || 'toaster', place: th.key, course: g.course, vehicle: VH().key, theme: { kerb: th.kerb, kerbEdge: th.kerbEdge, edge: th.edge, side: th.side, surf }, car: drawSlotCar };
+  },
+  pocketReward(res) {
+    if (!g?.me) return; held = {}; popThrough(); g.slowT = POCKET_EASE;
+    if (!res) return; const gf = res.gift || {};
+    if (gf.nitro) g.nitro = Math.max(g.nitro || 0, gf.nitro);
+    if (gf.heal) host.heal(gf.heal);
+    g.fx.push({ kind: 'text', x: g.me.x, y: g.me.y - 30, text: `🔥 NITRO${gf.heal ? ' · ❤️ +1' : ''}`, life: 1.6, big: true, col: '#FFE36B' }); sfx('cannon', { size: 0.4 });
+  },
   pointer(type, p, e) { const id = e?.pointerId ?? 0; if (type === 'down') { const b = boxAt(p); if (b) smash(b); held[side(p)] = true; held['id' + id] = side(p); } else if (type === 'move') { const s = held['id' + id]; if (s && side(p) !== s) { held[s] = false; held[side(p)] = true; held['id' + id] = side(p); } } else { const s = held['id' + id]; if (s) { held[s] = false; delete held['id' + id]; } else { held = {}; } } },
   hudLine: () => (g ? `🏎️ course ${g.course} · ${Math.round(progress() * 100)}%` : ''),
   level: () => g?.course || 1,
@@ -1353,6 +1420,7 @@ const organ = {
   debug: () => g && ({ auto: (on) => { g.auto = on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); },
     sections: g.secs.map((sc) => ({ i: sc.i, icon: sc.icon, name: sc.name, kind: sc.kind, s0: sc.s0, s1: sc.s1 })), section: secAt(g.me.s).i, secShown: g.secShown, islands: g.islands.map((i) => ({ s: i.s, lh: i.lh, wi: i.wi, kind: i.kind })), lane: g.me.lane || 0, lat: g.me.lat || 0,
     goSection: (i) => { const sc = g.secs[Math.max(0, Math.min(g.secs.length - 1, i | 0))], sk = sc.s0 + 0.012, p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, pieces: g.pieces.length, skids: g.skids.length, skid: !!g.me.skid, sparks: g.dust.filter((p) => p.spark).length, dim: g.dimNow, inRoof: g.inRoof, map: mapRect(H()), fin: g.fin ? g.fin.t : null, zoomTarget: camZoom(),
+    pocketThings: pocketThings().map((c) => ({ thing: c.thing, s: c.s, half: c.half })), pkThing: g.pkThing ? { thing: g.pkThing.thing, s: g.pkThing.s } : null, nitro: g.nitro, slowT: g.slowT || 0, toScreen: (x, y) => toScreen({ x, y }),
     obstacles: g.solids.map((o) => ({ s: o.s, lat: o.lat, r: o.cr, lext: o.lext, kind: o.kind, shape: o.shape, island: !!o.island, free: o.free, x: o.x, y: o.y })), obsHits: obsHitsN, rivalObsHits: rivalHitsN, slip: g.me.slip || 0, vel: { x: g.me.vx || 0, y: g.me.vy || 0 }, w: g.me.w || 0, shake: g.shake || 0,
     hitObstacle: (i = 0, d = 70, v, dl = 0) => { const o = g.solids[i]; if (!o) return null; const sk = o.s - d / g.track.len, p = spotOn(sk, o.lat + dl), a = at(sk).a, me = g.me; me.x = p.x; me.y = p.y; me.a = a; me.s = me.prevS = sk; me.lat = o.lat + dl; me.spin = 0; me.w = 0; me.air = 0; me.v = v ?? topSpeed(); me.vx = Math.cos(a) * me.v; me.vy = Math.sin(a) * me.v; me.vs = me.v; return { x: o.x, y: o.y, r: o.cr }; } }),
 };
