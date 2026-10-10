@@ -1064,7 +1064,12 @@ quiet past 0.6 unless it's a hurt or `loud`. A breathing vignette is drawn after
 world, then 0.6 s in): nested rounded rects (game ×1, run ×1.55 with the organs' icons, box ×2.35 with the gradient rim
 and "r4box · r = 4"), a white slam and shake at the start; no Fig fly. `surfaceNow()` zeroes depth with the `.snap`
 class so the frame comes back at once. +500 × depth, `S.jolts`, `S.deepest` (end card chips 🌊 / ⚡). `host.depth()` /
-`host.deep()` for organs. `__shell()` has `depth`, `deep`, `deepest`, `jolts`, `jolt`; `force('depth:0.9')`. Test
+`host.deep()` for organs, and each draws its own going under from it (a block marked 🌊 near the end of its
+`draw`): salvo tint + caustic lines + bubbles; hilltop a dusk gradient, stars and a bigger haloed moon (right after
+the sky); putt an offscreen `nightL` with `destination-out` pools on the ball and cup, then fireflies; squirrel (screen
+space, before the glitch) mist bands and fireflies; fractal triangle rings from (W·0.82, H·0.45) and streaks; rally
+side shadow, a low sun and streaks from (W/2, H·0.12) scaled by `me.v`. Test (scratch): `t_under` (each organ at depth 0
+and 1, screenshots). `__shell()` has `depth`, `deep`, `deepest`, `jolts`, `jolt`; `force('depth:0.9')`. Test
 (scratch): `t_deep` (real taps build it, idle drains it, the fade's opacities, a forced jolt frame by frame, a shallow
 morph doesn't jolt, the end card chips).
 **The end card's numbers** (shell.js `over`): one row per game (`.ostats`: its icon from the first word of

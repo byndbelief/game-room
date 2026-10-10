@@ -280,6 +280,13 @@ function draw(t) {
     ctx.restore();
   }
   ctx.globalAlpha = 1;
+  // 🌊 going under: the deeper you're zoned in, the more the run becomes a tunnel: triangles open toward you from the
+  // vanishing point ahead, each with the Sierpiński hole in it, and streaks rush past at your speed
+  { const f = host.deep?.() || 0; if (f > 0.02) { ctx.save(); ctx.setTransform(k, 0, 0, k, host.ox || 0, host.oy || 0);
+    const vx = W * 0.82, vy = Hh * 0.45, tri = (r) => { ctx.beginPath(); for (let i = 0; i < 3; i++) { const a = -Math.PI / 2 + i * 2.094; ctx[i ? 'lineTo' : 'moveTo'](vx + Math.cos(a) * r, vy + Math.sin(a) * r); } ctx.closePath(); ctx.stroke(); };
+    for (let i = 0; i < 6; i++) { const u = ((t / 2600 + i / 6) % 1), r = 10 + u * u * Math.hypot(W, Hh) * 1.1; ctx.strokeStyle = `rgba(61,242,224,${0.28 * f * (1 - u)})`; ctx.lineWidth = 1 + 3 * u; tri(r); ctx.lineWidth = 0.6 + 1.5 * u; ctx.save(); ctx.translate(vx, vy); ctx.rotate(Math.PI); ctx.translate(-vx, -vy); tri(r / 2); ctx.restore(); }
+    ctx.strokeStyle = `rgba(255,255,255,${0.22 * f})`; ctx.lineWidth = 1.5; for (let i = 0; i < 14; i++) { const y = ((i * 61.7) % Hh), x = W - ((t / 2 + i * 137) % (W + 200)), L = 40 + 60 * f; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + L, y); ctx.stroke(); }
+    ctx.restore(); } }
   if (g.dive) { ctx.setTransform(k, 0, 0, k, host.ox || 0, host.oy || 0); ctx.fillStyle = `rgba(255,255,255,${(g.dive.t / g.dive.dur) ** 3 * 0.9})`; ctx.fillRect(0, 0, W, Hh); }
 }
 

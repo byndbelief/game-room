@@ -115,7 +115,14 @@ speak), and the edges of the screen close in with a slow breath. The chaos doesn
 40% deep or more is a **⚡ jolt**. The frame slams back, the screen flashes and shakes, and the camera pulls out
 through every layer (the game in its window, the 🧬 Chaos Run holding every game round its rim, the r4box rim around
 it), blinks, and dives into the next game. The deeper you were, the further it pulls and the more it pays (500 ×
-depth). The end card shows your deepest dive and how many jolts you took.
+depth). The end card shows your deepest dive and how many jolts you took. Each game goes under its own way, by
+`host.deep()`: ⚓ Salvo sinks below the surface (deep blue light, a web of caustics, bubbles rising past the ships);
+💥 Hilltop's day ends (amber dusk on the horizon, indigo overhead, stars, the moon rising bigger with a halo); ⛳ Putt's
+night closes in (the course falls dark but for a pool of light on your ball and one on the cup, fireflies over the
+grass); 🐿️ Squirrel's wood goes still (a cool hush, mist rolling low between the trunks, fireflies in the branches);
+🔺 Fractal Dash becomes a tunnel (Sierpiński triangles opening toward you from the point ahead, streaks rushing past);
+🏎️ Rally narrows to the road (streaks pouring from where it's heading, faster with your speed, the table's sides in
+shadow, a low sun ahead).
 
 One organ makes an ordinary game page (`squirrel.html`, `fractal.html`). Several make a **Chaos Run**
 (`run.html`): the curve decides which organ you're in, and the world morphs when it says so:

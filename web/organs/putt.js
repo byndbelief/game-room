@@ -16,7 +16,7 @@ const TWISTS = [
   ['🌊 RIPPLE', 'the green heaves', 'ripple'],
   ['🕳️ TINY CUP', 'half the cup for a while', 'tiny'],
 ];
-let host, ctx, S, sfx, g = null, sunkN = 0, puttsN = 0, drag = null;
+let nightL = null, host, ctx, S, sfx, g = null, sunkN = 0, puttsN = 0, drag = null;
 const H = () => host.H;
 const hash = (i) => { let x = (Math.imul(i | 0, 374761393) + 668265263) | 0; x = Math.imul(x ^ (x >>> 13), 1274126177); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
 // ⛳ COURSES: three holes a course. A fairway is a corridor (`g.path`, legs of a polyline, `g.pw` wide) from the
@@ -202,6 +202,18 @@ function draw(t) {
   ctx.restore();
   if (g.twist?.kind === 'wind') { ctx.strokeStyle = '#ffffff55'; ctx.lineWidth = 2; for (let i = 0; i < 10; i++) { const y = 80 + i * (Hh / 11), x = ((t / 5) * Math.sign(g.twist.wind) + i * 97) % (W + 60); ctx.beginPath(); ctx.moveTo(x - 30, y); ctx.lineTo(x, y); ctx.stroke(); } }
   if (g.gopher) { const gp = g.gopher, pop = Math.min(1, gp.t / 0.4); ctx.save(); ctx.translate(gp.x, gp.y); ctx.fillStyle = '#3A2A1A'; ctx.beginPath(); ctx.ellipse(0, 6, 13, 5, 0, 0, 7); ctx.fill(); ctx.translate(0, (1 - pop) * 14); ctx.fillStyle = '#A4753E'; ctx.beginPath(); ctx.ellipse(0, -4, 9, 11, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#1B1B22'; ctx.beginPath(); ctx.arc(-3.5, -8, 1.6, 0, 7); ctx.arc(3.5, -8, 1.6, 0, 7); ctx.fill(); ctx.fillStyle = '#FFF'; ctx.fillRect(-2.5, -2, 2, 4); ctx.fillRect(0.5, -2, 2, 4); ctx.restore(); }
+  // 🌊 going under: the deeper you're zoned in, the more the night closes in: the rough and the far fairway fall away into
+  // the dark, a pool of light stays on your ball and another on the cup, and fireflies drift over the grass
+  { const f = host.deep?.() || 0; if (f > 0.02 && g.ball) {
+    const cv = host.cv; if (!nightL || nightL.width !== cv.width || nightL.height !== cv.height) { nightL = document.createElement('canvas'); nightL.width = cv.width; nightL.height = cv.height; }
+    const n = nightL.getContext('2d'), sx = (x) => x * k + (host.ox || 0), sy = (y) => y * k + (host.oy || 0);
+    n.globalCompositeOperation = 'source-over'; n.clearRect(0, 0, nightL.width, nightL.height); n.fillStyle = `rgba(3,8,14,${0.8 * f})`; n.fillRect(0, 0, nightL.width, nightL.height);
+    n.globalCompositeOperation = 'destination-out';
+    const hole = (x, y, r) => { const gr = n.createRadialGradient(sx(x), sy(y), r * k * 0.3, sx(x), sy(y), r * k); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); n.fillStyle = gr; n.beginPath(); n.arc(sx(x), sy(y), r * k, 0, 7); n.fill(); };
+    hole(g.ball.x, g.ball.y, 150 - 40 * f); if (g.cups[0]) hole(g.cups[0].x, g.cups[0].y, 90);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(nightL, 0, 0); ctx.restore();
+    for (let i = 0; i < 18; i++) { const ph = i * 2.399, x = ((Math.sin(ph * 3.1) * 0.5 + 0.5) * W + Math.sin(t / 1700 + ph) * 30 + W) % W, y = (Math.cos(ph * 1.7) * 0.5 + 0.5) * Hh * 0.9 + Hh * 0.05 + Math.cos(t / 1300 + ph * 2) * 18, a = f * (0.4 + 0.6 * Math.max(0, Math.sin(t / 500 + ph * 5))); ctx.fillStyle = `rgba(220,255,140,${a})`; ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 7); ctx.fill(); ctx.fillStyle = `rgba(220,255,140,${a * 0.25})`; ctx.beginPath(); ctx.arc(x, y, 1.8 * 3.5, 0, 7); ctx.fill(); }
+  } }
   ctx.fillStyle = '#FFE08A'; ctx.font = '900 13px system-ui'; ctx.textAlign = 'center'; ctx.fillText(`par ${g.par} · putt ${Math.min(PUTTS_OF(), g.putts + 1)} of ${PUTTS_OF()}${g.free ? ` · 🌻 ${g.free} free` : ''}`, W / 2, Hh - 16);
   g.fx.forEach((f) => { ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); if (f.kind === 'dot') { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 7); ctx.fill(); } else { ctx.font = f.big ? '400 20px Bungee, Impact, sans-serif' : '900 14px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#102010'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); } });
   ctx.globalAlpha = 1;

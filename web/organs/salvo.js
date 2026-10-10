@@ -294,6 +294,17 @@ function draw(t) {
     else if (f.kind === 'spout') { const e = 1 - f.life / 0.6, h = 34 * Math.sin(e * Math.PI); ctx.fillStyle = 'rgba(220,240,255,0.75)'; ctx.beginPath(); ctx.moveTo(f.x - 6, f.y); ctx.quadraticCurveTo(f.x - 3, f.y - h, f.x, f.y - h - 4); ctx.quadraticCurveTo(f.x + 3, f.y - h, f.x + 6, f.y); ctx.fill(); ctx.strokeStyle = 'rgba(220,240,255,0.6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(f.x, f.y, 6 + e * 16, 2 + e * 5, 0, 0, 7); ctx.stroke(); }
     else { ctx.font = f.big ? '400 20px Bungee, Impact, sans-serif' : '900 14px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#001020'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); } });
   ctx.globalAlpha = 1;
+  // 🌊 going under: the deeper you're zoned in, the more you see the sea from below its skin: the light turns deep blue,
+  // a web of caustics wobbles over everything, and bubbles and motes drift up past the ships
+  { const f = host.deep?.() || 0; if (f > 0.02) {
+    ctx.fillStyle = `rgba(2,22,48,${0.38 * f})`; ctx.fillRect(0, 0, W, Hh);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = `rgba(120,210,255,${0.10 * f})`; ctx.lineWidth = 1.5;
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); for (let x = -10; x <= W + 10; x += 14) { const y = (i + 0.5) * Hh / 9 + Math.sin(x / 26 + t / 700 + i * 1.3) * 10 + Math.sin(x / 9 - t / 400 + i) * 3; ctx.lineTo(x, y); } ctx.stroke(); }
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); for (let y = -10; y <= Hh + 10; y += 14) { const x = (i + 0.5) * W / 9 + Math.sin(y / 30 - t / 800 + i * 2.1) * 12; ctx.lineTo(x, y); } ctx.stroke(); }
+    ctx.restore();
+    for (let i = 0; i < 26; i++) { const ph = i * 2.399, x = (Math.sin(ph * 3.1) * 0.5 + 0.5) * W + Math.sin(t / 600 + ph) * 6, y = Hh - ((t / (14 + (i % 5) * 4) + i * 97) % (Hh + 40)) + 20, r = 1.2 + (i % 4) * 0.8;
+      ctx.strokeStyle = `rgba(220,240,255,${0.45 * f})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke(); }
+  } }
   // a soft vignette, so the middle of the sea reads first
   const vg = ctx.createRadialGradient(W / 2, Hh / 2, Math.min(W, Hh) * 0.35, W / 2, Hh / 2, Math.max(W, Hh) * 0.75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,5,15,0.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, Hh);
 }

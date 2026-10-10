@@ -398,6 +398,13 @@ function draw(t) {
   g.rivals.forEach((r) => { if (!(r.out > 0)) car(r, r.hue, false); }); car(me, 0, true);
   g.fx.forEach((f) => { if (f.kind === 'bit') { ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2)); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.fillStyle = f.col; ctx.fillRect(-f.sz / 2, -f.sz / 2, f.sz, f.sz * 0.7); ctx.restore(); return; } ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(-(g.camA + (g.turn || 0))); ctx.translate(-f.x, -f.y); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); ctx.font = f.big ? '400 18px Bungee, Impact, sans-serif' : '900 13px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#2A1A0A'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); ctx.restore(); }); ctx.globalAlpha = 1;
   ctx.restore();
+  // 🌊 going under: the deeper you're zoned in, the more it's just you and the road: streaks pour out of the point the road
+  // heads for, the table at the sides sinks into shadow, and a low warm sun lies along it
+  { const f = host.deep?.() || 0; if (f > 0.02) { const sp = Math.min(1, Math.abs(me?.v || 0) / 220), vx = W / 2, vy = Hh * 0.12;
+    const sg = ctx.createLinearGradient(0, 0, W, 0); sg.addColorStop(0, `rgba(10,4,2,${0.55 * f})`); sg.addColorStop(0.22, 'rgba(10,4,2,0)'); sg.addColorStop(0.78, 'rgba(10,4,2,0)'); sg.addColorStop(1, `rgba(10,4,2,${0.55 * f})`); ctx.fillStyle = sg; ctx.fillRect(0, 0, W, Hh);
+    const sun = ctx.createRadialGradient(vx, vy, 4, vx, vy, Hh * 0.5); sun.addColorStop(0, `rgba(255,190,110,${0.3 * f})`); sun.addColorStop(1, 'rgba(255,190,110,0)'); ctx.fillStyle = sun; ctx.fillRect(0, 0, W, Hh);
+    ctx.lineCap = 'round'; for (let i = 0; i < 22; i++) { const a = (i * 2.399) % 6.283, u = ((t / (700 - 350 * sp) + i * 0.137) % 1), r0 = 30 + u * u * Hh * 1.1, r1 = r0 + 20 + 90 * u * (0.4 + sp); const x0 = vx + Math.cos(a) * r0, y0 = vy + Math.sin(a) * r0 * 0.9, x1 = vx + Math.cos(a) * r1, y1 = vy + Math.sin(a) * r1 * 0.9, al = f * u * (0.6 + 0.4 * sp); ctx.strokeStyle = `rgba(60,25,10,${0.35 * al})`; ctx.lineWidth = 3 + 4 * u; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.strokeStyle = `rgba(255,250,235,${0.8 * al})`; ctx.lineWidth = 1 + 2 * u; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }   // a dark edge so they read on the pale tape
+  } }
   // 🔦 lights out: only the headlights
   if (g.dark > 0.02) { const dg = ctx.createRadialGradient(W / 2, Hh * CAR_Y, 20 * g.zoom, W / 2, Hh * CAR_Y, 130 * g.zoom); dg.addColorStop(0, '#0000'); dg.addColorStop(1, `rgba(4,3,8,${0.96 * g.dark})`); ctx.fillStyle = dg; ctx.fillRect(0, 0, W, Hh); }
   // the steer zones, faint, and the position

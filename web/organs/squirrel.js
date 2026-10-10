@@ -461,6 +461,14 @@ function draw(t) {
     drawStapler();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (d > 0.3) { const vg = ctx.createRadialGradient(cv.width / 2, cv.height / 2, cv.height * 0.35, cv.width / 2, cv.height / 2, cv.height * 0.75); vg.addColorStop(0, 'rgba(60,0,10,0)'); vg.addColorStop(1, `rgba(40,0,8,${(d - 0.3) * 0.9 + (level >= 4 ? 0.2 * Math.sin(t / 500) : 0)})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, cv.width, cv.height); }
+    // 🌊 going under: the deeper you're zoned in, the stiller the wood: a cool blue hush, mist rolling low between the
+    // trunks in slow bands, and fireflies blinking among the branches
+    { const f = host.deep?.() || 0; if (f > 0.02) { const Wd = cv.width, Hd = cv.height;
+      ctx.fillStyle = `rgba(10,20,40,${0.3 * f})`; ctx.fillRect(0, 0, Wd, Hd);
+      for (let i = 0; i < 4; i++) { const y = Hd * (0.62 + i * 0.09), off = ((t / (60 + i * 25)) + i * 300) % (Wd * 2); const mg = ctx.createLinearGradient(0, y - 40, 0, y + 40); mg.addColorStop(0, 'rgba(210,225,240,0)'); mg.addColorStop(0.5, `rgba(210,225,240,${0.16 * f})`); mg.addColorStop(1, 'rgba(210,225,240,0)'); ctx.fillStyle = mg;
+        ctx.beginPath(); ctx.moveTo(-Wd + off - Wd, y + 40); for (let x = -Wd * 2; x <= Wd * 2; x += 40) ctx.lineTo(x + off - Wd, y + Math.sin(x / 120 + i) * 14); ctx.lineTo(Wd * 3, y + 40); ctx.closePath(); ctx.fill(); }
+      for (let i = 0; i < 22; i++) { const ph = i * 2.399, x = ((Math.sin(ph * 3.1) * 0.5 + 0.5) * Wd + Math.sin(t / 1700 + ph) * 30 + Wd) % Wd, y = (Math.cos(ph * 1.7) * 0.5 + 0.5) * Hd * 0.6 + Hd * 0.12 + Math.cos(t / 1300 + ph * 2) * 18, a = f * (0.4 + 0.6 * Math.max(0, Math.sin(t / 500 + ph * 5))); ctx.fillStyle = `rgba(255,240,150,${a})`; ctx.beginPath(); ctx.arc(x, y, 2 * host.dpr, 0, 7); ctx.fill(); ctx.fillStyle = `rgba(255,240,150,${a * 0.25})`; ctx.beginPath(); ctx.arc(x, y, 2 * host.dpr * 3.5, 0, 7); ctx.fill(); }
+    } }
     if (game.glitch > 0 && !host.reduceMotion) drawGlitch();
   }
   if (fade > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = `rgba(20,12,6,${fade * 0.9})`; ctx.fillRect(0, 0, cv.width, cv.height); }

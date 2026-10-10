@@ -281,7 +281,15 @@ function draw(t) {
   const night = g ? g.night : 0;
   const sky = ctx.createLinearGradient(0, 0, 0, Hh); sky.addColorStop(0, night > 0.5 ? '#07071A' : '#1B1646'); sky.addColorStop(0.6, night > 0.5 ? '#12102A' : '#3B2A6E'); sky.addColorStop(1, night > 0.5 ? '#1A0A20' : '#7A3E72');
   ctx.fillStyle = sky; ctx.fillRect(0, 0, W, Hh);
-  ctx.fillStyle = '#FFE9B0'; ctx.beginPath(); ctx.arc(W * 0.78, 70, 22, 0, 7); ctx.fill();
+  // 🌊 going under: the deeper you're zoned in, the further the day goes: an amber dusk on the horizon, a deep indigo
+  // overhead, the stars coming out, the moon rising bigger with a halo
+  const dk = host.deep?.() || 0;
+  if (dk > 0.02) {
+    const dg = ctx.createLinearGradient(0, 0, 0, Hh * 0.75); dg.addColorStop(0, `rgba(6,6,30,${0.75 * dk})`); dg.addColorStop(0.65, `rgba(40,20,70,${0.45 * dk})`); dg.addColorStop(1, `rgba(255,140,70,${0.35 * dk})`); ctx.fillStyle = dg; ctx.fillRect(0, 0, W, Hh);
+    for (let i = 0; i < 46; i++) { const ph = i * 2.399, x = (Math.sin(ph * 3.1) * 0.5 + 0.5) * W, y = (Math.cos(ph * 1.7) * 0.5 + 0.5) * Hh * 0.5, tw = 0.5 + 0.5 * Math.sin(t / 400 + ph * 4); ctx.fillStyle = `rgba(255,250,230,${dk * tw * 0.9})`; ctx.fillRect(x, y, i % 7 ? 1.5 : 2.5, i % 7 ? 1.5 : 2.5); }
+  }
+  { const mr = 22 + 16 * dk; if (dk > 0.02) { const mg = ctx.createRadialGradient(W * 0.78, 70, mr, W * 0.78, 70, mr * 3); mg.addColorStop(0, `rgba(255,233,176,${0.35 * dk})`); mg.addColorStop(1, 'rgba(255,233,176,0)'); ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(W * 0.78, 70, mr * 3, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#FFE9B0'; ctx.beginPath(); ctx.arc(W * 0.78, 70, mr, 0, 7); ctx.fill(); }
   if (!g) return;
   // the ridge
   ctx.fillStyle = '#2E7D4F'; ctx.beginPath(); ctx.moveTo(0, Hh); g.h.forEach((v, i) => ctx.lineTo(i * SP(), v)); ctx.lineTo(W, Hh); ctx.closePath(); ctx.fill();
