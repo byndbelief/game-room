@@ -143,7 +143,9 @@ async function gauntletNudge(gauntletId: string, callerId: string) {
   const { data: g } = await admin.from(table).select('*').eq('id', gt.current_game).maybeSingle();
   if (!g) return;
   // Battleship starts with everyone placing ships; the other games have a first player.
-  const recipients = kind === 'battleship' ? (g.players as string[]) : [kind === 'golf' ? g.players[g.t % g.players.length] : g.players[g.turn]];
+  const recipients = kind === 'battleship' ? (g.players as string[])
+    : kind === 'war' ? (g.players as string[]).filter((_, s) => g.flips[s] === '')
+    : [kind === 'golf' ? g.players[g.t % g.players.length] : g.players[g.turn]];
   const label = LABEL[kind];
   const url = kind === 'battleship' ? `./#game=${g.id}` : `./${kind}.html#game=${g.id}`;
   await send(recipients.filter((p) => p !== callerId), `🏆 Gauntlet round ${gt.round} of ${gt.rounds}`, `${label} is up. Your move!`, url, g.id);
