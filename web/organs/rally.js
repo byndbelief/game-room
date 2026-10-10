@@ -6,8 +6,10 @@
 // end at the table's edge: guarded (railings, books, toy bricks, crayons) or open, where you fall. Hazards: 🥛 spilled
 // milk (ice), 🍞 a toaster (a ramp), 🕳️ the pocket (fall in: a life), 📦 cereal boxes (walls). The box's beats: a
 // peak stands a toy soldier on the road, the window spins the table, the mirror swaps you with the rival ahead, the
-// balance drains the milk, the golden cut lays pennies (161), a big hop drops a cereal box, gift is a bumper, fib a
-// nitro. Twists: 🧲 fridge magnet, 🌀 ceiling fan, 🔦 lights out, 🐈 the cat's paw.
+// balance drains the milk, the golden cut lays pennies (161), a big hop drops a cereal box, gift is a bubble shield, fib a
+// nitro, gold a golden crate. Twists: 🧲 fridge magnet, 🌀 ceiling fan, 🔦 lights out, 🐈 the cat's paw, 🎯 missile rain,
+// 🍌 a slippery table. Kart racing on top: ❓ crates of weapons, ⏩ boost pads, 🐢 slow patches, a slipstream and each
+// place's traps (see "weapons, speed zones and traps"); none of it costs a life.
 // 🕳️ Its pocket (deep enough, the thing coming up the road glows while it's still well ahead: the toaster or the ramp, a
 // fork's centrepiece; tap it): THROUGH THE TOASTER (pockets/slotcar.js), a slot-car loop traced by a double pendulum;
 // three laps bring up a burst of nitro and a life, and either way you come out the far side of the thing.
@@ -21,6 +23,8 @@ const TWISTS = [
   ['🌀 CEILING FAN', 'a wind across the table', 'fan'],
   ['🔦 LIGHTS OUT', 'headlights only', 'dark'],
   ['🐈 THE CAT', 'a paw sweeps the road', 'paw'],
+  ['🎯 MISSILE RAIN', 'crates all over the road: grab one', 'rain'],
+  ['🍌 SLIPPERY TABLE', 'slicks all over the road', 'slip'],
 ];
 const FIB = [3, 5, 8, 13, 21];
 const START = 0, GRID = 70, FINISH = 0.975, COUNT = 2.4;   // the grid stands GRID table units up the road; the finish line at FINISH; COUNT s of 3-2-1-GO
@@ -94,7 +98,7 @@ const spotOn = (s, off = 0) => { const p = at(s); return { x: p.x + Math.cos(p.a
 const sOf = (units) => units / g.track.len;   // table units along the road → progress
 
 // ---------------------------------------------------------------- a race
-function newGame() { g = { course: 1, seed: Math.floor(Math.random() * 1e6), track: null, me: null, rivals: [], items: [], obs: [], fx: [], pennies: [], twist: null, time: 0, dir: 1, dark: 0, spin: 0, nitro: 0, bumper: 0, air: 0, paw: null, glitch: false, glitchPal: null, dust: [], decor: [], skids: [], fin: null, solids: [], shake: 0 }; finishN = 0; outsN = 0; obsHitsN = 0; rivalHitsN = 0; newCourse(); }
+function newGame() { g = { course: 1, seed: Math.floor(Math.random() * 1e6), track: null, me: null, rivals: [], items: [], obs: [], fx: [], pennies: [], twist: null, time: 0, dir: 1, dark: 0, spin: 0, nitro: 0, air: 0, paw: null, glitch: false, glitchPal: null, dust: [], decor: [], skids: [], fin: null, solids: [], shake: 0, weapon: null }; finishN = 0; outsN = 0; obsHitsN = 0; rivalHitsN = 0; hitsTakenN = 0; hitsGivenN = 0; shotsN = 0; newCourse(); renderBar(); }
 function newCourse() {
   { const th = TH(); g.secs = cutSecs(g.seed + g.course * 13).map((c, i) => ({ ...th.secs[i], ...c })); }
   g.track = makeTrack(g.course, g.seed + g.course * 97, g.secs); g.obs = []; g.pennies = []; g.items = []; g.done = false; g.go = COUNT; g.goShown = 4; g.camA = null;
@@ -121,7 +125,7 @@ function newCourse() {
   for (let i = 0; i < 3 + g.course; i++) { const s = 0.08 + hash(g.seed + 10 + i) * 0.84, side = hash(g.seed + 40 + i) < 0.5 ? 1 : -1; if (edgeAt(s, side) || !clear(s, 40)) continue; put('box', s, side * (g.track.w / 2 + 16), { w: 26, h: 18 }); }
   // 🥤 the solid things: each fork's centrepiece (the fruit bowl, the toy box, the mug…), then the obstacles on the road
   g.solids = g.islands.map((isl) => (isl.solid = makeSolid(isl.kind, isl.s, 0, isl.wi * 0.95, at(isl.s).a + Math.PI / 2, { island: true, sec: isl.sec })));
-  placeObstacles();
+  placeObstacles(); placeArms(); renderBar();   // (the slot's name follows the place: a peel in the kitchen is a juice spill in the bedroom)
   g.rims = { 1: buildRim(1), '-1': buildRim(-1) }; g.drims = { 1: buildRim(1, true), '-1': buildRim(-1, true) }; g.decor = makeDecor(); g.dust = [];
   g.pieces = makePieces(); buildSecPaths();
   { const a = (TH().sun || 45) * Math.PI / 180; g.sun = { x: Math.cos(a), y: Math.sin(a) }; }
@@ -173,14 +177,17 @@ function respawn(c, isMe) {   // back on the tape a little behind where it went 
 function onBeat(ev) {
   if (!g || g.go > 0) return;
   const ahead = (d) => Math.min(FINISH - 0.01, g.me.s + d);
-  if (ev.peak && !ev.window) { const p = spotOn(ahead(sOf(240)), (Math.random() - 0.5) * g.track.w * 0.5); g.obs.push({ kind: 'soldier', ...p, life: 14 }); }   // 🪖 a toy soldier stands on the road
+  const room = (d) => g.me.s + d < FINISH - 0.01;   // nothing drops past the finish (they used to pile up just before the line)
+  if (ev.peak && !ev.window && room(sOf(240))) { const p = spotOn(ahead(sOf(240)), (Math.random() - 0.5) * g.track.w * 0.5); g.obs.push({ kind: 'soldier', ...p, life: 14 }); }   // 🪖 a toy soldier stands on the road
+  if (ev.peak && !ev.window) { const r = g.rivals.find((x) => x.weapon && alive(x)); if (r) r.holdT = 0; else { const tr = g.traps.filter((q) => q.s > g.me.s && q.k !== 'mousetrap').sort((a, b) => a.s - b.s)[0]; if (tr) tr.t0 = g.time; } }   // 🎯 a rival lets fly, or the next trap goes off
+  if (ev.gold && goldenCrate()) { host.banner('🌟 GOLDEN CRATE', 'three golden rockets up the road'); sfx('chime', { hi: true }); }
   if (ev.enteredWindow) { g.spinTable = 1; sfx('twist'); }   // 🔁 the window spins the table (the view turns a quarter each beat)
   if (ev.window) g.tableTurn = (g.tableTurn || 0) + Math.PI / 2;
   if (ev.mirror) mirrorSwap();
   if (ev.balance) { g.items = g.items.filter((i) => i.kind !== 'milk'); sfx('chime'); }
   if (ev.golden) { host.add(161); if (g.pennies.length < 8) for (let i = 0; i < 8; i++) g.pennies.push({ ...spotOn(ahead(sOf(90 + i * 36)), Math.sin(i * 0.9) * g.track.w * 0.3), t: i }); sfx('chime', { hi: true }); }
-  if (ev.hop > 0.3 && !ev.window) { const p = spotOn(ahead(sOf(300)), (Math.random() - 0.5) * g.track.w * 0.6); g.obs.push({ kind: 'box', ...p, w: 26, h: 18, life: 12 }); }   // 📦 a cereal box drops on the road
-  if (ev.gift) { g.bumper = 1; host.banner('🛡️ BUMPER', 'the next bump bounces off'); }
+  if (ev.hop > 0.3 && !ev.window && room(sOf(300))) { const p = spotOn(ahead(sOf(300)), (Math.random() - 0.5) * g.track.w * 0.6); g.obs.push({ kind: 'box', ...p, w: 26, h: 18, life: 12 }); }   // 📦 a cereal box drops on the road
+  if (ev.gift && g.me) { g.me.shield = SHIELD_T; host.banner('🛡️ BUBBLE SHIELD', 'a free one: the next knock pops it'); sfx('ping'); }
   if (ev.fib) { g.nitro = 2; sfx('cannon', { size: 0.4 }); }
   if (ev.big && !g.twist) twist();
 }
@@ -189,12 +196,15 @@ function mirrorSwap() {
   const me = g.me, r = g.rivals.filter((x) => !x.out && !x.done && !x.fall && !x.rescue && x.s > me.s && (x.s - me.s) * g.track.len < 400).sort((a, b) => a.s - b.s)[0];
   if (!r || me.fall || me.rescue) { host.add(250); g.fx.push({ kind: 'text', x: me.x, y: me.y - 30, text: '✨ MIRROR +250', life: 1 }); sfx('chime'); return; }
   for (const k of ['x', 'y', 'a', 'v', 'vx', 'vy', 'vs', 'w', 's', 'prevS']) { const t = me[k]; me[k] = r[k]; r[k] = t; }
+  { const mine = g.weapon; g.weapon = r.weapon ? { kind: r.weapon, n: 1 } : null; r.weapon = mine ? mine.kind : null; r.holdT = rivalHold(); renderBar(); }   // and your weapons trade hands too
   g.fx.push({ kind: 'text', x: me.x, y: me.y - 30, text: '✨ SWAPPED', life: 1.1, big: true }); host.cue?.('score', me.x, me.y); sfx('chime', { hi: true });
 }
 function twist() {
   const [title, sub, kind] = TWISTS[Math.floor(Math.random() * TWISTS.length)];
-  g.twist = { kind, until: g.time + 6, dir: Math.random() < 0.5 ? -1 : 1 }; host.banner(title, sub); sfx('twist');
+  g.twist = { kind, until: g.time + 6, dir: Math.random() < 0.5 ? -1 : 1 }; host.banner(kind === 'slip' ? title.replace('🍌', wpn('slick').icon) : title, sub); sfx('twist');
   if (kind === 'paw') g.paw = { s: Math.min(0.95, g.me.s + sOf(700)), t: 0 };
+  if (kind === 'rain') missileRain();
+  if (kind === 'slip') slipperyTable();
 }
 
 // ---------------------------------------------------------------- the race
@@ -362,7 +372,8 @@ function aimAt(c, ahead) {
 function avoidLat(c) {
   const L = g.track.len, w = g.track.w; let o = null, bd = 1e9;
   for (const q of g.solids) { if (q.island) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }
-  if (!o) { c.dodge = null; return 0; }
+  for (const q of g.avoid || []) { if (q.owner === c && q.arm > 0) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }   // 🐢 patches, 🍌 slicks, 🪤 traps
+  if (!o) { c.dodge = null; const b = boostAhead(c); return b ? b.z.lat * smooth01((LOOK - b.d) / (LOOK * 0.5)) : 0; }   // ⏩ nothing in the way: line up for a boost pad
   const margin = c.n ? 7 + (c.clip || 0) : 12, line = (sd) => (sd > 0 ? o.lat + o.lext + R + margin : o.lat - o.lext - R - margin), room = (sd) => (sd > 0 ? w / 2 - 2 - (o.lat + o.lext) : (o.lat - o.lext) + w / 2 - 2);
   if (!c.dodge || c.dodge.o !== o) { const mine = (c.lat || 0) > o.lat ? 1 : -1; c.dodge = { o, sd: room(mine) >= 2 * R + margin + 4 ? mine : (o.free || -mine) }; }
   const lim = w / 2 - R - 2, tgt = Math.max(-lim, Math.min(lim, line(c.dodge.sd))), k = smooth01((LOOK - bd) / (LOOK * 0.5));
@@ -372,9 +383,10 @@ function drive(c, dt, steer, brake, isMe) {
   if (c.fall > 0) { c.fall -= dt; c.x += (c.vx ?? Math.cos(c.a) * c.v) * dt * 0.5; c.y += (c.vy ?? Math.sin(c.a) * c.v) * dt * 0.5; c.a += dt * 5; if (c.fall <= 0) { if (isMe) startRescue(c); else respawn(c, false); } return; }   // 🪂 tumbling off the table
   if (c.rescue) { stepRescue(c, dt); return; }
   const n = nearest(c.x, c.y), onTape = n.d < g.track.w / 2, milk = g.items.find((i) => i.kind === 'milk' && Math.hypot(i.x - c.x, i.y - c.y) < i.r);
-  const vmax = topSpeed() * (isMe && g.nitro > 0 ? 1.5 : 1) * (onTape ? 1 : 0.55) * (isMe ? 1 : c.skill) * (c.kerb ? 0.8 : 1);
+  const mud = c.mud && !(c.air > 0), vmax = topSpeed() * (isMe && g.nitro > 0 ? 1.5 : 1) * (onTape ? 1 : 0.55) * (isMe ? 1 : c.skill) * (c.kerb ? 0.8 : 1)
+    * (c.padT > 0 ? 1.4 : 1) * (c.turboT > 0 ? 1.5 : 1) * (c.slipT > 0 ? 1.12 : 1) * (c.zapT > 0 ? 0.55 : 1) * (mud ? 0.6 : 1) * (c.magT > 0 ? 1.15 : 1);   // ⏩ pads, 🔥 turbo, 💨 the draft, 🌩️ a cloud, 🐢 a patch, 🧲 a magnet
   syncVel(c);
-  const v0 = c.v, grip = (milk ? 0.25 : 1) * (onTape ? 1 : 0.8) * (c.air > 0 ? 0.35 : 1);
+  const v0 = c.v, grip = (milk ? 0.25 : 1) * (onTape ? 1 : 0.8) * (c.air > 0 ? 0.35 : 1) * (mud ? 0.7 : 1);
   // the nose first (the steering, a spin-out, the yaw left by a knock), then the velocity measured against it
   c.w = (c.w || 0) * Math.pow(YAW_DAMP, dt); c.a += c.w * dt;
   let ca = Math.cos(c.a), sa = Math.sin(c.a), vF = c.vx * ca + c.vy * sa;
@@ -386,6 +398,7 @@ function drive(c, dt, steer, brake, isMe) {
     // the throttle (always on: the car always goes) pulls less the nearer top speed it is; the brakes bite hard
     if (brake) { if (vF > 0) vF = Math.max(0, vF - 420 * dt); } else vF += (vmax - vF) * ACCEL * dt;
     if (milk) vF = Math.max(vF, vmax * 0.6);
+    if ((mud || c.zapT > 0) && vF > vmax) vF += (vmax - vF) * 3 * dt;   // 🐢 a sticky patch (or 🌩️ a cloud) drags you down to its pace quickly
     // the tyres: the sideways slide pulled back toward the nose, up to what the surface can give
     const lim = GRIP_ACC * grip * (0.7 + 0.3 * topSpeed() / VMAX) * dt, dv = Math.max(-lim, Math.min(lim, -vL * Math.min(1, GRIP_RATE * dt))); vL += dv;
   }
@@ -400,6 +413,7 @@ function drive(c, dt, steer, brake, isMe) {
   let vx = c.vx, vy = c.vy;
   if (g.twist?.kind === 'magnet') { const t = at(c.s + 0.001); vx += Math.cos(t.a + Math.PI / 2) * 70 * g.twist.dir; vy += Math.sin(t.a + Math.PI / 2) * 70 * g.twist.dir; }
   if (g.twist?.kind === 'fan') vx += 60 * g.twist.dir;
+  if (c.magT > 0 && alive(c.magTo) && !nearEdge(c)) { const dx = c.magTo.x - c.x, dy = c.magTo.y - c.y, d = Math.hypot(dx, dy); if (d > 34) { vx += dx / d * 110; vy += dy / d * 110; } }   // 🧲 reeled in
   c.x += vx * dt; c.y += vy * dt;
   // 🥤 the solid things: the forks' centrepieces and the obstacles on the road (a car in the air clears the low ones)
   const L = g.track.len;
@@ -410,7 +424,7 @@ function drive(c, dt, steer, brake, isMe) {
     const bo = bounceOff(c, hit); sparks(c.x - hit.nx * R, c.y - hit.ny * R, -hit.nx, -hit.ny, Math.max(c.v, bo.imp), isMe ? 7 : 3); c.bob = 1;
     if (c.v < 50) { const ta = at(nearest(c.x, c.y).s).a; c.a = ta + wrapA(c.a - ta) * 0.4; c.vx += Math.cos(ta) * 50; c.vy += Math.sin(ta) * 50; setSpeed(c); }   // never stuck against it
     if (isMe) b.hit = true;   // 📦 dented: only a box your car has hit can be smashed by a tap
-    if (isMe && !c.bumpT) { c.bumpT = 0.5; if (g.bumper) { g.bumper = 0; } else { c.spin = 0.3; sfx('clack'); } } });
+    if (isMe && !c.bumpT) { c.bumpT = 0.5; if (c.shield > 0) { c.shield = 0; } else { c.spin = 0.3; sfx('clack'); } } });
   if (c.bumpT > 0) c.bumpT = Math.max(0, c.bumpT - dt);
   const n2 = nearest(c.x, c.y); c.prevS = c.s; c.s = n2.s; c.off = n2.d;
   const ta = at(n2.s).a, nx = -Math.sin(ta), ny = Math.cos(ta), lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny, side = Math.sign(lat) || 1;
@@ -438,20 +452,24 @@ function update(dt) {
   // 🚦 3 · 2 · 1 · GO on the grid: nobody moves until GO
   if (g.go > 0) { g.go -= dt; const k = Math.ceil(g.go / (COUNT / 3)); if (k < g.goShown) { g.goShown = k; if (k > 0) sfx('clack'); } if (g.go <= 0) { sfx('whistle', { dur: 0.3 }); g.goT = 0.8; } return; }
   if (g.goT > 0) g.goT -= dt;
+  { const now = performance.now(); for (const id of Object.keys(taps)) { const tp = taps[id]; if (now - tp.t >= TAP_MS) { delete taps[id]; held[side(tp)] = true; held['id' + id] = side(tp); } } }   // a press held past a tap steers
+  g.avoid = softs();
   let steer = (held.left ? -1 : 0) + (held.right ? 1 : 0); const brake = !!(held.left && held.right);
   if (g.auto) { const look = aimAt(g.me, sOf(70)), want = Math.atan2(look.y - g.me.y, look.x - g.me.x); steer = Math.max(-1, Math.min(1, wrapA(want - g.me.a) * 2.5)); }   // a test autopilot
   const me = g.me; me.spin = me.spin || 0;
   drive(me, dt, brake ? 0 : steer, brake, true); if (S.over) return;
+  carStuff(me, dt, true);
+  if (g.auto && g.weapon && !g.autoHold) { g.autoT = (g.autoT || 0) + dt; if (g.autoT > 0.6) { g.autoT = 0; fireMine(); } }   // the test autopilot uses what it picks up
   // 🗺️ into a new section: its banner (the course's own banner names the first)
   { const sc = secAt(me.s); if (sc.i > g.secShown && !me.fall && !me.rescue) { g.secShown = sc.i; host.banner(`${sc.icon} ${sc.name}`, `part ${sc.i + 1} of ${g.secs.length} · ${KINDS[sc.kind].say}`); sfx('chime', { hi: sc.i % 2 === 1 }); }
     // 🛏️ under a roof: the light goes (the roof thins so you can see your car) and comes back at the far mouth
     const under = sc.roof && me.s > sc.s0 + 0.012 && me.s < sc.s1 - 0.012; g.inRoof += ((under ? 1 : 0) - g.inRoof) * Math.min(1, dt * 4); g.dimNow += ((under ? sc.dim || 0.5 : 0) - g.dimNow) * Math.min(1, dt * 2.5); }
   // 🪖 soldiers and 🕳️ the pocket, 🍞 the toaster, the pennies
-  g.obs = g.obs.filter((o) => { o.life -= dt; if (o.kind === 'soldier' && Math.hypot(o.x - me.x, o.y - me.y) < R + 10 && me.air <= 0 && !me.fall && !me.rescue) { if (g.bumper) { g.bumper = 0; } else { me.spin = 0.8; S.combo = 0; } g.fx.push({ kind: 'text', x: o.x, y: o.y - 20, text: TH().bumpTxt, life: 0.8 }); sfx('thud'); return false; } return o.life > 0; });
+  g.obs = g.obs.filter((o) => { o.life -= dt; if (o.kind === 'soldier' && Math.hypot(o.x - me.x, o.y - me.y) < R + 10 && me.air <= 0 && !me.fall && !me.rescue) { if (me.shield > 0) { me.shield = 0; } else { me.spin = 0.8; S.combo = 0; } g.fx.push({ kind: 'text', x: o.x, y: o.y - 20, text: TH().bumpTxt, life: 0.8 }); sfx('thud'); return false; } return o.life > 0; });
   g.items.forEach((i) => { const d = Math.hypot(i.x - me.x, i.y - me.y);
     if (i.kind === 'hole' && d < i.r && me.air <= 0 && !me.fall && !me.rescue) { me.spin = 0; me.v = 0; const p = at(me.s - sOf(90)); me.x = p.x; me.y = p.y; me.a = p.a; S.combo = 0; host.cue?.('near', i.x, i.y); sfx('plunk');
       if (g.course >= 3) { if (!host.hurt('fell in the pocket')) host.banner('🕳️ THE POCKET', `${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); } else { me.spin = 0.9; host.banner('🕳️ THE POCKET', 'fished out · from course 3 it costs a life'); } }
-    if (i.kind === 'toaster' && d < 20 && me.air <= 0 && me.v > 60) { me.air = 0.7; me.v = Math.max(me.v, topSpeed() * 1.2); sfx('whistle', { dur: 0.3 }); g.fx.push({ kind: 'text', x: me.x, y: me.y - 24, text: '🍞 POP!', life: 0.8 }); } });
+    if (i.kind === 'toaster' && d < 20 && me.air <= 0 && me.v > 60) { me.air = me.airMax = 0.7; me.v = Math.max(me.v, topSpeed() * 1.2); sfx('whistle', { dur: 0.3 }); g.fx.push({ kind: 'text', x: me.x, y: me.y - 24, text: '🍞 POP!', life: 0.8 }); } });
   g.pennies = g.pennies.filter((p) => { if (Math.hypot(p.x - me.x, p.y - me.y) < R + 8) { host.add(20); host.cue?.('score', p.x, p.y); g.fx.push({ kind: 'text', x: p.x, y: p.y - 14, text: '+20', life: 0.7 }); sfx('chime', { hi: true }); return false; } return true; });   // flat: the combo is for finishes and rivals
   // 🐈 the paw sweeps back down the road toward you and swats whatever it meets
   if (g.paw) { g.paw.t += dt; g.paw.s -= sOf(160) * dt; if (g.paw.s < 0.01) g.paw = null; else { const p = at(g.paw.s); [me, ...g.rivals].forEach((c) => { if (Math.hypot(c.x - p.x, c.y - p.y) < 34 && c.spin <= 0 && !c.fall && !c.rescue) { c.spin = 0.7; c.x += Math.cos(p.a + Math.PI / 2) * 30; c.y += Math.sin(p.a + Math.PI / 2) * 30; if (c === me) { S.combo = 0; sfx('thud'); } } }); } }
@@ -461,12 +479,14 @@ function update(dt) {
     if (r.out > 0) { r.out -= dt; if (r.out <= 0) { if (me.s + sOf(300) < FINISH - 0.04) { const p = at(me.s + sOf(300)); r.x = p.x; r.y = p.y; r.a = p.a; r.v = 0; r.s = r.prevS = me.s + sOf(300); } else r.out = 999; } return; }   // back on the tape ahead of you, unless the finish is near
     const gap = (r.s - me.s) * L, look = aimAt(r, sOf(70)), want = Math.atan2(look.y - r.y, look.x - r.x), da = wrapA(want - r.a);
     const sk = r.skill; r.skill = sk * (gap < -350 ? 1.18 : gap > 280 ? 0.9 : 1); drive(r, dt, Math.max(-1, Math.min(1, da * 2.5)), false, false); r.skill = sk;
+    carStuff(r, dt, false); rivalArms(r, dt);
     if (r.s >= FINISH) { r.done = true; r.place = 1 + g.rivals.filter((x) => x.done && x !== r).length + (g.done ? 1 : 0); return; }
     if (gap < -520 && r.off < 40 && !r.fall && !r.rescue) { r.out = 4; outsN += 1; const pts = 150; host.add(pts); host.cue?.('kill', r.x, r.y); g.fx.push({ kind: 'text', x: me.x, y: me.y - 34, text: `🏁 LEFT BEHIND +${pts}`, life: 1.1, big: true }); sfx('cheer', { delay: 0.05 }); }   // flat
-    // 🚗💥 bumping: a real knock, momentum shared (with the 🛡️ bumper on, the rival spins off it)
-    if (!me.rescue && !me.fall && !r.fall && !r.rescue) { const hv = carHit(me, r); if (hv > 0 && g.bumper) { r.spin = 0.5; g.bumper = 0; } if (hv > 45 && !me.hitT) { me.hitT = 0.25; sfx('clack'); if (hv > 110 && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); } } });
+    // 🚗💥 bumping: a real knock, momentum shared (a hard one bounces a rival off your 🫧 bubble and pops it)
+    if (!me.rescue && !me.fall && !r.fall && !r.rescue) { const hv = carHit(me, r); if (hv > 60 && me.shield > 0) { r.spin = 0.5; me.shield = 0; } if (hv > 45 && !me.hitT) { me.hitT = 0.25; sfx('clack'); if (hv > 110 && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); } } });
   const live = g.rivals.filter((r) => !r.done && !(r.out > 0) && !r.fall && !r.rescue);
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) carHit(live[i], live[j]);
+  stepArms(dt);
   if (g.shake > 0) g.shake = g.shake > 0.05 ? g.shake * Math.pow(0.002, dt) : 0;
   g.solids.forEach((o) => { if (o.wob > 0) o.wob = Math.max(0, o.wob - dt * 1.6); });
   kickDust(me, dt, true); g.rivals.forEach((r) => kickDust(r, dt, false)); stepDust(dt);
@@ -509,6 +529,330 @@ function smash(b) {
   const cols = ['#EE2B3B', '#FFD23F', '#FFFFFF', '#F2C27A', '#E8A33A'];
   for (let i = 0; i < 16; i++) { const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 160; g.fx.push({ kind: 'bit', x: b.x, y: b.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 14, sz: 3 + Math.random() * 4, col: cols[i % cols.length], life: 0.7 + Math.random() * 0.4 }); }
   host.add(30); host.cue?.('score', b.x, b.y); g.fx.push({ kind: 'text', x: b.x, y: b.y - 18, text: '📦 CRUNCH +30', life: 0.9 }); sfx('thud');
+}
+
+// ---------------------------------------------------------------- 🎁 weapons, speed zones and traps
+// A kart race on a tabletop. ❓ Crates stand in rows across the road (about every 0.12 of it, never on a bridge, in a tunnel
+// or a fork, clear of the grid and the finish) and come back a few seconds after a car breaks one: drive through one for a
+// weapon (better ones the further back you are: WEAPONS' weights), then tap its slot or the upper middle of the field to
+// use it. Rivals take them too and use them on whoever's near (rarely on course 1 at Stage 1). ⏩ Boost pads and 🐢 slow
+// patches lie on the road (a slow one always to one side, with a lane round it), and drafting close behind a car for a
+// moment gives a slipstream. Each place has its two traps (TRAPS), each on its own clock so a watchful driver can time it.
+// None of it costs a life: a knock spins you out (SPIN_T, a full turn back to the same heading, the speed down to 0.4 and
+// along the road, so a spin never throws you off the table), a spring or a hatch throws you into a hop.
+const WEAPONS = {   // w: how likely from a crate when you lead / mid pack / at the back
+  rocket: { icon: '🚀', name: 'ROCKET', short: 'ROCKET', say: 'homes in on the car ahead', w: [2, 3, 3] },
+  slick: { icon: '🍌', name: 'BANANA PEEL', short: 'PEEL', say: 'drop it behind you', w: [5, 2, 1] },
+  shock: { icon: '💥', name: 'SHOCKWAVE', short: 'WAVE', say: 'spins every car near you', w: [1, 2, 2] },
+  zap: { icon: '🌩️', name: 'STORMCLOUD', short: 'CLOUD', say: 'rains on the leader for 2 s', w: [0, 1, 3] },
+  shield: { icon: '🫧', name: 'BUBBLE SHIELD', short: 'BUBBLE', say: 'blocks one knock for 6 s', w: [3, 2, 1] },
+  turbo: { icon: '🔥', name: 'TURBO', short: 'TURBO', say: 'two seconds of go', w: [1, 2, 3] },
+  magnet: { icon: '🧲', name: 'MAGNET', short: 'MAGNET', say: 'reels you in behind the car ahead', w: [0, 2, 3] },
+};
+// each place's rocket, slick (icon, name, slot word, fill, rim) and slow patch (icon, name, fill, spots)
+const ARMS_TH = {
+  kitchen: { rocket: 'CORK ROCKET', rcol: '#C98E4A', slick: ['🍌', 'BANANA PEEL', 'PEEL', '#FFE14D', '#B8920F'], slow: ['🍓', 'STRAWBERRY JAM', '#A3122E', '#E8506A'] },
+  bedroom: { rocket: 'TOY ROCKET', rcol: '#2D7FF9', slick: ['🧃', 'JUICE SPILL', 'SPILL', '#FFB347', '#E07B00'], slow: ['🧶', 'SHAGGY RUG', '#9C72DA', '#D9C2FF'] },
+  garden: { rocket: 'BOTTLE ROCKET', rcol: '#22C55E', slick: ['🐌', 'SLUG SLIME', 'SLIME', '#B9F18C', '#6BA83A'], slow: ['🟤', 'MUD', '#5A3A1E', '#7A5230'] },
+  desk: { rocket: 'PAPER ROCKET', rcol: '#F2F2F2', slick: ['🖋️', 'INK BLOT', 'INK', '#1F2A6E', '#0B1240'], slow: ['🧴', 'GLUE', '#EDE8D8', '#FFFFFF'] },
+  snow: { rocket: 'ICICLE ROCKET', rcol: '#BFE6F7', slick: ['🧊', 'ICE PATCH', 'ICE', '#CFF3FF', '#7FD0F0'], slow: ['🌨️', 'SLUSH', '#A9C6DE', '#E2F0FA'] },
+  neon: { rocket: 'NEON MISSILE', rcol: '#FF3DF2', slick: ['🛢️', 'OIL SLICK', 'OIL', '#16101F', '#7A5CFF'], slow: ['🟣', 'NEON TAR', '#2A0F4A', '#FF3DF2'] },
+};
+// each place's two traps: 🪤 a mousetrap (snaps on a car), a roller (crosses the road now and then), a spring (pops: a hop),
+// a hatch (opens: a bump), a swing (an arm sweeping across one side of the road)
+const TRAPS = {
+  kitchen: [{ k: 'mousetrap', icon: '🪤', name: 'MOUSETRAP' }, { k: 'roller', icon: '🍊', name: 'ORANGE', col: '#FF8A1F', rim: '#C9600A', dimple: true }],
+  bedroom: [{ k: 'spring', icon: '🎁', name: 'JACK-IN-THE-BOX', col: '#EE2B3B', lid: '#FFD23F', jack: true }, { k: 'roller', icon: '🎱', name: 'MARBLE', col: '#2D7FF9', rim: '#163F8A', glass: true }],
+  garden: [{ k: 'spring', icon: '💦', name: 'SPRINKLER', col: '#2E7A3A', lid: '#9AA0A8', water: true }, { k: 'hatch', icon: '🐹', name: 'MOLEHILL', col: '#5A3A1E', mole: true }],
+  desk: [{ k: 'swing', icon: '🪭', name: 'DESK FAN', col: '#2B2F3A', head: '#C0C7D2', fan: true }, { k: 'hatch', icon: '🗄️', name: 'DRAWER', col: '#8A93A3', drawer: true }],
+  snow: [{ k: 'roller', icon: '⚪', name: 'SNOWBALL', col: '#FFFFFF', rim: '#B5D3EA', snow: true }, { k: 'swing', icon: '🔔', name: 'BAUBLE', col: '#E8283C', head: '#FFD23F', bauble: true }],
+  neon: [{ k: 'hatch', icon: '🕳️', name: 'MANHOLE', col: '#3A3550', manhole: true }, { k: 'swing', icon: '🚧', name: 'BOOM GATE', col: '#FFFFFF', head: '#FF3DF2', gate: true }],
+};
+const TRAP_P = { roller: 3.6, spring: 2.6, hatch: 3.2, swing: 3.0 };   // each clock's period (s), quicker by stage and course
+const SPIN_T = 2 * Math.PI / 9, CRATE_BACK = 2.5, SHIELD_T = 6, TAP_MS = 180;
+const trapSpeed = () => 1 + 0.12 * (stage() - 1) + 0.05 * Math.min(6, (g?.course || 1) - 1);
+const alive = (c) => c && !(c.fall > 0) && !c.rescue && !(c.out > 0) && !c.done;
+const allCars = () => [g.me, ...g.rivals].filter(alive);
+const wpn = (k) => { const b = WEAPONS[k], a = ARMS_TH[TH().key] || ARMS_TH.kitchen; if (k === 'slick') return { ...b, icon: a.slick[0], name: a.slick[1], short: a.slick[2] }; if (k === 'rocket') return { ...b, name: a.rocket }; return b; };
+let hitsTakenN = 0, hitsGivenN = 0, shotsN = 0, bar = null, taps = {};
+// a stretch of road clear of the islands, (unless kinds says otherwise) the bridges and the tunnels, and (with edges) the open edges
+function roadClear(s, pad, kinds = ['bridge', 'tunnel'], edges = true) { const d = sOf(pad); return [s - d, s, s + d].every((q) => !kinds.includes(secAt(q).kind)) && !islandNear(s, Math.min(pad, 60) + 40) && !(edges && (g.edges || []).some((e) => s > e.s0 - d && s < e.s1 + d)); }
+const mkZone = (kind, s, lat, len, wid, free = 0) => { const p = spotOn(s, lat); return { kind, s, lat, len, wid, lext: wid / 2, free, x: p.x, y: p.y, a: at(s).a }; };
+function placeArms() {
+  const L = g.track.len, w = g.track.w, co = Math.min(7, g.course), lo = sOf(GRID + 220), hi = FINISH - sOf(170);
+  const far = (s, list, d) => !list.some((o) => o.kind !== 'box' && Math.abs(o.s - s) * L < d);   // (the cereal boxes stand off the road)
+  const pocketClear = (s) => !g.items.some((i) => i.kind === 'hole' && (i.s - s) * L < 380 && (s - i.s) * L < 200);   // a spin or a hop never carries you into 🕳️ the pocket
+  const slide = (s0, ok) => { for (let k = 0; k < 16; k++) for (const d of [k * 0.008, -k * 0.008]) { const q = s0 + d; if (q > lo && q < hi && ok(q)) return q; } return null; };
+  g.crates = []; g.zones = []; g.traps = []; g.proj = []; g.slicks = []; g.waves = []; g.bolts = []; g.trapSpd = trapSpeed();
+  // 🪤 the place's traps: two on course 1 at Stage 1, more with each course and stage
+  const kinds = TRAPS[TH().key] || TRAPS.kitchen, nT = Math.min(7, 1 + co + (stage() - 1));
+  for (let tries = 0; g.traps.length < nT && tries < 60; tries++) {
+    const h = (k) => hash(g.seed + g.course * 89 + 900 + tries * 13 + k);
+    const s = slide(lo + h(0) * (hi - lo), (q) => roadClear(q, 80) && far(q, g.solids, 100) && far(q, g.items, 70) && pocketClear(q) && far(q, g.traps, 180)); if (s == null) continue;
+    g.traps.push(makeTrap(kinds[g.traps.length % kinds.length], s, h(1) < 0.5 ? 1 : -1, h(2) * 6)); }
+  // ❓ the crate rows (round the traps)
+  for (let row = 0, c0 = 0.12; c0 < 0.92; c0 += 0.12, row++) {
+    const s = slide(c0 + (hash(g.seed + g.course * 7 + 500 + row) - 0.5) * 0.03, (q) => roadClear(q, 50, ['bridge', 'tunnel'], false) && far(q, g.solids, 90) && far(q, g.items, 70) && far(q, g.traps, 70)); if (s == null) continue;
+    const n = co >= 3 ? 4 : 3, span = w * 0.68; for (let k = 0; k < n; k++) { const lat = (k / (n - 1) - 0.5) * span, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 1, row }); } }
+  // ⏩ boost pads and 🐢 slow patches, a few a section
+  g.secs.forEach((sc, i) => { const want = [...(i || co > 1 ? ['slow'] : []), 'boost', ...(co >= 3 && i % 2 ? ['boost'] : []), ...(co >= 4 && i % 2 === 0 ? ['slow'] : [])];
+    want.forEach((kind, j) => { const h = (k) => hash(g.seed + g.course * 71 + i * 37 + j * 11 + k);
+      let s = null; for (let k = 0; k < 3 && s == null; k++) s = slide(sc.s0 + 0.03 + hash(g.seed + g.course * 71 + i * 37 + j * 11 + 5 * k) * Math.max(0, sc.s1 - sc.s0 - 0.06), (q) => q > sc.s0 + 0.02 && q < sc.s1 - 0.02 && roadClear(q, 40, [], false) && pocketClear(q) && far(q, g.solids, 150) && far(q, g.crates, 70) && far(q, g.items, 80) && far(q, g.zones, 120) && far(q, g.traps, 80)); if (s == null) return;
+      if (kind === 'boost') g.zones.push(mkZone('boost', s, (h(1) - 0.5) * (w - 70), 60, 46));
+      else { const wid = w * 0.42, sd = h(1) < 0.5 ? 1 : -1; g.zones.push(mkZone('slow', s, sd * (w / 2 - wid / 2 - 2), 90 + h(2) * 40, wid, -sd)); } }); });
+
+}
+function makeTrap(look, s, sd, t0) {
+  const w = g.track.w, tr = { k: look.k, look, s, side: sd, t0, a: at(s).a, free: -sd, snapT: -99 };
+  if (look.k === 'mousetrap') Object.assign(tr, { lat: sd * (w / 2 - 34), hw: 20, hl: 28 });
+  else if (look.k === 'spring') Object.assign(tr, { lat: sd * (w / 2 - 36), hw: 18, hl: 18 });
+  else if (look.k === 'hatch') Object.assign(tr, { lat: sd * (w / 2 - 38), hw: 26, hl: 30 });
+  else if (look.k === 'swing') { const reach = Math.min(w * 0.58, w - 72), inner = w / 2 + 16 - reach; Object.assign(tr, { reach, plat: sd * (w / 2 + 16), lat: sd * (inner + w / 2) / 2, hw: (w / 2 - inner) / 2 + 4 }); }
+  else Object.assign(tr, { lat: 0, hw: 0 });
+  tr.lext = tr.hw; tr.hitLat = tr.lat; const p = spotOn(s, tr.lat); tr.x = p.x; tr.y = p.y;
+  if (tr.plat != null) { const q = spotOn(s, tr.plat); tr.px = q.x; tr.py = q.y; }
+  return tr;
+}
+// a trap's clock: its period P, how far into this cycle (u, in seconds) and which cycle
+function trapClock(tr) { const P = TRAP_P[tr.k] / (g.trapSpd || 1), t = g.time - tr.t0; return { P, u: ((t % P) + P) % P, cyc: Math.floor(t / P) }; }
+const ROLL_T = () => 1.5 / (g.trapSpd || 1);
+function rollerLat(tr) { const { u, cyc } = trapClock(tr), RD = ROLL_T(), w = g.track.w, dir = cyc % 2 ? -1 : 1, e = Math.min(1, u / RD); return { lat: dir * (-(w / 2 + 40) + (w + 80) * e), rolling: u < RD }; }
+function swingTip(tr) { const { P } = trapClock(tr), th = 1.25 * Math.sin(2 * Math.PI * (g.time - tr.t0) / P), base = tr.a - tr.side * Math.PI / 2 + th; return { x: tr.px + Math.cos(base) * tr.reach, y: tr.py + Math.sin(base) * tr.reach, th }; }
+function trapState(tr) {
+  const { u } = trapClock(tr);
+  if (tr.k === 'mousetrap') return g.time - tr.snapT < 3.2 / (g.trapSpd || 1) ? 'sprung' : 'armed';
+  if (tr.k === 'roller') return rollerLat(tr).rolling ? 'rolling' : 'waiting';
+  if (tr.k === 'spring') return u < 0.55 ? 'up' : 'down';
+  if (tr.k === 'hatch') return u < 1.2 ? 'open' : 'shut';
+  return 'swing';
+}
+// 💫 a knock: a full spin back to the same heading, the speed cut and laid along the road (a bubble shield takes it instead)
+function spinOut(c, how, o = {}) {
+  if (!alive(c)) return false;
+  const isMe = c === g.me;
+  if (c.shield > 0) { c.shield = 0; g.waves.push({ x: c.x, y: c.y, r: 14, R: 40, life: 0.35, max: 0.35, col: '#CFFBFF' }); if (isMe) { g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: '🫧 POP · SAVED', life: 1 }); sfx('pop'); } return false; }
+  if (c.spin > 0.2) return false;
+  syncVel(c); const ta = at(c.s).a, sp = c.v * (o.stop ? 0.12 : 0.4); c.vx = Math.cos(ta) * sp; c.vy = Math.sin(ta) * sp; setSpeed(c); c.spin = SPIN_T; c.w = 0; c.bob = 1;
+  if (isMe) { S.combo = 0; hitsTakenN += 1; sfx('thud'); if (!host.reduceMotion) g.shake = Math.max(g.shake || 0, 3); if (o.title) host.banner(o.title, o.sub || 'spun out'); }
+  else g.fx.push({ kind: 'text', x: c.x, y: c.y - 22, text: '💫', life: 0.8 });
+  if (o.by === g.me && !isMe) { hitsGivenN += 1; host.add(40); host.cue?.('score', c.x, c.y); g.fx.push({ kind: 'text', x: c.x, y: c.y - 36, text: '🎯 +40', life: 1 }); }
+  return true;
+}
+function hop(c, dur, minV) { if (c.air > 0) return false; c.air = c.airMax = dur; if (minV && c.v < minV) { c.v = minV; syncVel(c); } return true; }
+function carAhead(c, maxD) { const L = g.track.len; let best = null; allCars().forEach((o) => { if (o === c || o.s <= c.s || (o.s - c.s) * L > maxD) return; if (!best || o.s < best.s) best = o; }); return best; }
+function leaderBut(c) { let best = null; allCars().forEach((o) => { if (o !== c && (!best || o.s > best.s)) best = o; }); return best; }
+// what a crate gives: weighted by where the car is in the race (leading: defence; at the back: the big stuff)
+function rollWeapon(c) {
+  const cars = [g.me, ...g.rivals].filter((o) => !(o.out > 0)), ahead = cars.filter((o) => o !== c && (o.done || o.s > c.s)).length, tier = ahead === 0 ? 0 : ahead >= cars.length / 2 ? 2 : 1;
+  const ks = Object.keys(WEAPONS), tot = ks.reduce((a, k) => a + WEAPONS[k].w[tier], 0); let r = Math.random() * tot;
+  for (const k of ks) { r -= WEAPONS[k].w[tier]; if (r < 0) return k; } return 'rocket';
+}
+const rivalHold = () => (6 + 8 * Math.random()) / (1 + 0.45 * (stage() - 1) + 0.2 * Math.min(6, g.course - 1));
+const nearEdge = (c) => (g.edges || []).some((e) => c.s > e.s0 - sOf(90) && c.s < e.s1 + sOf(90));
+function renderBar() {
+  if (!bar || !g) return; const w = g.weapon; if (!w) { bar.innerHTML = ''; return; }
+  const W0 = wpn(w.kind); bar.innerHTML = `<button type="button" class="on" aria-label="Use the ${W0.name.toLowerCase()}" title="${W0.say}"${w.gold ? ' style="border-color:#FFD23F;box-shadow:0 0 16px #FFD23Fcc"' : ''}>${W0.icon}<b style="white-space:nowrap">${w.n > 1 ? `${w.n}× ` : ''}${W0.short}</b></button>`;
+}
+function giveMe(kind, n = 1, gold = false) { g.weapon = { kind, n, gold }; const W0 = wpn(kind); g.fx.push({ kind: 'text', x: g.me.x, y: g.me.y - 30, text: `${W0.icon} ${gold ? 'GOLDEN ' : ''}${W0.name}`, life: 1.1, col: gold ? '#FFD23F' : undefined }); host.cue?.('pickup', g.me.x, g.me.y); sfx('chime', { hi: true }); renderBar(); }
+// 🎯 you use what you hold (the slot, a tap on the upper middle of the field, Space)
+function fireMine() {
+  const me = g?.me; if (!g?.weapon || g.go > 0 || !alive(me) || S.over) return false;
+  const w = g.weapon, W0 = wpn(w.kind); fireWeapon(me, w.kind, w.gold); shotsN += 1; w.n -= 1; if (w.n <= 0) g.weapon = null; renderBar();
+  host.banner(`${W0.icon} ${w.gold ? 'GOLDEN ' : ''}${W0.name}`, w.n > 0 ? `${W0.say} · ${w.n} left` : W0.say);
+  return true;
+}
+function fireWeapon(c, kind, gold) {
+  const me = g.me, isMe = c === me, a = c.a, ca = Math.cos(a), sa = Math.sin(a), close = Math.hypot(c.x - me.x, c.y - me.y) < 520;
+  if (kind === 'rocket') { const tg = carAhead(c, 1400); g.proj.push({ x: c.x + ca * 20, y: c.y + sa * 20, a, v: 470 + Math.max(0, c.v || 0) * 0.5, s: c.s, owner: c, target: tg, life: 3.2, age: 0, tr: [], gold });
+    if (isMe || close) sfx('cannon', { size: 0.3 });
+    if (tg === me && !isMe) g.fx.push({ kind: 'text', x: me.x, y: me.y - 34, text: '🚀 INCOMING', life: 1, col: '#FF8A8A' }); }
+  else if (kind === 'slick') { const x = c.x - ca * 30, y = c.y - sa * 30, n = nearest(x, y), ta = at(n.s).a, lat = (x - n.px) * -Math.sin(ta) + (y - n.py) * Math.cos(ta);
+    g.slicks.push({ x, y, s: n.s, lat, a: ta, r: 17, lext: 17, free: lat > 0 ? -1 : 1, owner: c, arm: 0.6, life: 40 }); if (isMe || close) sfx('plunk'); }
+  else if (kind === 'shock') { g.waves.push({ x: c.x, y: c.y, r: 20, R: 210, life: 0.5, max: 0.5, col: '#FFE36B', w: 6 }, { x: c.x, y: c.y, r: 10, R: 150, life: 0.4, max: 0.4, col: '#FF8A3D', w: 4 });
+    allCars().forEach((o) => { if (o !== c && o.air <= 0 && Math.hypot(o.x - c.x, o.y - c.y) < 210) spinOut(o, 'shock', { by: c, title: '💥 HIT BY A SHOCKWAVE', sub: 'spun out: no harm done' }); }); if (isMe || close) sfx('boom'); if (isMe && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); }
+  else if (kind === 'zap') { const lead = leaderBut(c); if (lead) { lead.zapT = 2; g.bolts.push({ c: lead, life: 0.45, j: Array.from({ length: 7 }, () => Math.random() - 0.5) }); if (lead === me) { host.banner('🌩️ HIT BY A STORMCLOUD', 'rained on: slow for 2 s'); hitsTakenN += 1; } if (isMe) { hitsGivenN += 1; host.add(40); } if (isMe || lead === me || close) sfx('flash'); } }
+  else if (kind === 'shield') { c.shield = SHIELD_T; if (isMe) sfx('ping'); }
+  else if (kind === 'turbo') { if (isMe) g.nitro = Math.max(g.nitro || 0, 2); else c.turboT = 2; if (isMe || close) sfx('cannon', { size: 0.4 }); }
+  else if (kind === 'magnet') { c.magT = 2.5; c.magTo = carAhead(c, 900); if (isMe) sfx('buzz'); }
+}
+// 🤖 a rival with a weapon waits a while (less on later courses and stages), then uses it when it would land
+function rivalArms(r, dt) {
+  if (!r.weapon || !alive(r)) return; r.holdT -= dt; if (r.holdT > 0) return;
+  const me = g.me, L = g.track.len, k = r.weapon, aheadC = carAhead(r, 700), safe = (o) => o !== me || (!nearEdge(me) && !me.fall && !me.rescue);
+  const behind = allCars().some((o) => o !== r && o.s < r.s && (r.s - o.s) * L < 260 && safe(o)), nearC = allCars().filter((o) => o !== r && Math.hypot(o.x - r.x, o.y - r.y) < 190);
+  const ok = k === 'rocket' ? aheadC && safe(aheadC) : k === 'slick' ? behind : k === 'shock' ? nearC.length && nearC.every(safe) : k === 'zap' ? safe(leaderBut(r)) : k === 'magnet' ? !!aheadC : true;
+  if (!ok) { r.holdT = 0.5; return; }
+  r.weapon = null; fireWeapon(r, k, false);
+}
+// everything a car meets on the road: crates, pads and patches, slicks, traps, the timers
+function carStuff(c, dt, isMe) {
+  ['padT', 'slipT', 'zapT', 'magT', 'shield', 'turboT', 'trapCD'].forEach((k) => { if (c[k] > 0) c[k] = Math.max(0, c[k] - dt); });
+  if (!alive(c)) { c.mud = null; return; }
+  const L = g.track.len, me = g.me, ground = !(c.air > 0);
+  // ❓ crates: a car breaks every one it drives through, and keeps one weapon at a time
+  for (const b of g.crates) { if (b.t > 0 || Math.abs(b.s - c.s) * L > 30 || Math.hypot(b.x - c.x, b.y - c.y) > R + 12) continue;
+    b.t = b.temp ? 99 : CRATE_BACK; b.pop = 0;
+    if (Math.abs(b.y - me.y) < 500) for (let i = 0; i < 6; i++) { const an = Math.random() * 6.28, sp = 50 + Math.random() * 110; g.fx.push({ kind: 'bit', x: b.x, y: b.y, vx: Math.cos(an) * sp + (c.vx || 0) * 0.3, vy: Math.sin(an) * sp + (c.vy || 0) * 0.3, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 14, sz: 2.5 + Math.random() * 3, col: b.gold ? '#FFD23F' : ['#8B5CF6', '#B48CFF', '#FFFFFF'][i % 3], life: 0.5 }); }
+    if (isMe) { if (b.gold) giveMe('rocket', 3, true); else if (!g.weapon) giveMe(rollWeapon(c)); else sfx('pop'); }
+    else if (!c.weapon && Math.random() < Math.min(1, 0.4 + 0.15 * (g.course - 1) + 0.2 * (stage() - 1))) { c.weapon = b.gold ? 'rocket' : rollWeapon(c); c.holdT = rivalHold(); }
+    b.gold = false; }
+  // ⏩ / 🐢 the pads and patches under the car
+  let mud = null;
+  for (const z of g.zones) { if (Math.abs(z.s - c.s) * L > z.len / 2 || Math.abs((c.lat || 0) - z.lat) > z.wid / 2 + 3) continue;
+    if (z.kind === 'boost') { if (ground) { if (!(c.padT > 0.5)) { syncVel(c); const tv = topSpeed() * 1.3 * (isMe ? 1 : c.skill); if (c.v < tv) { c.v = tv; syncVel(c); } if (isMe) { sfx('whistle', { dur: 0.15 }); g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: '⏩ BOOST', life: 0.7, col: '#FFE36B' }); } } c.padT = 0.9; } }
+    else if (ground) mud = z; }
+  if (isMe && mud && !c.mud) { sfx('gulp'); g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: `${(ARMS_TH[TH().key] || ARMS_TH.kitchen).slow[0]} STICKY`, life: 0.8 }); }
+  c.mud = mud;
+  // 🍌 slicks: anyone driving over one spins (the one who dropped it gets a moment to drive clear)
+  for (const k of g.slicks) { if (!ground || (k.owner === c && k.arm > 0) || Math.abs(k.s - c.s) * L > 40 || Math.hypot(k.x - c.x, k.y - c.y) > k.r + R * 0.6) continue;
+    k.life = 0; const W0 = wpn('slick'); spinOut(c, 'slick', { by: k.owner, title: `${W0.icon} OUCH · ${W0.name}`, sub: 'slipped and spun: steer round them' }); if (isMe || Math.abs(c.y - me.y) < 400) sfx('splash'); }
+  // 🪤 the traps
+  if (!(c.trapCD > 0)) for (const tr of g.traps) { const ds = (c.s - tr.s) * L; if (Math.abs(ds) > (tr.reach || 60) + 40) continue;
+    const dl = (c.lat || 0) - tr.lat, Lk = tr.look, st = trapState(tr); let hit = false;
+    if (tr.k === 'mousetrap') { if (ground && st === 'armed' && Math.abs(ds) < tr.hl + R * 0.5 && Math.abs(dl) < tr.hw + R * 0.5) { tr.snapT = g.time; hit = true; spinOut(c, 'trap', { stop: true, title: `${Lk.icon} OUCH · ${Lk.name}`, sub: 'snap! drive round it next time' }); if (isMe || Math.abs(c.y - me.y) < 400) sfx('clack'); g.fx.push({ kind: 'text', x: tr.x, y: tr.y - 20, text: '🪤 SNAP!', life: 0.8 }); } }
+    else if (tr.k === 'spring') { if (ground && st === 'up' && Math.hypot(ds, dl) < tr.hw + R * 0.6) { hit = true; hop(c, 0.8, topSpeed() * 0.9); c.bob = 1; if (isMe) { sfx('boing'); g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: `${Lk.icon} BOING!`, life: 0.8 }); } } }
+    else if (tr.k === 'hatch') { if (ground && st === 'open' && Math.abs(ds) < tr.hl && Math.abs(dl) < tr.hw + R * 0.3) { hit = true; hop(c, 0.35); c.v *= 0.72; syncVel(c); c.bob = 1; if (isMe) { sfx('thud'); g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: `${Lk.icon} BUMP!`, life: 0.8 }); } } }
+    else if (tr.k === 'roller') { const rl = rollerLat(tr); if (ground && rl.rolling) { const q = spotOn(tr.s, rl.lat); if (Math.hypot(q.x - c.x, q.y - c.y) < R + 13) { hit = true; spinOut(c, 'trap', { title: `${Lk.icon} OUCH · ${Lk.name}`, sub: 'bowled over: time it next time' }); if (isMe) sfx('thud'); } } }
+    else if (tr.k === 'swing') { if (ground) { const tp = swingTip(tr), ax = tp.x - tr.px, ay = tp.y - tr.py, u = Math.max(0, Math.min(1, ((c.x - tr.px) * ax + (c.y - tr.py) * ay) / (ax * ax + ay * ay))); if (Math.hypot(c.x - tr.px - ax * u, c.y - tr.py - ay * u) < R + 6) { hit = true; spinOut(c, 'trap', { title: `${Lk.icon} OUCH · ${Lk.name}`, sub: 'swatted: watch its swing' }); if (isMe || Math.abs(c.y - me.y) < 400) sfx('clack'); } } }
+    if (hit) { c.trapCD = 1; if (isMe) g.trapHits = (g.trapHits || 0) + 1; break; } }
+  // 💨 slipstream: close behind a car for a moment, and it tows you along
+  { const ca = Math.cos(c.a), sa = Math.sin(c.a); let tuck = false;
+    for (const o of allCars()) { if (o === c) continue; const dx = o.x - c.x, dy = o.y - c.y, along = dx * ca + dy * sa; if (along > 20 && along < 120 && Math.abs(-dx * sa + dy * ca) < 20) { tuck = true; break; } }
+    if (tuck && c.v > 60) { c.draftT = (c.draftT || 0) + dt; if (c.draftT >= 0.8) { if (isMe && !(c.slipT > 0)) { sfx('whistle', { dur: 0.12 }); g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: '💨 SLIPSTREAM', life: 0.8 }); } c.slipT = 0.7; } }
+    else c.draftT = Math.max(0, (c.draftT || 0) - dt * 2); }
+}
+// the things in flight and the clocks: rockets, slicks lying about, crates coming back, rings and bolts fading
+function stepArms(dt) {
+  const L = g.track.len, me = g.me, cars = allCars();
+  g.proj = g.proj.filter((p) => {
+    p.life -= dt; p.age += dt;
+    const tg = alive(p.target) ? p.target : null; let tx, ty;
+    if (tg && p.age > 0.12) { tx = tg.x; ty = tg.y; } else { const q = at(Math.min(1, p.s + 90 / L)); tx = q.x; ty = q.y; }
+    p.a += Math.max(-6 * dt, Math.min(6 * dt, wrapA(Math.atan2(ty - p.y, tx - p.x) - p.a)));
+    p.x += Math.cos(p.a) * p.v * dt; p.y += Math.sin(p.a) * p.v * dt; p.tr.push(p.x, p.y); if (p.tr.length > 24) p.tr.splice(0, 2);
+    const n = nearest(p.x, p.y); p.s = n.s;
+    const boom = () => { g.waves.push({ x: p.x, y: p.y, r: 6, R: 34, life: 0.3, max: 0.3, col: '#FF8A3D', w: 5 }); sparks(p.x, p.y, -Math.cos(p.a), -Math.sin(p.a), 200, Math.abs(p.y - me.y) < 500 ? 8 : 0, ['#FFE36B', '#FF8A3D', '#FFFFFF']); if (Math.abs(p.y - me.y) < 500) sfx('boom'); return false; };
+    for (const c of cars) { if ((c === p.owner && p.age < 0.6) || c.air > 0 || Math.hypot(c.x - p.x, c.y - p.y) > R + 9) continue; const W0 = wpn('rocket'); spinOut(c, 'rocket', { by: p.owner, title: `🚀 HIT BY A ${W0.name}`, sub: 'spun out: no harm done' }); return boom(); }
+    for (const o of g.solids) if (Math.abs(o.s - p.s) * L < 80 && Math.hypot(o.x - p.x, o.y - p.y) < o.cr + 5) return boom();
+    if (p.life <= 0 || n.d > g.track.w / 2 + MARGIN) return boom();
+    return true; });
+  g.slicks = g.slicks.filter((k) => { k.arm -= dt; k.life -= dt; return k.life > 0; });
+  g.crates = g.crates.filter((b) => { if (b.t > 0) b.t -= dt; else b.pop = Math.min(1, b.pop + dt); if (b.temp) { b.life -= dt; return b.life > 0 && b.t <= 0; } return true; });
+  g.waves = g.waves.filter((w) => (w.life -= dt) > 0); g.bolts = g.bolts.filter((b) => (b.life -= dt) > 0);
+  if (me.magT > 0 && !alive(me.magTo)) me.magT = 0;
+}
+// the rivals and the autopilot steer round these (as round the solid things): slow patches, slicks, the traps that bite now
+function softs() { return g.zones.filter((z) => z.kind === 'slow').concat(g.slicks, g.traps.filter((t) => t.k !== 'roller' && (t.k !== 'mousetrap' || trapState(t) === 'armed'))); }
+function boostAhead(c) { const L = g.track.len; let best = null, bd = 1e9; for (const z of g.zones) { if (z.kind !== 'boost') continue; const d = (z.s - c.s) * L; if (d < -z.len / 2 || d > LOOK || d >= bd) continue; bd = d; best = z; } return best ? { z: best, d: bd } : null; }
+// ---- the big beats' twists for the arms
+function missileRain() {
+  const me = g.me, w = g.track.w; [200, 450, 700].forEach((d) => { const s = me.s + sOf(d); if (s > FINISH - 0.02) return; for (let k = 0; k < 4; k++) { const lat = (k / 3 - 0.5) * w * 0.68, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 0, temp: true, life: 9 }); } });
+}
+function slipperyTable() {
+  const me = g.me, w = g.track.w; for (let i = 0; i < 6; i++) { const s = me.s + sOf(160 + i * 130); if (s > FINISH - 0.02) break; const lat = (Math.random() - 0.5) * w * 0.7, p = spotOn(s, lat); g.slicks.push({ x: p.x, y: p.y, s, lat, a: at(s).a, r: 17, lext: 17, free: lat > 0 ? -1 : 1, owner: null, arm: 0, life: 25 }); }
+}
+function goldenCrate() {
+  const me = g.me, rows = [...new Set(g.crates.filter((b) => !b.temp && b.s > me.s + sOf(150)).map((b) => b.row))].sort((a, b) => a - b); if (!rows.length) return false;
+  const row = g.crates.filter((b) => b.row === rows[0]), b = row[row.length >> 1]; b.gold = true; b.t = 0; b.pop = 0; return true;
+}
+// ---- the look: sprites painted once (SPR px a unit), stamped rotated; glows are sprites too
+const ASPR = new Map();
+function aspr(key, w, h, paint) { let c = ASPR.get(key); if (c) return c; c = document.createElement('canvas'); c.width = Math.ceil(w * SPR); c.height = Math.ceil(h * SPR); const x = c.getContext('2d'); x.scale(SPR, SPR); x.translate(w / 2, h / 2); paint(x, w, h); ASPR.set(key, c); return c; }
+function stamp(c, x, y, a, w, h) { ctx.save(); ctx.translate(x, y); if (a) ctx.rotate(a); ctx.drawImage(c, -w / 2, -h / 2, w, h); ctx.restore(); }
+const glowS = (col) => aspr(`glow${col}`, 64, 64, (x) => { const gr = x.createRadialGradient(0, 0, 2, 0, 0, 32); gr.addColorStop(0, col + 'cc'); gr.addColorStop(0.45, col + '55'); gr.addColorStop(1, col + '00'); x.fillStyle = gr; x.fillRect(-32, -32, 64, 64); });
+const emojiSpr = (ch) => aspr(`em${ch}`, 24, 24, (x) => { x.font = '20px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(ch, 0, 1); });   // a label, painted once (text is dear to draw each frame)
+const blobPath = (x, rx, ry, sd) => { x.beginPath(); for (let k = 0; k < 18; k++) { const a = k / 18 * 6.283, rr = 1 + 0.12 * Math.sin(k * 2.3 + sd) + 0.06 * Math.sin(k * 5.1 + sd * 2); x.lineTo(Math.cos(a) * rx * rr, Math.sin(a) * ry * rr); } x.closePath(); };
+const crateSpr = (gold) => aspr(gold ? 'crateG' : 'crate', 48, 48, (x) => { { const gr = x.createRadialGradient(0, 0, 6, 0, 0, 24), col = gold ? '#FFD23F' : '#B48CFF'; gr.addColorStop(0, col + 'aa'); gr.addColorStop(0.5, col + '44'); gr.addColorStop(1, col + '00'); x.fillStyle = gr; x.fillRect(-24, -24, 48, 48); }   // its glow, painted in
+  rrect(x, -12, -10, 26, 26, 5, '#00000050'); rrect(x, -13, -13, 26, 26, 5, gold ? '#FFD23F' : '#8B5CF6', gold ? '#8A6A00' : '#3B1E8A', 2); rrect(x, -11, -11, 22, 6, 3, '#ffffff45'); x.strokeStyle = gold ? '#FFF3B0' : '#C9B8FF'; x.lineWidth = 1; x.strokeRect(-9, -9, 18, 18);
+  x.font = '900 17px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 3; x.strokeStyle = gold ? '#8A6A00' : '#2A1060'; x.strokeText(gold ? '★' : '?', 0, 1.5); x.fillStyle = '#FFFFFF'; x.fillText(gold ? '★' : '?', 0, 1.5); });
+const padLit = () => aspr('padlit', 60, 46, (x) => { for (let k = 0; k < 3; k++) { const cx = -14 + k * 14; x.fillStyle = '#FFFBE0'; x.beginPath(); x.moveTo(cx - 6, -15); x.lineTo(cx + 6, 0); x.lineTo(cx - 6, 15); x.lineTo(cx - 1, 0); x.closePath(); x.fill(); } });
+const padSpr = () => aspr('pad', 60, 46, (x, w, h) => { rrect(x, -w / 2, -h / 2, w, h, 8, '#1A1430', '#3DE0FF', 2); rrect(x, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 5, null, '#3DE0FF55', 1);
+  for (let k = 0; k < 3; k++) { const cx = -14 + k * 14; x.fillStyle = k === 1 ? '#FFE36B' : '#FF8A3D'; x.beginPath(); x.moveTo(cx - 6, -15); x.lineTo(cx + 6, 0); x.lineTo(cx - 6, 15); x.lineTo(cx - 1, 0); x.closePath(); x.fill(); } });
+const slowSpr = (key) => aspr(`slow${key}`, 100, 100, (x) => { const [, , f, sp] = (ARMS_TH[key] || ARMS_TH.kitchen).slow; blobPath(x, 42, 42, key.length); x.fillStyle = f; x.fill(); x.strokeStyle = shade(f, 0.62); x.lineWidth = 3; x.stroke();
+  let i = key.length * 31; const rnd = () => hash(i++);
+  if (key === 'bedroom') { x.strokeStyle = sp; x.lineWidth = 1.4; x.lineCap = 'round'; for (let k = 0; k < 140; k++) { const a = rnd() * 6.28, d = rnd() * 36, px = Math.cos(a) * d, py = Math.sin(a) * d, b = rnd() * 6.28; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(b) * 4, py + Math.sin(b) * 4); x.stroke(); } }
+  else for (let k = 0; k < 16; k++) { const a = rnd() * 6.28, d = rnd() * 32; x.fillStyle = sp + (key === 'neon' ? '' : 'aa'); x.beginPath(); x.arc(Math.cos(a) * d, Math.sin(a) * d, 1.5 + rnd() * 4, 0, 7); x.fill(); }
+  x.fillStyle = '#ffffff40'; x.beginPath(); x.ellipse(-12, -14, 14, 6, -0.4, 0, 7); x.fill(); });
+const slickSpr = (key) => aspr(`slick${key}`, 44, 44, (x) => { const [, , , f, rim] = (ARMS_TH[key] || ARMS_TH.kitchen).slick; blobPath(x, 17, 15, key.length + 3); x.fillStyle = f; x.fill(); x.strokeStyle = rim; x.lineWidth = 2; x.stroke();
+  if (key === 'neon') ['#FF3DF2', '#FFD23F', '#3DE0FF'].forEach((c, q) => { x.strokeStyle = c + '99'; x.lineWidth = 1.2; x.beginPath(); x.ellipse(-2 + q * 2, -1 + q, 10 - q * 2.5, 6 - q * 1.5, 0.4, 0, 7); x.stroke(); });
+  else if (key === 'kitchen') { x.fillStyle = '#FFF3A0'; [[0, -6], [5, 4], [-6, 4]].forEach(([a, b], q) => { x.save(); x.translate(a, b); x.rotate(q * 2.1); x.beginPath(); x.ellipse(0, 0, 8, 3, 0, 0, 7); x.fill(); x.restore(); }); x.fillStyle = '#5A3A10'; x.beginPath(); x.arc(0, 0, 2.2, 0, 7); x.fill(); }
+  else { x.fillStyle = '#ffffff66'; x.beginPath(); x.ellipse(-5, -5, 6, 2.6, -0.4, 0, 7); x.fill(); } });
+const rocketSpr = (col) => aspr(`rocket${col}`, 30, 16, (x) => { x.fillStyle = '#2B2B33'; [[-1, 1], [-1, -1]].forEach(([, s]) => { x.beginPath(); x.moveTo(-10, s * 3); x.lineTo(-15, s * 8); x.lineTo(-6, s * 3); x.fill(); });
+  x.fillStyle = col; x.strokeStyle = '#00000088'; x.lineWidth = 1; x.beginPath(); x.ellipse(0, 0, 12, 4.4, 0, 0, 7); x.fill(); x.stroke(); x.fillStyle = '#EE2B3B'; x.beginPath(); x.moveTo(8, -3.6); x.quadraticCurveTo(15, 0, 8, 3.6); x.closePath(); x.fill();
+  x.fillStyle = '#A8E4FF'; x.beginPath(); x.arc(2, 0, 1.8, 0, 7); x.fill(); x.fillStyle = '#ffffff70'; x.fillRect(-8, -3, 14, 1.2); });
+const mtrapSpr = () => aspr('mtrap', 60, 44, (x) => { rrect(x, -28, -20, 56, 40, 4, '#D9A066', '#8A5A2B', 2); x.strokeStyle = '#B07A3E'; x.lineWidth = 0.8; for (let k = -14; k <= 14; k += 7) { x.beginPath(); x.moveTo(-26, k); x.lineTo(26, k + 1); x.stroke(); }
+  x.strokeStyle = '#8A93A3'; x.lineWidth = 2; x.beginPath(); x.rect(-18, -14, 36, 28); x.stroke(); x.fillStyle = '#5A6070'; x.beginPath(); x.arc(-18, 0, 3, 0, 7); x.fill(); });
+// the ground layer: pads, patches, slicks, the traps' bases and the crates (labels stand upright)
+function drawArmsLow(t, me, Rv, cth) {
+  const th = TH(), A = ARMS_TH[th.key] || ARMS_TH.kitchen, vis = (x, y, r = 40) => Math.abs(x - me.x) < Rv + r && Math.abs(y - me.y) < Rv + r;
+  g.zones.forEach((z) => { if (!vis(z.x, z.y, z.len)) return;
+    if (z.kind === 'boost') { stamp(padSpr(), z.x, z.y, z.a, z.len, z.wid); ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t / 120 + z.s * 50); stamp(padLit(), z.x, z.y, z.a, z.len, z.wid); ctx.globalAlpha = 1; }   // the chevrons pulse (a lit copy faded in and out, no glow to fill)
+    else { stamp(slowSpr(th.key), z.x, z.y, z.a, z.len, z.wid); stamp(emojiSpr(A.slow[0]), z.x, z.y, -cth, 19, 19); } });
+  g.slicks.forEach((k) => { if (!vis(k.x, k.y)) return; stamp(slickSpr(th.key), k.x, k.y, k.a, k.r * 2.6, k.r * 2.6); if (th.key !== 'kitchen') stamp(emojiSpr(A.slick[0]), k.x + 6, k.y - 4, -cth, 14, 14); });
+  g.traps.forEach((tr) => { if (vis(tr.x, tr.y, (tr.reach || 0) + 80)) drawTrapLow(tr, t); });
+  g.crates.forEach((b) => { if (b.t > 0 || !vis(b.x, b.y)) return; const e = Math.min(1, b.pop), sc = (0.5 + 0.5 * e * (2 - e)) * (1 + 0.07 * Math.sin(t / 160 + b.lat));
+    stamp(crateSpr(!!b.gold), b.x, b.y, -cth + Math.sin(t / 300 + b.lat) * 0.18, 40 * sc, 40 * sc); });
+}
+function drawTrapLow(tr, t) {
+  const L = tr.look, st = trapState(tr), { u, P } = trapClock(tr);
+  if (tr.k === 'roller') {   // a groove across the road where it rolls, and the thing itself waiting at the side
+    const a = spotOn(tr.s, -g.track.w / 2), b = spotOn(tr.s, g.track.w / 2); ctx.strokeStyle = '#00000030'; ctx.lineWidth = 16; ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]); return; }
+  if (tr.k === 'swing') { ctx.fillStyle = '#00000040'; ctx.beginPath(); ctx.arc(tr.px + 3, tr.py + 4, 12, 0, 7); ctx.fill(); return; }
+  ctx.save(); ctx.translate(tr.x, tr.y); ctx.rotate(tr.a);
+  if (tr.k === 'mousetrap') { ctx.drawImage(mtrapSpr(), -30, -22, 60, 44); const bx = st === 'armed' ? -18 : 18;
+    ctx.strokeStyle = '#E3E8EE'; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.moveTo(bx, -16); ctx.lineTo(bx, 16); ctx.stroke(); ctx.strokeStyle = '#6A7180'; ctx.lineWidth = 1; ctx.stroke();
+    if (st === 'armed') { ctx.fillStyle = '#FFD23F'; ctx.beginPath(); ctx.moveTo(10, -7); ctx.lineTo(22, 0); ctx.lineTo(10, 7); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#E0A800'; ctx.beginPath(); ctx.arc(14, -1, 1.4, 0, 7); ctx.arc(17, 2, 1.1, 0, 7); ctx.fill(); } }
+  else if (tr.k === 'spring') { const up = st === 'up', warn = !up && u > P - 0.45 && !host.reduceMotion, jit = warn ? Math.sin(t / 25) * 1.5 : 0, pop = up ? Math.sin(Math.min(1, u / 0.55) * Math.PI) : 0;
+    ctx.fillStyle = '#00000040'; ctx.beginPath(); ctx.arc(3, 4, 19, 0, 7); ctx.fill();
+    if (L.water) { ctx.fillStyle = L.lid; ctx.beginPath(); ctx.arc(jit, 0, 10, 0, 7); ctx.fill(); ctx.strokeStyle = '#5A6070'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = L.col; ctx.beginPath(); ctx.arc(jit, 0, 4, 0, 7); ctx.fill();
+      if (up) { ctx.strokeStyle = '#7EC8F5cc'; ctx.lineWidth = 3; for (let q = 0; q < 3; q++) { ctx.beginPath(); ctx.arc(0, 0, 8 + (q * 6 + u * 40) % 18, 0, 7); ctx.stroke(); } ctx.fillStyle = '#CFEFFF'; ctx.beginPath(); ctx.arc(0, 0, 8 + 8 * pop, 0, 7); ctx.fill(); } }
+    else { ctx.fillStyle = L.col; ctx.beginPath(); ctx.roundRect(-17 + jit, -17, 34, 34, 4); ctx.fill(); ctx.strokeStyle = '#7A1010'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = L.lid; ctx.fillRect(-3 + jit, -17, 6, 34); ctx.fillRect(-17 + jit, -3, 34, 6);
+      if (up) { const r = 9 + 7 * pop; ctx.strokeStyle = '#C0C7D2'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r * 0.7, 0, 7); ctx.stroke(); ctx.fillStyle = '#FFE0B8'; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill(); ctx.strokeStyle = '#2B2B33'; ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = '#1B1B22'; ctx.beginPath(); ctx.arc(r * 0.25, -r * 0.35, 1.6, 0, 7); ctx.arc(r * 0.25, r * 0.35, 1.6, 0, 7); ctx.fill(); ctx.fillStyle = '#EE2B3B'; ctx.beginPath(); ctx.arc(r * 0.6, 0, 2.2, 0, 7); ctx.fill(); } } }
+  else if (tr.k === 'hatch') { const open = st === 'open', e = open ? Math.min(1, u / 0.2, (1.2 - u) / 0.2) : 0, hl = tr.hl, hw = tr.hw;
+    if (L.mole) { ctx.fillStyle = '#3B2412'; ctx.beginPath(); ctx.ellipse(0, 0, hl * 0.8, hw * 0.8, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#5A3A1E'; ctx.beginPath(); ctx.ellipse(0, 0, hl * (0.5 + 0.3 * e), hw * (0.5 + 0.3 * e), 0, 0, 7); ctx.fill();
+      if (e > 0.3) { ctx.fillStyle = '#7A5230'; ctx.beginPath(); ctx.ellipse(-2, -2, hl * 0.45 * e, hw * 0.45 * e, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#4A3428'; ctx.beginPath(); ctx.arc(4, 0, 6 * e, 0, 7); ctx.fill(); ctx.fillStyle = '#FF9EB5'; ctx.beginPath(); ctx.arc(8 * e + 2, 0, 2, 0, 7); ctx.fill(); ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(5, -2.5, 1, 0, 7); ctx.arc(5, 2.5, 1, 0, 7); ctx.fill(); } }
+    else { ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 3; ctx.setLineDash([5, 5]); ctx.strokeRect(-hl - 2, -hw - 2, hl * 2 + 4, hw * 2 + 4); ctx.setLineDash([]);
+      ctx.fillStyle = '#0B0A12'; ctx.fillRect(-hl, -hw, hl * 2, hw * 2);
+      const off = e * hl * 1.6; ctx.fillStyle = L.col; ctx.fillRect(-hl + off, -hw, hl * 2, hw * 2); ctx.strokeStyle = '#00000060'; ctx.lineWidth = 1.5; ctx.strokeRect(-hl + off, -hw, hl * 2, hw * 2);
+      if (L.manhole) { ctx.strokeStyle = '#5A5470'; ctx.lineWidth = 1.2; for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(-hl + off + 4, k * 8); ctx.lineTo(hl + off - 4, k * 8); ctx.stroke(); } }
+      else { ctx.fillStyle = '#2B2F3A'; ctx.fillRect(-hl + off + hl - 9, -2, 18, 4); } } }
+  ctx.restore();
+}
+// the upper layer: rollers, swinging arms, rockets and their trails, rings, bolts, clouds, the magnet's pull and the draft
+function drawArmsHigh(t, me, Rv, cth) {
+  const vis = (x, y, r = 40) => Math.abs(x - me.x) < Rv + r && Math.abs(y - me.y) < Rv + r, upX = -Math.sin(cth), upY = -Math.cos(cth), A = ARMS_TH[TH().key] || ARMS_TH.kitchen;
+  g.traps.forEach((tr) => { if (!vis(tr.x, tr.y, (tr.reach || 0) + 80)) return; const L = tr.look;
+    if (tr.k === 'roller') { const rl = rollerLat(tr), q = spotOn(tr.s, rl.lat), r = 13, spinA = rl.lat / r;
+      ctx.fillStyle = '#00000040'; ctx.beginPath(); ctx.arc(q.x + 3, q.y + 4, r, 0, 7); ctx.fill();
+      ctx.fillStyle = L.col; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7); ctx.fill(); ctx.strokeStyle = L.rim; ctx.lineWidth = 1.6; ctx.stroke();
+      ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(spinA);
+      if (L.dimple) { ctx.fillStyle = '#C9600A88'; for (let k = 0; k < 6; k++) { ctx.beginPath(); ctx.arc(Math.cos(k) * 7, Math.sin(k * 1.7) * 7, 1, 0, 7); ctx.fill(); } ctx.fillStyle = '#3E8A28'; ctx.beginPath(); ctx.ellipse(0, -9, 4, 2, 0.4, 0, 7); ctx.fill(); }
+      else if (L.glass) { ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 7, 0.5, 2.6); ctx.stroke(); ctx.strokeStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(0, 0, 7, 3.6, 5.6); ctx.stroke(); }
+      else { ctx.fillStyle = '#D6E9F7'; for (let k = 0; k < 5; k++) { ctx.beginPath(); ctx.arc(Math.cos(k * 1.3) * 6, Math.sin(k * 1.9) * 6, 2.2, 0, 7); ctx.fill(); } }
+      ctx.restore(); ctx.fillStyle = '#ffffffaa'; ctx.beginPath(); ctx.arc(q.x - 4, q.y - 4, 3, 0, 7); ctx.fill(); }
+    else if (tr.k === 'swing') { const tp = swingTip(tr), ax = tp.x - tr.px, ay = tp.y - tr.py, an = Math.atan2(ay, ax);
+      ctx.lineCap = 'round'; ctx.strokeStyle = '#00000038'; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(tr.px + 4, tr.py + 5); ctx.lineTo(tp.x + 4, tp.y + 5); ctx.stroke();
+      if (L.gate) { ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(tr.px, tr.py); ctx.lineTo(tp.x, tp.y); ctx.stroke(); ctx.strokeStyle = L.head; ctx.setLineDash([9, 9]); ctx.stroke(); ctx.setLineDash([]); ctx.strokeStyle = L.head + '40'; ctx.lineWidth = 14; ctx.stroke(); }
+      else { ctx.strokeStyle = L.fan ? '#6A7180' : '#C0C7D2'; ctx.lineWidth = L.bauble ? 2 : 5; ctx.beginPath(); ctx.moveTo(tr.px, tr.py); ctx.lineTo(tp.x, tp.y); ctx.stroke(); }
+      ctx.save(); ctx.translate(tp.x, tp.y); ctx.rotate(an);
+      if (L.fan) { ctx.fillStyle = L.head; ctx.strokeStyle = '#4A5160'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(-14, 0, 16, 7, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+      else if (L.bauble) { ctx.fillStyle = L.col; ctx.beginPath(); ctx.arc(0, 0, 11, 0, 7); ctx.fill(); ctx.strokeStyle = L.head; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(11, 0); ctx.stroke(); ctx.fillStyle = L.head; ctx.fillRect(-14, -3, 4, 6); ctx.fillStyle = '#ffffff99'; ctx.beginPath(); ctx.arc(-3, -4, 3, 0, 7); ctx.fill(); }
+      else if (!L.gate) { ctx.fillStyle = '#C9D1DC'; ctx.beginPath(); ctx.ellipse(-4, 0, 9, 6, 0, 0, 7); ctx.fill(); }
+      ctx.restore(); ctx.lineCap = 'butt';
+      ctx.fillStyle = L.col; ctx.beginPath(); ctx.arc(tr.px, tr.py, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#00000070'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = L.head || '#FFFFFF'; ctx.beginPath(); ctx.arc(tr.px, tr.py, 3.5, 0, 7); ctx.fill(); } });
+  // 🚀 rockets: a smoke trail (one stroke), a glow, the sprite
+  g.proj.forEach((p) => { if (!vis(p.x, p.y, 60)) return;
+    if (p.tr.length > 3) { ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(p.tr[0], p.tr[1]); for (let i = 2; i < p.tr.length; i += 2) ctx.lineTo(p.tr[i], p.tr[i + 1]); ctx.strokeStyle = '#FFFFFF66'; ctx.lineWidth = 5; ctx.stroke(); ctx.strokeStyle = p.gold ? '#FFD23F' : '#FFB347'; ctx.lineWidth = 2; ctx.stroke(); ctx.lineCap = 'butt'; }
+    stamp(glowS(p.gold ? '#FFD23F' : '#FF8A3D'), p.x - Math.cos(p.a) * 12, p.y - Math.sin(p.a) * 12, 0, 30, 30); stamp(rocketSpr(p.gold ? '#FFD23F' : A.rcol), p.x, p.y, p.a, 30, 16); });
+  g.waves.forEach((w) => { const e = 1 - w.life / w.max; ctx.globalAlpha = Math.max(0, 1 - e); ctx.strokeStyle = w.col; ctx.lineWidth = (w.w || 3) * (1 - e) + 1; ctx.beginPath(); ctx.arc(w.x, w.y, w.r + (w.R - w.r) * (1 - (1 - e) * (1 - e)), 0, 7); ctx.stroke(); }); ctx.globalAlpha = 1;
+  // 🌩️ a stormcloud over a slowed car, its bolt when it lands
+  allCars().forEach((c) => { if (!(c.zapT > 0) || !vis(c.x, c.y)) return; const cx = c.x + upX * 26, cy = c.y + upY * 26;
+    ctx.fillStyle = '#4B5260'; [[-8, 2, 8], [0, -2, 10], [9, 2, 7]].forEach(([dx, dy, r]) => { ctx.beginPath(); ctx.arc(cx - upY * dx + upX * dy, cy + upX * dx + upY * dy, r, 0, 7); ctx.fill(); });
+    ctx.strokeStyle = '#7EC8F5aa'; ctx.lineWidth = 1.2; ctx.beginPath(); for (let k = 0; k < 4; k++) { const ph = ((t / 300 + k * 0.27) % 1) * 18, ox = -upY * (k * 5 - 7), oy = upX * (k * 5 - 7); ctx.moveTo(cx + ox - upX * (6 + ph), cy + oy - upY * (6 + ph)); ctx.lineTo(cx + ox - upX * (10 + ph), cy + oy - upY * (10 + ph)); } ctx.stroke(); });
+  g.bolts.forEach((b) => { const c = b.c; ctx.globalAlpha = Math.min(1, b.life * 3); ctx.strokeStyle = '#FFF6A8'; ctx.lineWidth = 3; ctx.lineJoin = 'miter'; ctx.beginPath(); ctx.moveTo(c.x, c.y); b.j.forEach((j, i) => { const d = (i + 1) * 14; ctx.lineTo(c.x + upX * d - upY * j * 14, c.y + upY * d + upX * j * 14); }); ctx.stroke(); ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.2; ctx.stroke(); }); ctx.globalAlpha = 1;
+  if (me.magT > 0 && alive(me.magTo)) { ctx.strokeStyle = '#FF5DA2'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]); ctx.lineDashOffset = -t / 20; ctx.beginPath(); ctx.moveTo(me.x, me.y); ctx.lineTo(me.magTo.x, me.magTo.y); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0; }
+  if (me.slipT > 0 || me.draftT > 0.3) { const ca = Math.cos(me.a), sa = Math.sin(me.a), al = me.slipT > 0 ? 0.7 : 0.35; ctx.strokeStyle = '#FFFFFF'; ctx.lineCap = 'round'; ctx.lineWidth = 1.5; ctx.globalAlpha = al;
+    ctx.beginPath(); for (let k = 0; k < 4; k++) { const o = (k < 2 ? -1 : 1) * (16 + (k % 2) * 7), ph = ((t / 90 + k * 0.37) % 1) * 30; const x0 = me.x - sa * o + ca * (14 - ph), y0 = me.y + ca * o + sa * (14 - ph); ctx.moveTo(x0, y0); ctx.lineTo(x0 - ca * 18, y0 - sa * 18); } ctx.stroke(); ctx.globalAlpha = 1; ctx.lineCap = 'butt'; }
 }
 
 // ---------------------------------------------------------------- 🎨 places and vehicles
@@ -1260,6 +1604,7 @@ function draw(t) {
     ctx.strokeStyle = st.kerbEdge; ctx.lineWidth = 12; ctx.stroke(isl.path); ctx.strokeStyle = st.kerb[0]; ctx.lineWidth = 8; ctx.stroke(isl.path); ctx.strokeStyle = st.kerb[1]; ctx.setLineDash([9, 9]); ctx.stroke(isl.path); ctx.setLineDash([]);
     ctx.fillStyle = tex(th.surf); ctx.fill(isl.path); ctx.strokeStyle = '#00000030'; ctx.lineWidth = 3; ctx.stroke(isl.path);
     if (isl.solid) drawSolid(isl.solid, vc, sun, t); });
+  if (!OFF.arms) drawArmsLow(t, me, Rv, g.camA + (g.turn || 0));   // ⏩ pads, 🐢 patches, 🍌 slicks, 🪤 traps on the road, ❓ crates
   // hazards, each drawn as the thing it is (a label stands upright on the milk and the boxes, whichever way the table turns)
   g.items.forEach((i) => { if (i.kind === 'milk') drawMilk(i, upright, th); else if (i.kind === 'hole') drawHole(i, th); else if (i.kind === 'toaster') drawToaster(i, th); else if (i.kind === 'box') drawBox(i, upright, t, th); });
   g.obs.forEach((o) => { if (o.kind === 'box') drawBox(o, upright, t, th); else drawSoldier(o, t, th); });
@@ -1272,7 +1617,7 @@ function draw(t) {
   const cth = g.camA + (g.turn || 0), upX = -Math.sin(cth), upY = -Math.cos(cth);   // screen-up, on the table
   const dk = Math.max(g.dark, g.dimNow || 0);
   const car = (c, hue, mine) => { const re = c.rescue ? Math.min(1, c.rescue.t / RESCUE) : -1, lift = re >= 0 ? 34 * Math.sin(re * Math.PI) : 0;
-    ctx.save(); ctx.translate(c.x + upX * lift, c.y + upY * lift - (c.air > 0 ? 14 * Math.sin((0.7 - c.air) / 0.7 * Math.PI) : 0)); ctx.rotate(c.a); { const f = c.fall > 0 ? 0.25 + 0.75 * (c.fall / 0.7) : re >= 0 ? 0.25 + 0.75 * Math.min(1, re * 1.6) : 1; ctx.scale(CAR * f, CAR * f); if (c.fall > 0) ctx.globalAlpha = 0.4 + 0.6 * (c.fall / 0.7); }
+    ctx.save(); ctx.translate(c.x + upX * lift, c.y + upY * lift - (c.air > 0 ? 14 * Math.sin((1 - c.air / (c.airMax || 0.7)) * Math.PI) : 0)); ctx.rotate(c.a); { const f = c.fall > 0 ? 0.25 + 0.75 * (c.fall / 0.7) : re >= 0 ? 0.25 + 0.75 * Math.min(1, re * 1.6) : 1; ctx.scale(CAR * f, CAR * f); if (c.fall > 0) ctx.globalAlpha = 0.4 + 0.6 * (c.fall / 0.7); }
     if (g.glitch && !mine) { drawPal(g.glitchPal || 'fig', ctx, { x: 0, y: 0, s: 9, t: t / 1000, r: 4, face: 1 }); ctx.restore(); ctx.globalAlpha = 1; return; }
     const body = mine ? '#22E0C8' : `hsl(${hue} 90% 56%)`, dark = mine ? '#0B8C7E' : `hsl(${hue} 80% 32%)`, light = mine ? '#9FF7EC' : `hsl(${hue} 95% 78%)`, sx = vh.seat, bk = vh.rear + 1;
     // 🛞 suspension: a little bounce with speed, a squash after a landing or a knock
@@ -1282,7 +1627,7 @@ function draw(t) {
     if (vh.key !== 'ufo' && !OFF.carx) { const ra = c.a + cth, sh = Math.sin(ra) * 5; ctx.fillStyle = '#FFFFFF26'; ctx.beginPath(); ctx.ellipse(sh, -Math.cos(ra) * 3, 6, 3.2, 0, 0, 7); ctx.fill(); }   // a reflection that slides over the body as it turns
     if (c.brk || dk > 0.1) { ctx.globalCompositeOperation = 'lighter'; [-5.5, 5.5].forEach((y) => { if (c.brk) { ctx.fillStyle = '#FF2A2A55'; ctx.beginPath(); ctx.arc(bk, y, 5.5, 0, 7); ctx.fill(); ctx.fillStyle = '#FF6A6A'; ctx.beginPath(); ctx.arc(bk, y, 1.8, 0, 7); ctx.fill(); } if (dk > 0.1) { ctx.fillStyle = '#FFF2A866'; ctx.beginPath(); ctx.arc(12, y * 0.9, 3.6, 0, 7); ctx.fill(); } }); ctx.globalCompositeOperation = 'source-over'; }   // brake lights, headlamps in the dark
     if (mine && re >= 0) { ctx.fillStyle = '#15151B88'; ctx.beginPath(); ctx.arc(sx, 0, 3.5, 0, 7); ctx.fill(); } else if (mine) drawPal(g.glitch ? (g.glitchPal || 'fig') : (S.curve.mood || 'calm'), ctx, { x: sx, y: 0, s: 6, t: t / 1000, r: S.curve.r, face: 1, hurt: c.spin > 0 || c.fall > 0 }); else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, 0, 3.2, 0, 7); ctx.fill(); ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(sx, 0, 1.6, 0, 7); ctx.fill(); ctx.fillStyle = '#ffffffaa'; ctx.beginPath(); ctx.arc(sx - 0.9, -0.9, 0.8, 0, 7); ctx.fill(); }
-    if (mine && g.bumper) { ctx.strokeStyle = '#C9B8FF'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.stroke(); } if (mine && g.nitro > 0) { const nf = g.nitro > 2 ? 1.6 : 1; ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.moveTo(bk, -3 * nf); ctx.lineTo(bk - (11 + Math.random() * 8) * nf, 0); ctx.lineTo(bk, 3 * nf); ctx.fill(); ctx.fillStyle = '#FFE36B'; ctx.beginPath(); ctx.moveTo(bk, -1.5 * nf); ctx.lineTo(bk - (6 + Math.random() * 4) * nf, 0); ctx.lineTo(bk, 1.5 * nf); ctx.fill(); }   // 🔥 a pocket's long burst burns bigger
+    if (c.shield > 0) { ctx.fillStyle = '#9FF7EC26'; ctx.strokeStyle = c.shield < 1.2 && Math.sin(t / 60) > 0 ? '#FFFFFF55' : '#CFFBFFdd'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#FFFFFFaa'; ctx.beginPath(); ctx.arc(-6, -9, 2.4, 0, 7); ctx.fill(); }   // 🫧 a bubble shield if (mine && g.nitro > 0) { const nf = g.nitro > 2 ? 1.6 : 1; ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.moveTo(bk, -3 * nf); ctx.lineTo(bk - (11 + Math.random() * 8) * nf, 0); ctx.lineTo(bk, 3 * nf); ctx.fill(); ctx.fillStyle = '#FFE36B'; ctx.beginPath(); ctx.moveTo(bk, -1.5 * nf); ctx.lineTo(bk - (6 + Math.random() * 4) * nf, 0); ctx.lineTo(bk, 1.5 * nf); ctx.fill(); }   // 🔥 a pocket's long burst burns bigger
     ctx.restore(); ctx.globalAlpha = 1;
     if (mine && re >= 0) {   // Fig, out of the car and big, carrying it: two little arms down to the roof
       const fx = c.x + upX * (lift + 30), fy = c.y + upY * (lift + 30) + Math.sin(t / 70) * 1.5, cx = c.x + upX * lift, cy = c.y + upY * lift;
@@ -1290,6 +1635,7 @@ function draw(t) {
       ctx.save(); ctx.translate(fx, fy); ctx.rotate(-cth); drawPal(g.glitch ? (g.glitchPal || 'fig') : (S.curve.mood || 'calm'), ctx, { x: 0, y: 0, s: 15, t: t / 1000, r: S.curve.r, face: 1 }); ctx.restore();
     } };
   g.rivals.forEach((r) => { if (!(r.out > 0) && Math.abs(r.y - me.y) < lim) car(r, r.hue, false); }); car(me, 0, true);
+  if (!OFF.arms) drawArmsHigh(t, me, Rv, cth);   // 🍊 rollers, 🪭 swings, 🚀 rockets, rings, clouds, the magnet and the draft
   g.fx.forEach((f) => { if (f.kind === 'bit') { ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2)); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.fillStyle = f.col; ctx.fillRect(-f.sz / 2, -f.sz / 2, f.sz, f.sz * 0.7); ctx.restore(); return; } ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(-(g.camA + (g.turn || 0))); ctx.translate(-f.x, -f.y); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); ctx.font = f.big ? '400 18px Bungee, Impact, sans-serif' : '900 13px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#2A1A0A'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); ctx.restore(); }); ctx.globalAlpha = 1;
   // 🛏️ overhead: the tunnels' roofs (see-through while you're under one) and the finish gantry
   vis.forEach((sc) => { if (!sc.roofP) return; const R2 = ROOFS[sc.roof] || ROOFS.bed, a = 0.94 - 0.64 * g.inRoof;
@@ -1394,8 +1740,9 @@ const organ = {
   glitch(on, pal) { if (g) { g.glitch = on; g.glitchPal = pal; } },
   init(h) { host = h; ctx = h.ctx; S = h.S; sfx = h.sfx; window.__rl = organ.debug; },
   start() { newGame(); },
-  enter(from) { if (!g) newGame(); host.ui(''); held = {}; },
-  leave() { held = {}; return g?.me ? { x: W / 2, y: H() / 2 } : null; },
+  enter(from) { if (!g) newGame(); bar = host.ui('<div class="wbar" aria-label="Weapon"></div>').querySelector('.wbar'); if (bar) bar.onclick = (e) => { e.preventDefault(); fireMine(); }; renderBar(); held = {}; taps = {}; },
+  leave() { held = {}; taps = {}; bar = null; return g?.me ? { x: W / 2, y: H() / 2 } : null; },
+  keydown(e) { if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') { e.preventDefault?.(); fireMine(); } },
   update, draw, onBeat,
   // 🕳️ the pocket: through the thing coming up the road, and what comes back out of it
   pocket: slotcarPocket,
@@ -1412,16 +1759,40 @@ const organ = {
     if (gf.heal) host.heal(gf.heal);
     g.fx.push({ kind: 'text', x: g.me.x, y: g.me.y - 30, text: `🔥 NITRO${gf.heal ? ' · ❤️ +1' : ''}`, life: 1.6, big: true, col: '#FFE36B' }); sfx('cannon', { size: 0.4 });
   },
-  pointer(type, p, e) { const id = e?.pointerId ?? 0; if (type === 'down') { const b = boxAt(p); if (b) smash(b); held[side(p)] = true; held['id' + id] = side(p); } else if (type === 'move') { const s = held['id' + id]; if (s && side(p) !== s) { held[s] = false; held[side(p)] = true; held['id' + id] = side(p); } } else { const s = held['id' + id]; if (s) { held[s] = false; delete held['id' + id]; } else { held = {}; } } },
-  hudLine: () => (g ? `🏎️ course ${g.course} · ${Math.round(progress() * 100)}%` : ''),
+  // 🎯 with a weapon, a quick tap (under TAP_MS, barely moved) on the upper middle of the field uses it; a press held there
+  // longer, or dragged, steers like anywhere else
+  pointer(type, p, e) { const id = e?.pointerId ?? 0;
+    if (type === 'down') { const b = boxAt(p); if (b) smash(b); if (!b && g?.weapon && p.y < H() * 0.62 && Math.abs(p.x - W / 2) < W * 0.32) { taps[id] = { x: p.x, y: p.y, t: performance.now() }; return; } held[side(p)] = true; held['id' + id] = side(p); }
+    else if (type === 'move') { const tp = taps[id]; if (tp) { if (Math.hypot(p.x - tp.x, p.y - tp.y) > 12) { delete taps[id]; held[side(p)] = true; held['id' + id] = side(p); } return; } const s = held['id' + id]; if (s && side(p) !== s) { held[s] = false; held[side(p)] = true; held['id' + id] = side(p); } }
+    else { const tp = taps[id]; if (tp) { delete taps[id]; if (performance.now() - tp.t < TAP_MS) fireMine(); return; } const s = held['id' + id]; if (s) { held[s] = false; delete held['id' + id]; } else { held = {}; taps = {}; } } },
+  hudLine: () => (g ? `🏎️ course ${g.course} · ${Math.round(progress() * 100)}%${g.weapon ? ` · ${wpn(g.weapon.kind).icon}` : ''}` : ''),
   level: () => g?.course || 1,
   overText: (how) => (how === 'fell in the pocket' ? ['🕳️ POCKETED', 'Too many trips down the pocket.'] : how === 'off the table' ? ['🫳 OFF THE TABLE', 'The table is only so big.'] : how === 'fell off the edge' ? ['🪂 OVER THE EDGE', 'Mind the open edges.'] : ['RUN OVER', '']),
-  endStats: () => (g ? `🏎️ ${finishN} ${finishN === 1 ? 'finish' : 'finishes'} · ${outsN} rivals left behind` : ''),
-  debug: () => g && ({ auto: (on) => { g.auto = on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); },
+  endStats: () => (g ? `🏎️ ${finishN} ${finishN === 1 ? 'finish' : 'finishes'} · ${outsN} rivals left behind · 🎯 ${hitsGivenN} hits` : ''),
+  debug: () => g && ({ auto: (on) => { g.auto = on; }, autoFire: (on) => { g.autoHold = !on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, boxList: [...g.items, ...g.obs].filter((b) => b.kind === 'box').map((b) => ({ s: b.s ?? nearest(b.x, b.y).s, hit: !!b.hit })), smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); },
     sections: g.secs.map((sc) => ({ i: sc.i, icon: sc.icon, name: sc.name, kind: sc.kind, s0: sc.s0, s1: sc.s1 })), section: secAt(g.me.s).i, secShown: g.secShown, islands: g.islands.map((i) => ({ s: i.s, lh: i.lh, wi: i.wi, kind: i.kind })), lane: g.me.lane || 0, lat: g.me.lat || 0,
     goSection: (i) => { const sc = g.secs[Math.max(0, Math.min(g.secs.length - 1, i | 0))], sk = sc.s0 + 0.012, p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, pieces: g.pieces.length, skids: g.skids.length, skid: !!g.me.skid, sparks: g.dust.filter((p) => p.spark).length, dim: g.dimNow, inRoof: g.inRoof, map: mapRect(H()), fin: g.fin ? g.fin.t : null, zoomTarget: camZoom(),
     pocketThings: pocketThings().map((c) => ({ thing: c.thing, s: c.s, half: c.half })), pkThing: g.pkThing ? { thing: g.pkThing.thing, s: g.pkThing.s } : null, nitro: g.nitro, slowT: g.slowT || 0, toScreen: (x, y) => toScreen({ x, y }),
     obstacles: g.solids.map((o) => ({ s: o.s, lat: o.lat, r: o.cr, lext: o.lext, kind: o.kind, shape: o.shape, island: !!o.island, free: o.free, x: o.x, y: o.y })), obsHits: obsHitsN, rivalObsHits: rivalHitsN, slip: g.me.slip || 0, vel: { x: g.me.vx || 0, y: g.me.vy || 0 }, w: g.me.w || 0, shake: g.shake || 0,
+    // 🎁 the arms
+    crates: g.crates.map((b) => ({ s: b.s, lat: b.lat, live: b.t <= 0, gold: !!b.gold, temp: !!b.temp, row: b.row })), weapon: g.weapon ? { ...g.weapon } : null, shots: shotsN, hitsTaken: hitsTakenN, hitsGiven: hitsGivenN, trapHits: g.trapHits || 0,
+    give: (k, n = 1, gold = false) => { g.weapon = { kind: k, n, gold }; renderBar(); }, fire: () => fireMine(), kinds: Object.keys(WEAPONS), weaponName: (k) => wpn(k).name,
+    zones: g.zones.map((z) => ({ kind: z.kind, s: z.s, lat: z.lat, len: z.len, wid: z.wid })), traps: g.traps.map((t) => ({ kind: t.k, name: t.look.name, icon: t.look.icon, s: t.s, lat: t.lat, hitLat: t.hitLat, state: trapState(t) })),
+    spin: g.me.spin || 0, air: g.me.air || 0, shield: g.me.shield || 0, padT: g.me.padT || 0, slipT: g.me.slipT || 0, draftT: g.me.draftT || 0, zapT: g.me.zapT || 0, magT: g.me.magT || 0, mud: !!g.me.mud,
+    proj: g.proj.map((p) => ({ x: p.x, y: p.y, s: p.s, owner: p.owner === g.me ? 'me' : p.owner?.n, target: p.target === g.me ? 'me' : p.target?.n ?? null })), slicks: g.slicks.map((k) => ({ s: k.s, lat: k.lat, owner: k.owner === g.me ? 'me' : k.owner?.n ?? null })), waves: g.waves.length, bolts: g.bolts.length,
+    rivalArms: g.rivals.map((r) => ({ n: r.n, weapon: r.weapon || null, turboT: r.turboT || 0, holdT: r.holdT || 0, spin: r.spin || 0, zapT: r.zapT || 0, shield: r.shield || 0, s: r.s, v: r.v, air: r.air || 0, out: r.out || 0, done: r.done })),
+    rivalFire: (i, k) => { const r = g.rivals[i]; if (r) fireWeapon(r, k, false); }, rivalGive: (i, k) => { const r = g.rivals[i]; if (r) { r.weapon = k; r.holdT = 0; } },
+    placeRival: (i, du, dl = 0, v) => { const r = g.rivals[i]; if (!r) return; const sk = g.me.s + du / g.track.len, p = spotOn(sk, dl), a = at(sk).a; Object.assign(r, { x: p.x, y: p.y, a, s: sk, prevS: sk, lat: dl, out: 0, done: false, fall: 0, rescue: null, spin: 0, w: 0, air: 0, v: v ?? g.me.v, vx: null }); },
+    parkRivals: () => { g.rivals.forEach((r, i) => { const sk = Math.max(0.005, g.me.s - (600 + i * 60) / g.track.len), p = at(sk); Object.assign(r, { x: p.x, y: p.y, a: p.a, s: sk, prevS: sk, v: 0, vx: null, out: 999 }); }); },
+    trap: (i = 0, d = 90, dl) => { const tr = g.traps[i]; if (!tr) return null; const L = g.track.len, sk = tr.s - d / L, lat = dl ?? tr.hitLat, p = spotOn(sk, lat), a = at(sk).a, me = g.me, v = topSpeed(), eta = d / v;
+      Object.assign(me, { x: p.x, y: p.y, a, s: sk, prevS: sk, lat, spin: 0, w: 0, air: 0, trapCD: 0, shield: 0, v, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vs: v });
+      if (tr.k === 'roller') tr.t0 = g.time + eta - ROLL_T() / 2; else if (tr.k === 'swing') tr.t0 = g.time + eta; else if (tr.k === 'spring') tr.t0 = g.time + eta - 0.25; else if (tr.k === 'hatch') tr.t0 = g.time + eta - 0.5; else tr.snapT = -99;
+      return { kind: tr.k, x: tr.x, y: tr.y }; },
+    zoneAt: (i = 0, d = 60, dl = 0, v) => { const z = g.zones[i]; if (!z) return null; const sk = z.s - d / g.track.len, lat = z.lat + dl, p = spotOn(sk, lat), a = at(sk).a, me = g.me, sp = v ?? topSpeed(); Object.assign(me, { x: p.x, y: p.y, a, s: sk, prevS: sk, lat, spin: 0, w: 0, air: 0, padT: 0, v: sp, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vs: sp }); return { kind: z.kind }; },
+    crateAt: (i = 0, d = 60) => { const b = g.crates[i]; if (!b) return null; const sk = b.s - d / g.track.len, p = spotOn(sk, b.lat), a = at(sk).a, me = g.me, v = topSpeed(); Object.assign(me, { x: p.x, y: p.y, a, s: sk, prevS: sk, lat: b.lat, spin: 0, w: 0, air: 0, v, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vs: v }); return { s: b.s, lat: b.lat }; },
+    twistNow: (k) => { const tw = TWISTS.find((x) => x[2] === k); if (!tw) return; g.twist = null; const keep = Math.random; Math.random = () => TWISTS.indexOf(tw) / TWISTS.length + 1e-6; try { twist(); } finally { Math.random = keep; } },
+    stop: () => { Object.assign(g.me, { v: 0, vx: 0, vy: 0, vs: 0, spin: 0, w: 0 }); },
+    beat: (ev) => onBeat(ev), clearArms: () => { g.traps = []; g.zones = []; g.slicks = []; g.proj = []; g.crates = []; },
     hitObstacle: (i = 0, d = 70, v, dl = 0) => { const o = g.solids[i]; if (!o) return null; const sk = o.s - d / g.track.len, p = spotOn(sk, o.lat + dl), a = at(sk).a, me = g.me; me.x = p.x; me.y = p.y; me.a = a; me.s = me.prevS = sk; me.lat = o.lat + dl; me.spin = 0; me.w = 0; me.air = 0; me.v = v ?? topSpeed(); me.vx = Math.cos(a) * me.v; me.vy = Math.sin(a) * me.v; me.vs = me.v; return { x: o.x, y: o.y, r: o.cr }; } }),
 };
 export default organ;

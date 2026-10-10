@@ -1004,6 +1004,32 @@ the air 0.35), so fast corners slide (`c.slip`, skids past 0.14 rad); understeer
 (`bounceAlong`); cars collide as circles sharing momentum (`carHit`). `__rl()` adds `obstacles`, `hitObstacle(i, d, v,
 dl)`, `obsHits`, `rivalObsHits`, `slip`, `vel`, `w`, `shake`, `goCourse(n, seed)`. Tests (scratch): `t_rlobs`,
 `t_rlauto`, `t_rlautoc`, `t_rllock`, `t_rlplace`.
+**Rally's weapons, speed zones and traps (rally.js, page only).** `placeArms()` (from `newCourse`, after `placeObstacles`)
+puts down the place's traps (`TRAPS[place]`: two kinds each, 2 on course 1 / Stage 1, then `1 + course + stage − 1` up to 7,
+as room allows), ❓ crate rows (3 crates, 4 from course 3, about every 0.12) and ⏩ boost pads / 🐢 slow patches (`mkZone`; a
+slow patch always to one side with `free`). Crates and traps keep off bridges, tunnels and islands (`roadClear`); traps also
+off open edges and 380 before / 200 after the 🕳️ pocket (`pocketClear`). A crate gives a weapon (`rollWeapon`, weighted by
+`WEAPONS[k].w[lead/mid/back]`) and comes back after `CRATE_BACK` (2.5 s). You hold one (`g.weapon {kind, n, gold}`, the
+`.wbar` slot via `renderBar`) and fire it with the slot, Space/↑/W, or a tap under `TAP_MS` (180 ms, < 12 px) on the upper
+middle of the field (held longer, it becomes a steer: `taps`, promoted in `update`; boxes still smash first). Weapons
+(`fireWeapon`, shared with rivals): 🚀 rocket (`g.proj`, homes on `carAhead`, named per place in `ARMS_TH`), a slick
+(`g.slicks`: 🍌🧃🐌🖋️🧊🛢️), 💥 shockwave (210), 🌩️ stormcloud (`zapT` 2 s on `leaderBut`, 0.55×; not ⚡, a cue mark), 🫧 bubble
+shield (`shield` 6 s, one knock), 🔥 turbo (`g.nitro` / rivals' `turboT`), 🧲 magnet (`magT`, never `nearEdge`). Every knock
+is `spinOut` (`SPIN_T`, one full turn back to the same heading, speed ×0.4 along the road, ×0.12 for the mousetrap), never a
+life; `hop` throws a car in the air (springs and hatches), the rest spin. Traps: 🪤 mousetrap, roller (🍊🎱⚪), spring (🎁💦),
+hatch (🐹🗄️🕳️), swinging arm (🪭🔔🚧) on clocks `trapClock`/`trapState`/`rollerLat`/`swingTip`, `TRAP_P` ÷ `trapSpeed()`.
+Rivals pick up (40% at course 1 / Stage 1, more later), wait `rivalHold()`, fire only when it would land (`rivalArms`), never
+at you near an open edge. `carStuff(c)` runs crates, zones, slicks, traps and the slipstream (0.8 s 20–120 behind a car →
+`slipT`, 1.12×) for every car; `stepArms` flies rockets. `drive()` multiplies vmax by pads/turbo/draft/cloud/patch/magnet;
+patches cut grip to 0.7. `softs()` → `g.avoid` lets `avoidLat` dodge patches, slicks and live traps and line up for pads.
+Chaos: peak → a rival fires or the next trap goes off; gold → 🌟 golden crate (3 golden rockets); gift → 🛡️ bubble shield;
+mirror swaps weapons too; big twists 🎯 MISSILE RAIN and SLIPPERY TABLE. Your hits banner with hurt words on purpose (Fig
+winces). Chaos soldiers and boxes no longer drop past the finish (they piled up there). Sprites painted once (`aspr`,
+`crateSpr`, `padSpr`/`padLit`, `slowSpr`, `slickSpr`, `rocketSpr`, `mtrapSpr`, `emojiSpr`), drawn by `drawArmsLow`/`drawArmsHigh`
+(`__rlOff.arms` skips both); ms/frame +1.0 on course 1, +0.2 on 4 and 6. `__rl()` adds `crates, weapon, give, fire, zones,
+traps, spin, hitsTaken, hitsGiven, shots, shield, padT, slipT, zapT, magT, mud, proj, slicks, rivalArms, rivalFire, rivalGive,
+placeRival, parkRivals, trap(i, d, dl), zoneAt, crateAt, twistNow, beat, stop, autoFire`. Tests (scratch): `t_rlweap` (56
+checks), `t_rlstage`; `t_rlobs`'s "a scrape keeps most of the speed" is borderline on HEAD too.
 **⚔️ War (organs/war.js, page only): the card game with a verb.** The run's seventh organ, wild, after Rally in `run.html`
 (calms stay apart). The House deals face up from its pile into the lanes (`LANES()` 1/2/3/3 by stage); you hold `HAND()`
 3/4/5/5 face-up cards and tap one (it plays the lane waiting longest, `urgent()`) or drag it onto a lane (`nearestLane`).
