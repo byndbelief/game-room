@@ -979,6 +979,25 @@ the air 0.35), so fast corners slide (`c.slip`, skids past 0.14 rad); understeer
 (`bounceAlong`); cars collide as circles sharing momentum (`carHit`). `__rl()` adds `obstacles`, `hitObstacle(i, d, v,
 dl)`, `obsHits`, `rivalObsHits`, `slip`, `vel`, `w`, `shake`, `goCourse(n, seed)`. Tests (scratch): `t_rlobs`,
 `t_rlauto`, `t_rlautoc`, `t_rllock`, `t_rlplace`.
+**⚔️ War (organs/war.js, page only): the card game with a verb.** The run's seventh organ, wild, after Rally in `run.html`
+(calms stay apart). The House deals face up from its pile into the lanes (`LANES()` 1/2/3/3 by stage); you hold `HAND()`
+3/4/5/5 face-up cards and tap one (it plays the lane waiting longest, `urgent()`) or drag it onto a lane (`nearestLane`).
+Higher wins both cards to your pile (Fig sits on it), (10 + 4·rank) × `fibMult(combo)`; lower, both go to the House.
+Equal is **WAR!** (`startWar`: slam, shake, drumroll): `warStep` puts three face-down cards from each pile in the lane's
+`pot`, the House flips a fourth (state `warpick`, "YOUR FOURTH"), you play yours; the winner takes the pot (40 × cards ×
+combo, ×2 under Double War), a tie wars again. Each waiting card burns a fuse (`TMAX()` 7.5/5.8/4.6/3.8 s); at zero the
+House takes it and one of yours (`timeout`, `host.hurt('too slow')`, banner `⏱️ OUCH · TOO SLOW`); no cards left is
+`host.hurt('out of cards')` + 8 fresh. An empty House pile wins the round (`roundWon`: heal, +300·round, `⚔️ ROUND n · …`,
+a bigger deck skewed higher by `foeSkew()`). Beats: peak → `burst` (x > 0.9 a face card next), window → `threes`, mirror →
+the House's high cards `spin` to 16 − r, balance → full hand and fuses, gift → a J/Q/K, gold → golden Ace (×2), golden →
++618, fib → ×2 next win. Twists `twist(kind)`: 🔄 reverse (low wins), 🃏 joker (beats anything, ×3), ⚔️ double war, 🌪️
+shuffle. Cards `{r, s, gold, joker, x, y, a, sc, f}` tween with `to()` (ease-out/back, a `lift`), `flip()` is a scaleX
+squash, `spin(c, r)` goes edge-on to a new rank. Faces, back (a Sierpiński on violet lattice), joker (Fig on it), shadow
+and glow are sprites built once (`buildSprites`, faces lazily); the velvet table is cached (`buildBg`, ≤ every 300 ms).
+🌊 Under: candlelight over the battle line, suits drifting up like smoke. Glitch: faces show the glitcher's pal. `__wr()`
+has the state plus `play(i, li), forceWar(li), setLane, setHand, twist(k), beat(ev), skip, winRound, drain, empty,
+timeout(li), screen, handPos, lanePos`. Tests (scratch): `t_runwar` (every hand kind, a real tap and drag, every twist and
+event, a round, lives and reset, depth, morph and back; 6× throttle Stage 4: 25.6 fps vs Salvo 19.0), `t_wrdeep`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the

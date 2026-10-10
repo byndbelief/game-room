@@ -142,8 +142,8 @@ draw(t), onBeat(ev), pointer(type, p), keydown/keyup, resize, hudLine, level, ov
 debug`. The host gives `cv, ctx, W, H, k, dpr, reduceMotion, S, banner, add, hurt, heal, over, sfx, ui,
 morphs`. Adding an organ to the run is one import and one array entry. The organs so far, and their verbs:
 🐿️ Squirrel Chaos (tap to staple) · 🔺 Fractal Dash (tap to jump, hold to dash) · ⚓ Salvo (tap the sea to
-fire, tap torpedoes) · ⛳ Putt (drag back and let go) · 💥 Hilltop (drag to aim, let go to fire). The last
-three are the multiplayer games' DNA in thirty-second bites, solo: every cell of a ship must burn; five
+fire, tap torpedoes) · ⛳ Putt (drag back and let go) · 💥 Hilltop (drag to aim, let go to fire) · 🏎️ Rally (hold a side to steer) · ⚔️ War (tap or drag a card
+to beat theirs; a tie is a WAR). Hilltop, Salvo and Putt are the multiplayer games' DNA in thirty-second bites, solo: every cell of a ship must burn; five
 putts a cup on a green of fractal bumps; a fractal ridge that craters, and tanks that fire back.
 
 ## 🧘 Calm within the chaos
