@@ -1310,7 +1310,7 @@ organ's `onBeat` runs (`inBeat`), and the shell plays one sound per beat itself:
 (`moodFig` logistic-map square blips, `moodKit` a backwards swell, `moodBit` an 8-bit arpeggio, `moodPhi` a glide by φ,
 `moodCalm` a low breath), else `evGolden` (a pluck and its φ), `evMirror` (a reversed swell and its tritone),
 `evBalance` (two tones beating into unison), `evWindow` (three music-box notes), `evGold` (a shimmer). Each is pitched by
-the curve's x, and rationed: one every 2.5 s at most, the same one at most every 12 s. Test (scratch): `t_beatsnd`.
+the curve's x, and rationed: one every 2.5 s at most, the same one at most every 12 s. A pocket's offer plays `hollow` (a breath pulled into a hole, then a far drip), not a chime. Test (scratch): `t_beatsnd`.
 **The end card's numbers** (shell.js `over`): one row per game (`.ostats`: its icon from the first word of
 `endStats()`, then the rest), then the run's numbers as chips (`.rchips`: 🧬 morphs, 🌐 run r, 🌀 best game r).
 **Solo score cap (082).** `solo_submit` and the `solo_scores` check both capped a score at 1,000,000 (063,

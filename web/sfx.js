@@ -86,6 +86,8 @@ const SOUNDS = {
   moodKit(t, o = {}) { const f = 294 * Math.pow(2, (o.x ?? 0.5) - 0.5); tone('sine', f, f, t, 0.05, 0.12, 0.3); tone('sine', f * 1.5, f * 1.5, t, 0.05, 0.08, 0.3); },
   moodBit(t, o = {}) { const f = 220 * Math.pow(2, Math.round(((o.x ?? 0.5) - 0.5) * 6) / 12); notes('square', [f, f * 1.26, f * 1.5, f * 2], t, 0.055, 0.05, 0.06); },
   moodPhi(t, o = {}) { const f = 247 * Math.pow(2, (o.x ?? 0.5) - 0.5); const a = tone('sine', f, f * 1.618, t, 0.6, 0.1, 0.06); a.detune.setValueAtTime(0, t); a.detune.linearRampToValueAtTime(30, t + 0.6); },
+  // 🕳️ a pocket opens: a hollow breath pulled into a hole, then a far-off drip from inside (o.x: how deep it sounds)
+  hollow(t, o = {}) { const k = Math.pow(2, ((o.x ?? 0.5) - 0.5) * 0.6); noise(t, 0.55, 0.1, 'bandpass', 900 * k, 180 * k, 6, 0.12); tone('sine', 150 * k, 70 * k, t + 0.05, 0.5, 0.12, 0.08); tone('sine', 1180 * k, 760 * k, t + 0.62, 0.09, 0.05, 0.004); },
   moodCalm(t) { noise(t, 0.8, 0.07, 'lowpass', 500, 160, 0.6, 0.25); tone('sine', 110, 98, t, 0.8, 0.05, 0.2); },
 };
 

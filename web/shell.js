@@ -244,7 +244,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     offer: (sp, forced = false) => {   // an organ shows its way in; the shell decides whether it may
       if (!sp || !active?.pocket || pk || offer || S.over || transition) return false;
       if (!forced && (pkCool > 0 || deepF() < POCKET.DEEP)) return false;
-      offer = { x: sp.x, y: sp.y, r: sp.r || 18, icon: sp.icon || active.pocket.icon, t: 0, organ: active, forced }; sfx('chime'); return true;
+      offer = { x: sp.x, y: sp.y, r: sp.r || 18, icon: sp.icon || active.pocket.icon, t: 0, organ: active, forced }; sfx('hollow', { x: Math.random() }); return true;
     },
     offering: () => !!offer && offer.organ === active, inside: () => !!pk,
   };
