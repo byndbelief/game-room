@@ -944,6 +944,19 @@ block). `drawVehicle(vh, body, dark, light, mine, t, c)` in car units; Fig sits 
 `g.dust` (≤ 90). `newCourse` banners `"<icon> COURSE n · <PLACE>"`. Road and table edges are one `Path2D` each a frame,
 cut to the points in reach, with `lineDashOffset = cum[i0]`. `__rl()` has `theme`, `vehicle`, `dust`, `decor`,
 `goCourse(n)`. Headless fps dropped from ~60 to ~49–57 (software rendering): watch it on a phone.
+**Rally's sections and track map (rally.js, page only).** Each race is four sections (`cutSecs`: about 0/0.25/0.5/0.75
+± 0.03); each place's `SECS[key]` names icon, name, a road shape (`KINDS`: sprint, weave, sweep, bridge, tunnel, fork,
+blended into the fractal heading over `BLEND`, still capped at ±1.3 rad), a ground patch, road surface and kerbs
+(`roadStyle`), set pieces (`PIECES`, sprites drawn once, `makePieces`), and a bridge gap (`gap`, the table narrows to
+`BRIDGE_M`), a tunnel roof (`roof`, `ROOFS`, `dim`) or a fork island (`g.islands`, `islandNear`, `aimAt` picks a lane);
+hazards and open edges stay off bridges, tunnels and islands. Entering a section banners `"<icon> <NAME>"` (checked
+against the shell's `HURTS`/`CUE`; the garden is 🌼, not 🌻). Path2Ds built once per course (`buildSecPaths`). The map
+(`mapRect`/`buildMap`/`drawMap`) is a cached panel top right, dots drawn each frame. **Fill rate is the budget**: the road
+is one full-width tape stroke plus thin lines along `track.off` edge lines; the road shadow, table shadow and thickness
+are edge strokes; floor and table top are even-odd fills round what covers them; steering zones light only while held.
+Keep it that way (ms/frame vs the previous version: course 1 22.8 vs 23.9, course 6 21.5 vs 28.5). `window.__rlOff`
+switches layers off for profiling. Skids capped at `SKIDS` (700), dust and sparks at 150. `__rl()` adds `sections`,
+`section`, `goSection(i)`, `islands`, `pieces`, `skids`, `map`, `fin`, `zoomTarget` and more.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the
