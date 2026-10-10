@@ -169,7 +169,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   // 🎨 the resident pal sits in the corner and feels every beat (pals.js; who it is: the Design Studio)
   const pal = palWidget($('spal'), { pal: 'calm', s: 22, own: false, dpr: 2 });   // 🟢 Fig, in the run's mood
   const host = {
-    cv, ctx, W: W0, H: 640, k: 1, dpr: 1, ox: 0, oy: 0, reduceMotion, S, sfx, morphs,
+    cv, ctx, W: W0, H: 640, k: 1, dpr: 1, ox: 0, oy: 0, reduceMotion, S, sfx: (n, o) => { if (n === 'chime' && inBeat) return; sfx(n, o); }, morphs,
     banner, add: (pts) => { S.score += Math.max(0, Math.round(pts)); },
     heal: (n = 1) => { if (active) S.lives[active.key] = Math.min(3, livesOf(active.key) + n); },
     hurt: (how) => { S.combo = 0; S.comboT = 0; S.depth = (S.depth || 0) * 0.5; pal.hurt(); if (!active) return false; S.lives[active.key] = livesOf(active.key) - 1; if (S.lives[active.key] <= 0) resetPending = how; return false; },
@@ -189,6 +189,15 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   let lungeT = null, waves = [], flyT = null;
   const palPt = () => { const r = $('spal').getBoundingClientRect(), c = cv.getBoundingClientRect(); return { x: (r.left + r.width / 2 - c.left) * (cv.width / c.width), y: (r.top + r.height * 0.56 - c.top) * (cv.height / c.height) }; };
   const MOODC = { calm: '#3DD6C6', fig: '#FF5FB0', kit: '#C9B8FF', bit: '#9BE7FF', phi: '#F5C542' };
+  // 🔊 The twists' sounds: a different one per twist and per mood of Fig's, pitched by x, and rationed (one every 2.5 s
+  // at most, the same one at most every 12 s), so the curve's busy beats don't ring like a timer.
+  let inBeat = false, lastSnd = 0; const sndAt = {};
+  const MOOD_SND = { fig: 'moodFig', kit: 'moodKit', bit: 'moodBit', phi: 'moodPhi', calm: 'moodCalm' };
+  function beatSound(ev) {
+    const name = ev.moodChanged ? MOOD_SND[ev.mood] : ev.golden ? 'evGolden' : ev.mirror ? 'evMirror' : ev.balance ? 'evBalance' : ev.enteredWindow ? 'evWindow' : ev.gold ? 'evGold' : null;
+    const now = performance.now(); if (!name || now - lastSnd < 2500 || now - (sndAt[name] || -1e9) < 12000) return;
+    lastSnd = now; sndAt[name] = now; sfx(name, { x: S.curve.x });
+  }
   function react(kind) {   // in the corner only: a swell and a tilt, bigger for the bigger twists, then back
     if (flyT) return;
     const big = kind === 'glitch' || kind === 'stage' || kind === 'lens', sc = kind === 'near' ? 0.8 : big ? 1.9 : kind === 'kill' ? 1.5 : 1.35, rot = kind === 'mirror' ? -16 : kind === 'near' ? 6 : 10;
@@ -413,7 +422,8 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (ev.mirror) { wave('mirror'); banner(...NEWS.mirror); }
     if (ev.balance) banner(...NEWS.balance);
     if (ev.golden) { wave('golden'); banner(...NEWS.golden); }
-    if (pk) pk.mod.onBeat?.(ev); else active.onBeat(ev);   // 🕳️ the organ is paused while you're in its pocket; the pocket hears the beat
+    beatSound(ev);   // 🔊 one odd sound per twist, from the run itself (the organs' own beat chimes are muted: inBeat)
+    inBeat = true; try { if (pk) pk.mod.onBeat?.(ev); else active.onBeat(ev); } finally { inBeat = false; }   // 🕳️ the organ is paused while you're in its pocket; the pocket hears the beat
     if (morphs && !transition && !S.over && !held && !S.testHold) {   // 🧘 nothing morphs during a calm
       let to = null, why = '';
       if (ev.window) { to = nextOrgan(); why = 'window'; }

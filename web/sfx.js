@@ -76,6 +76,17 @@ const SOUNDS = {
   gulp(t) { tone('sine', 520, 90, t, 0.45, 0.32, 0.01); noise(t, 0.5, 0.22, 'lowpass', 900, 120, 1, 0.02); tone('sine', 300, 620, t + 0.38, 0.12, 0.1); },
   surface(t) { for (let i = 0; i < 5; i++) tone('sine', 300 + i * 140, 700 + i * 160, t + i * 0.07, 0.08, 0.11); noise(t, 0.4, 0.14, 'bandpass', 600, 2400, 1.5, 0.05); },
   flash(t) { noise(t, 0.25, 0.6, 'highpass', 5000, 1200, 0.7, 0.002); tone('sine', 120, 30, t, 0.6, 0.9); },
+  // 🌀 The run's twists, one odd little sound each (o.x is the curve's x, so no two sound quite alike). No chimes.
+  evMirror(t, o = {}) { const f = 330 * Math.pow(2, (o.x ?? 0.5) - 0.5); tone('sine', f, f, t, 0.06, 0.16, 0.38); tone('sine', f * 1.414, f * 1.414, t + 0.44, 0.05, 0.1, 0.22); },
+  evBalance(t, o = {}) { const f = 196 * Math.pow(2, ((o.x ?? 0.5) - 0.5) * 0.5); tone('triangle', f * 1.06, f, t, 0.7, 0.13, 0.04); tone('triangle', f * 0.94, f, t, 0.7, 0.13, 0.04); },
+  evGolden(t, o = {}) { const f = 262 * Math.pow(2, (o.x ?? 0.5) - 0.5), P = 1.618; tone('triangle', f, f, t, 0.3, 0.14); tone('triangle', f * P, f * P, t + 0.16, 0.3, 0.12); tone('sine', f * P, f * P * P, t + 0.34, 0.45, 0.06, 0.02); },
+  evWindow(t, o = {}) { const f = 880 * Math.pow(2, ((o.x ?? 0.5) - 0.5) * 0.3); notes('triangle', [f, f * 0.84, f * 0.707], t, 0.13, 0.18, 0.07); },
+  evGold(t) { noise(t, 0.5, 0.08, 'highpass', 6000, 9000, 0.7, 0.03); tone('sine', 2637, 2637, t + 0.05, 0.4, 0.05); },
+  moodFig(t, o = {}) { let x = 0.13 + (o.x ?? 0.5) * 0.7; for (let i = 0; i < 6; i++) { x = 3.99 * x * (1 - x); tone('square', 180 + 700 * x, 180 + 700 * x, t + i * 0.045, 0.035, 0.05); } noise(t + 0.27, 0.12, 0.08, 'bandpass', 1400, 400, 3); },
+  moodKit(t, o = {}) { const f = 294 * Math.pow(2, (o.x ?? 0.5) - 0.5); tone('sine', f, f, t, 0.05, 0.12, 0.3); tone('sine', f * 1.5, f * 1.5, t, 0.05, 0.08, 0.3); },
+  moodBit(t, o = {}) { const f = 220 * Math.pow(2, Math.round(((o.x ?? 0.5) - 0.5) * 6) / 12); notes('square', [f, f * 1.26, f * 1.5, f * 2], t, 0.055, 0.05, 0.06); },
+  moodPhi(t, o = {}) { const f = 247 * Math.pow(2, (o.x ?? 0.5) - 0.5); const a = tone('sine', f, f * 1.618, t, 0.6, 0.1, 0.06); a.detune.setValueAtTime(0, t); a.detune.linearRampToValueAtTime(30, t + 0.6); },
+  moodCalm(t) { noise(t, 0.8, 0.07, 'lowpass', 500, 160, 0.6, 0.25); tone('sine', 110, 98, t, 0.8, 0.05, 0.2); },
 };
 
 export function sfx(name, opts) {

@@ -1304,6 +1304,13 @@ side shadow, a low sun and streaks from (W/2, H·0.12) scaled by `me.v`. Test (s
 and 1, screenshots). `__shell()` has `depth`, `deep`, `deepest`, `jolts`, `jolt`; `force('depth:0.9')`. Test
 (scratch): `t_deep` (real taps build it, idle drains it, the fade's opacities, a forced jolt frame by frame, a shallow
 morph doesn't jolt, the end card chips).
+**🔊 The twists' sounds (shell.js `beatSound`, sfx.js `ev*`/`mood*`).** The organs each played `chime` on mirror,
+balance and golden beats, so the run rang the same three notes over and over. Now the host's `sfx` swallows `chime` while an
+organ's `onBeat` runs (`inBeat`), and the shell plays one sound per beat itself: a change of Fig's mood first
+(`moodFig` logistic-map square blips, `moodKit` a backwards swell, `moodBit` an 8-bit arpeggio, `moodPhi` a glide by φ,
+`moodCalm` a low breath), else `evGolden` (a pluck and its φ), `evMirror` (a reversed swell and its tritone),
+`evBalance` (two tones beating into unison), `evWindow` (three music-box notes), `evGold` (a shimmer). Each is pitched by
+the curve's x, and rationed: one every 2.5 s at most, the same one at most every 12 s. Test (scratch): `t_beatsnd`.
 **The end card's numbers** (shell.js `over`): one row per game (`.ostats`: its icon from the first word of
 `endStats()`, then the rest), then the run's numbers as chips (`.rchips`: 🧬 morphs, 🌐 run r, 🌀 best game r).
 **Solo score cap (082).** `solo_submit` and the `solo_scores` check both capped a score at 1,000,000 (063,
