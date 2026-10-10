@@ -11,7 +11,7 @@ username. A new account only becomes a robot once it's in `public.bots`.
   row-level security, `security definer` RPCs for every move, Realtime, and the `notify`
   Edge Function (Web Push, VAPID).
 - **Games:** ⚓ Battleship, ⛳ Putt Post (mini golf), 💥 Hilltop Duel (artillery), 🃏 Chaos
-  Cards (an Uno-style shedding game), and 🏆 **the Gauntlet**, a best-of series of random
+  Cards (an Uno-style shedding game), ⚔️ War (084), and 🏆 **the Gauntlet**, a best-of series of random
   rounds of those four. Chaos layer on top:
   loot, curses, twists (`005_chaos.sql`). Cheating is a deliberate game mechanic.
   Loot rates (`039_more_loot.sql`): `_chaos_after_move` scales each game's loot chance by 1.8 (a
@@ -556,6 +556,31 @@ SQL, apply it locally twice (it must be re-runnable).
 - Per-device conveniences (mute, remembered aim, seen replays) use `localStorage` wrapped
   in try/catch; anything shared lives in the database.
 - Write user-facing copy for kids and a busy parent: short, plain, a little playful.
+
+### ⚔️ War (084, `web/war.html` + `war.js`)
+A family multiplayer card game for 2–4 (people and robots), kind `war`, table `war_games`. A 52-card deck (`AS`, `TD`, `7H`;
+A high) is dealt evenly; the piles live in `war_piles` (RLS, **no policy**, seat −1 = the pot, which holds what doesn't
+divide), so pages only see `counts`. A battle: everyone still in flips (`war_flip`; `flips[seat]` is `''` until then, `'-'`
+once out). When all are up, `_war_resolve` pays the highest card the lot, shuffled into the bottom of its pile. A tie is a
+WAR: 3 down + 1 up each (keep one to turn up; nothing to turn up loses the war), again on a tie; it writes `last_battle`
+(flips, `wars[{who, down, up, short}]`, win, taken, counts) for the pages to play back. Out of cards = out; last pile
+standing wins; after `cap` (150) battles it's sudden death on most cards. Robots flip the moment a battle starts
+(`_war_settle`, server-side), so a battle waits only on people; robots-only endings play out at once. Live
+(`live_here('war')`, robots always here): 4 s after the first *person* flips any page calls `war_timeout` (3.5 s on the
+server). Chaos: one curve beat per battle with the winner as `chaos.mover` (wild, not calm). `_war_twist` sets up the next
+battle: 🔄 reverse (lowest wins), 🃏 joker (`twist_seat`'s card is an Ace), 💥 double (opens with a war), or 🌀 shuffles every
+pile now (`last_battle.shuffle`). Mirror/golden/Fibonacci drops at half odds (War is long), plus `_chaos_mark_move`; no
+`_chaos_after_move` (no lucky find, no curse). Chaos clock: 2 h = your card flips itself, 8 h = plus two cards into the pot,
+24 h on a Chaos round = forfeit (most cards wins). Route to Chaos deals it for groups of 4 or fewer. Results (`_log_war_result`:
+left/battles/wars), `family_stats` by_kind, `player_trophies` (`war_won`, ⚔️ Warlord badge at 5), `here_now`, hidden games and
+deletes know War. "Your move" means `flips[you] === ''`. The page animates everything through one promise chain
+(`queueSync` → `sync` → `playBattle`): deal, 3D flips (`.wc.up` rotates `.wc-in`), war fans with a drumrolled fourth card,
+sweep to the winner; `disp` holds the on-screen counts while cards fly. Await an rpc builder only once (`.then(r => r)`):
+awaiting it twice sends it twice. Flip is `aria-disabled`, never `disabled`, so a hold's let-go is heard. `notify` handles
+kind `war` ("Your flip: War" to everyone still to flip, "X won the war"). Test hook `window.__war()`; tests rig decks through
+`war_piles` as superuser. Tests (scratch): `t_war`, `t_warbot`, `t_warchaos`, `t_wartwist`. 084 was applied to production
+by pasting it into the SQL Editor (2026-10-10): the Supabase MCP's confirmation for `drop … if exists` never resolves from a
+cloud session, and auto mode (rightly) refuses masking the keywords.
 
 ### Battleship: your shells leave at once
 `launchShell(owner, cell)` (app.js) flies your shell the moment you press Fire (or tap in a live

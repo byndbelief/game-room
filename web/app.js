@@ -347,16 +347,17 @@ function loginView(msg) {
 
 
 // ---------------------------------------------------------------- lobby
-const KIND_ICON = { battleship: '⚓', golf: '⛳', duel: '💥', cards: '🃏', gauntlet: '🌀' };
-const KIND_NAME = { battleship: 'Battleship', golf: 'Putt Post', duel: 'Hilltop Duel', cards: 'Chaos Cards', gauntlet: 'Route to Chaos' };
+const KIND_ICON = { battleship: '⚓', golf: '⛳', duel: '💥', cards: '🃏', war: '⚔️', gauntlet: '🌀' };
+const KIND_NAME = { battleship: 'Battleship', golf: 'Putt Post', duel: 'Hilltop Duel', cards: 'Chaos Cards', war: 'War', gauntlet: 'Route to Chaos' };
 const KIND_BLURB = {
   battleship: 'Hide your fleet, hunt theirs. Peeking is allowed.',
   golf: '🧘 Calm within the chaos: 18 wild holes, sneak attacks and mulligans.',
   duel: '🧘 Calm within the chaos: tanks on hills. Mind the wind. Up to 4 in a free-for-all.',
   cards: '🧘 Calm within the chaos: match colours, dump your hand. Chaos cards and card storms.',
+  war: 'Flip, flip, WAR! Highest card takes the lot. Pure chaos, no mercy.',
   gauntlet: 'A best-of series of random games. Winner takes the crown.',
 };
-const KIND_SHORT = { battleship: 'Battleship', golf: 'Putt Post', duel: 'Duel', cards: 'Cards', gauntlet: 'Chaos' };
+const KIND_SHORT = { battleship: 'Battleship', golf: 'Putt Post', duel: 'Duel', cards: 'Cards', war: 'War', gauntlet: 'Chaos' };
 // The robots in a new-game form (and Route to Chaos): one − N + counter instead of a chip each. The
 // robot chips are still there (hidden, data-bot), so the rest of the form works as before: the counter
 // just presses the first N of them.
@@ -377,7 +378,7 @@ function wireBotStep(key, chips, room, onChange) {
     onChange(); syncBotStep(key, chips);
   }));
 }
-const KIND_WHO = { battleship: '2–3 players', golf: 'Solo or up to 4 · 🧘 calm', duel: '2–4 players · 🧘 calm', cards: '2–4 players · 🧘 calm', gauntlet: '2–4 players · 3, 5 or 7 rounds' };
+const KIND_WHO = { battleship: '2–3 players', golf: 'Solo or up to 4 · 🧘 calm', duel: '2–4 players · 🧘 calm', cards: '2–4 players · 🧘 calm', war: '2–4 players', gauntlet: '2–4 players · 3, 5 or 7 rounds' };
 
 async function lobby() {
   G = null;
@@ -425,7 +426,7 @@ async function lobby() {
       <section class="stack" id="newSec">
         <h2 class="qpick">Pick a game</h2>
         <div class="ncards" role="radiogroup" aria-label="Pick a game">
-          ${['battleship', 'golf', 'duel', 'cards'].map((k) => `
+          ${['battleship', 'golf', 'duel', 'cards', 'war'].map((k) => `
           <button type="button" class="ncard k-${k}" data-kind="${k}" role="radio" aria-checked="false">
             <canvas class="preview" data-kind="${k}" width="320" height="200" aria-hidden="true"></canvas>
             <span class="nbody"><strong><span class="nfull">${KIND_ICON[k]} ${KIND_NAME[k]}</span><span class="nshort">${KIND_ICON[k]} ${KIND_SHORT[k]}</span></strong><span class="muted small">${KIND_BLURB[k]}</span><span class="eyebrow">${KIND_WHO[k]}</span></span>
@@ -456,7 +457,7 @@ async function lobby() {
       <a class="quickentry" href="#stats"><span class="qicons" aria-hidden="true">🏅</span><span><strong>Family scoreboard</strong><span class="muted small">All-time titles, wins, streaks and bragging rights</span></span><span class="qgo" aria-hidden="true">›</span></a>
       <a class="quickentry" href="studio.html"><span class="qicons" aria-hidden="true">🎨</span><span><strong>Design Studio</strong><span class="muted small">Fig's four personalities, live: poke them</span></span><span class="qgo" aria-hidden="true">›</span></a>
       <details class="practice"><summary class="quickentry"><span class="qicons" aria-hidden="true">🎯</span><span><strong>Practice</strong><span class="muted small">One game on its own, off the Route to Chaos: it still feeds your chaos rating</span></span><span class="qgo" aria-hidden="true">›</span></summary>
-        <a class="quickentry" href="#quick"><span class="qicons" aria-hidden="true">⚓⛳💥🃏</span><span><strong>A game against someone</strong><span class="muted small">Battleship, Putt Post, Hilltop Duel or Chaos Cards</span></span><span class="qgo" aria-hidden="true">›</span></a>
+        <a class="quickentry" href="#quick"><span class="qicons" aria-hidden="true">⚓⛳💥🃏⚔️</span><span><strong>A game against someone</strong><span class="muted small">Battleship, Putt Post, Hilltop Duel, Chaos Cards or War</span></span><span class="qgo" aria-hidden="true">›</span></a>
         <a class="quickentry" href="squirrel.html"><span class="qicons" aria-hidden="true">🐿️📎</span><span><strong>Squirrel Chaos</strong><span class="muted small">Solo: staple the squirrels in a fractal forest before the chaos swarms</span></span><span class="qgo" aria-hidden="true">›</span></a>
         <a class="quickentry" href="fractal.html"><span class="qicons" aria-hidden="true">🔺✨</span><span><strong>Fractal Dash</strong><span class="muted small">Solo: jump and dash over a fractal ridge as the chaos curve climbs</span></span><span class="qgo" aria-hidden="true">›</span></a>
         <a class="quickentry" href="rally.html"><span class="qicons" aria-hidden="true">🏎️🧵</span><span><strong>Rally</strong><span class="muted small">Micro Machines on a kitchen table · solo</span></span><span class="qgo" aria-hidden="true">›</span></a>
@@ -522,7 +523,7 @@ async function lobby() {
   const picked = () => chips.filter((x) => x.getAttribute('aria-pressed') === 'true');
   const LIMITS = {
     battleship: [1, 5, 'Opponents (one, or up to five for a free-for-all)'], golf: [0, 5, 'Opponents (none for a solo round, up to five)'],
-    duel: [1, 5, 'Opponents (one for a duel, up to five for a free-for-all)'], cards: [1, 3, 'Opponents (one to three)'], gauntlet: [1, 5, 'Opponents (one to five)'],
+    duel: [1, 5, 'Opponents (one for a duel, up to five for a free-for-all)'], cards: [1, 3, 'Opponents (one to three)'], war: [1, 3, 'Opponents (one to three)'], gauntlet: [1, 5, 'Opponents (one to five)'],
   };
   const refreshForm = () => {
     if (!chosen) return;
@@ -561,7 +562,7 @@ async function lobby() {
     start.disabled = true;
     // One game of each kind per group of players: if it's already going, pick it back up.
     const ids = picked().map((x) => x.dataset.id), group = [me.id, ...ids].sort().join(',');
-    const table = { battleship: 'games', golf: 'golf_games', duel: 'duel_games', cards: 'card_games' }[k];
+    const table = { battleship: 'games', golf: 'golf_games', duel: 'duel_games', cards: 'card_games', war: 'war_games' }[k];
     const { data: running } = await sb.from(table).select('id, players, gauntlet_id').neq('status', 'over').is('gauntlet_id', null).limit(100);
     const same = (running ?? []).find((g) => [...g.players].sort().join(',') === group);
     if (same) {
@@ -577,6 +578,8 @@ async function lobby() {
       res = await sb.rpc('duel_create', { p_opponents: opponents, p_bot_level: botLevel });
     } else if (k === 'cards') {
       res = await sb.rpc('card_create', { opponents, p_bot_level: botLevel });
+    } else if (k === 'war') {
+      res = await sb.rpc('war_create', { opponents });
     } else if (k === 'gauntlet') {
       res = await sb.rpc('gauntlet_create', { opponents, p_rounds: +app.querySelector('input[name=rounds]:checked').value });
     } else {
@@ -604,7 +607,7 @@ async function lobby() {
     if (on) { el.classList.add('show'); b.setAttribute('aria-expanded', 'true'); }
   }; });
   const reload = () => { loadGames(); loadChaos(); };
-  setChannel(['games', 'golf_games', 'duel_games', 'card_games', 'gauntlets', 'chaos_events'].reduce(
+  setChannel(['games', 'golf_games', 'duel_games', 'card_games', 'war_games', 'gauntlets', 'chaos_events'].reduce(
     (ch, table) => ch.on('postgres_changes', { event: '*', schema: 'public', table }, reload), sb.channel('lobby'))
     .subscribe((st) => { const l = document.getElementById('live'); if (l) l.classList.toggle('off', st !== 'SUBSCRIBED'); }));
   loadGames(); loadChaos();
@@ -618,22 +621,23 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && do
 // ---- your games, as a list of game states
 async function loadGames() {
   chaosClock().then((n) => { if (n) loadGames(); });   // overdue stalls land first (throttled to once a minute)
-  const [bsRes, golfRes, duelRes, gtRes, cardRes, hidRes] = await Promise.all([
+  const [bsRes, golfRes, duelRes, gtRes, cardRes, hidRes, warRes] = await Promise.all([
     sb.from('games').select('*').order('updated_at', { ascending: false }).limit(40),
     sb.from('golf_games').select('*').order('updated_at', { ascending: false }).limit(40),
     sb.from('duel_games').select('*').order('updated_at', { ascending: false }).limit(40),
     sb.from('gauntlets').select('*').order('updated_at', { ascending: false }).limit(200),
     sb.from('card_games').select('*').order('updated_at', { ascending: false }).limit(40),
     sb.from('hidden_games').select('game_id'),
+    sb.from('war_games').select('*').order('updated_at', { ascending: false }).limit(40),
   ]);
   const list = document.getElementById('games');
   if (!list) return;
   if (bsRes.error) { list.innerHTML = `<p class="error">Couldn't load games: ${esc(friendly(bsRes.error))}</p>`; return; }
   // Finished games you deleted stay out of your list (they're only gone for you).
   const hidden = new Set((hidRes.data ?? []).map((h) => h.game_id)), shown = (r) => (r.data ?? []).filter((g) => !hidden.has(g.id));
-  const bs = shown(bsRes), golf = shown(golfRes), duel = shown(duelRes), cardGames = shown(cardRes);
+  const bs = shown(bsRes), golf = shown(golfRes), duel = shown(duelRes), cardGames = shown(cardRes), warGames = shown(warRes);
   // A Gauntlet still in progress whose current round is gone (deleted) is dead; don't list it.
-  const alive = new Set([...bs, ...golf, ...duel, ...cardGames].map((g) => g.id));
+  const alive = new Set([...bs, ...golf, ...duel, ...cardGames, ...warGames].map((g) => g.id));
   const gts = (gtRes.data ?? []).filter((g) => g.status === 'over' || alive.has(g.current_game));
   const bsIds = bs.map((g) => g.id), golfIds = golf.map((g) => g.id);
   const [{ data: myFleets }, { data: atMe }, { data: golfTurns }] = await Promise.all([
@@ -671,6 +675,15 @@ async function loadGames() {
     const mine = g.counts[g.players.indexOf(me.id)];
     cards.push({ at: g.updated_at, kind: 'cards', g, href: `cards.html#game=${g.id}`, mine: pill.includes('turn"'), over: g.status === 'over', prog: null, pill,
       sub: g.status === 'over' ? `You ended with ${mine} card${mine === 1 ? '' : 's'}` : `You hold ${mine} · ${g.players.filter((p) => p !== me.id).map((p) => `${g.counts[g.players.indexOf(p)]}`).join(' / ')} for them`,
+      vs: vsOf(g.players), extra: round(g) });
+  });
+  warGames.forEach((g) => {
+    const mi = g.players.indexOf(me.id), waitOn = g.players.filter((p, s) => g.flips[s] === '');
+    const pill = g.status === 'over' ? (g.winner === me.id ? `<span class="pill done">You won</span>` : `<span class="pill done">${nm(g.winner)} won</span>`)
+      : g.flips[mi] === '' ? `<span class="pill turn">Your flip</span>` : waitOn.length ? `<span class="pill wait">${nm(waitOn[0])} to flip</span>` : `<span class="pill wait">Battle!</span>`;
+    const mine = g.counts[mi] ?? 0;
+    cards.push({ at: g.updated_at, kind: 'war', g, href: `war.html#game=${g.id}`, mine: pill.includes('turn"'), over: g.status === 'over', prog: null, pill,
+      sub: g.status === 'over' ? `You ended with ${mine} card${mine === 1 ? '' : 's'}` : `Battle ${g.battle} · you hold ${mine} · ${g.players.filter((p) => p !== me.id).map((p) => g.counts[g.players.indexOf(p)]).join(' / ')} for them`,
       vs: vsOf(g.players), extra: round(g) });
   });
   gts.forEach((g) => {
@@ -952,6 +965,7 @@ function drawSample(cv, kind) {
   } else if (kind === 'golf') drawPreview(cv, { kind, g: { seed: 20260927 }, hole: 6 });
   else if (kind === 'duel') drawPreview(cv, { kind, g: { seed: 4242, craters: [], hp: [80, 45, 100] } });
   else if (kind === 'cards') drawPreview(cv, { kind, g: { top: 'CB', color: 'B' } });
+  else if (kind === 'war') drawPreview(cv, { kind, g: { players: ['a', 'b'], counts: [27, 23], flips: ['KS', 'KH'], last_battle: null } });
   else drawPreview(cv, { kind, g: { rounds: 5, round: 3, status: 'playing', current_kind: 'battleship', history: [{ kind: 'golf' }, { kind: 'duel' }] } });
 }
 
@@ -974,10 +988,41 @@ function drawCardsPreview(c, w, h, g) {
   c.fillText({ W: 'W', W4: '+4', CS: '🌀', CT: '🎯', CP: '🔀', CB: '💣' }[top] ?? ({ S: '⊘', R: '⇄' }[top.slice(1)] ?? top.slice(1)), 0, 2);
   c.restore();
 }
+// ⚔️ A War table in miniature: two face-up cards meeting in the middle, each pile with its count.
+function drawWarPreview(c, w, h, g) {
+  const bg = c.createRadialGradient(w / 2, h * 0.45, 10, w / 2, h / 2, w * 0.7); bg.addColorStop(0, '#2A2163'); bg.addColorStop(1, '#100C26');
+  c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  const ch = h * 0.56, cw = ch / 1.4, rr = (x, y, ww, hh, r) => { c.beginPath(); c.roundRect(x, y, ww, hh, r); };
+  const SU = { S: '♠', H: '♥', D: '♦', C: '♣' }, mi = Math.max(0, (g.players || []).indexOf(me.id));
+  const seen = (g.flips || []).map((x, s) => (x && x !== '-' ? x : g.last_battle?.flips?.[s] && g.last_battle.flips[s] !== '-' ? g.last_battle.flips[s] : null));
+  const order = [mi, ...(g.players || ['a', 'b']).map((_, s) => s).filter((s) => s !== mi)].slice(0, 2);
+  const show = order.map((s) => seen[s] || null), counts = order.map((s) => (g.counts || [])[s] ?? 0);
+  if (!show[0] && !show[1]) { show[0] = 'AS'; show[1] = 'KH'; }
+  const pw = cw * 0.8, ph = ch * 0.8;
+  [[w * 0.15, h * 0.5], [w * 0.85, h * 0.5]].forEach(([x, y], i) => {   // the piles, a few cards thick
+    for (let k = 3; k >= 1; k--) { rr(x - pw / 2 + k * 1.6, y - ph / 2 + k * 1.6, pw, ph, 5); c.fillStyle = k % 2 ? '#2D2468' : '#E9E5FF'; c.fill(); }
+    rr(x - pw / 2, y - ph / 2, pw, ph, 5); c.fillStyle = '#231C52'; c.fill(); c.strokeStyle = '#F3F1FF'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = '#F5C542'; c.beginPath(); c.arc(x + pw * 0.38, y + ph * 0.4, h * 0.1, 0, 7); c.fill();
+    c.fillStyle = '#2A1D00'; c.font = `800 ${Math.round(h * 0.1)}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(counts[i]), x + pw * 0.38, y + ph * 0.41);
+  });
+  show.forEach((code, i) => {   // the two cards, face up, meeting in the middle
+    if (!code) return;
+    const red = code[1] === 'H' || code[1] === 'D';
+    c.save(); c.translate(w * (i ? 0.6 : 0.4), h * 0.5); c.rotate(i ? 0.14 : -0.14);
+    rr(-cw / 2, -ch / 2, cw, ch, 6); c.fillStyle = '#FBF8F1'; c.fill(); c.strokeStyle = '#d9d2c3'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = red ? '#D7263D' : '#17131F'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = `800 ${Math.round(ch * 0.17)}px system-ui, sans-serif`; c.fillText(code[0] === 'T' ? '10' : code[0], -cw * 0.3, -ch * 0.36);
+    c.font = `${Math.round(ch * 0.45)}px system-ui, sans-serif`; c.fillText(SU[code[1]] || '♠', 0, ch * 0.04);
+    c.restore();
+  });
+  c.fillStyle = '#FF5A4A'; c.font = `800 ${Math.round(h * 0.13)}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'top';
+  if (show[0] && show[1] && show[0][0] === show[1][0]) c.fillText('WAR!', w / 2, h * 0.04);
+}
 function drawPreview(cv, card, myFleets, atMe) {
   const c = cv.getContext('2d'), w = cv.width, h = cv.height;
   c.clearRect(0, 0, w, h);
   if (card.kind === 'cards') return drawCardsPreview(c, w, h, card.g);
+  if (card.kind === 'war') return drawWarPreview(c, w, h, card.g);
   if (card.kind === 'battleship') {
     const g = card.g, n = MODES[g.mode].n, cell = Math.floor((h - 16) / n), ox = (w - cell * n) / 2, oy = 8;
     c.fillStyle = '#0E2A44'; c.fillRect(0, 0, w, h);
@@ -1100,7 +1145,7 @@ async function statsView() {
     <a class="scard ${p.id === me.id ? 'me' : ''}" href="#player=${p.id}">
       <div class="row between"><strong class="sname">${medal[i] || ''} ${p.bot ? '' : avatar(p, 'mini')} ${who(p)}</strong>${p.streak >= 2 ? `<span class="streak">🔥 ${p.streak} in a row</span>` : ''}</div>
       <div class="sbig"><span><b>${p.titles}</b> 👑 Chaos title${p.titles === 1 ? '' : 's'}</span><span><b>${p.won}</b>–${p.played - p.won} <small>${pct(p.won, p.played)}</small></span></div>
-      <div class="skinds">${['battleship', 'golf', 'duel', 'cards'].map((k) => `<span>${KIND_ICON[k]} ${p.by_kind[k]?.won ?? 0}/${p.by_kind[k]?.played ?? 0}</span>`).join('')}<span>🏁 ${p.rounds_won} round${p.rounds_won === 1 ? '' : 's'}</span><span class="sgo">🏆 Trophies ›</span></div>
+      <div class="skinds">${['battleship', 'golf', 'duel', 'cards', 'war'].map((k) => `<span>${KIND_ICON[k]} ${p.by_kind[k]?.won ?? 0}/${p.by_kind[k]?.played ?? 0}</span>`).join('')}<span>🏁 ${p.rounds_won} round${p.rounds_won === 1 ? '' : 's'}</span><span class="sgo">🏆 Trophies ›</span></div>
     </a>`).join('');
   const award = (icon, label, key, fmt = (v) => v) => {
     const top = Math.max(0, ...ps.map((p) => p[key] || 0));
@@ -1171,6 +1216,7 @@ const BADGES = [
   ['🏃', 'Grinder', 'Play 10 Routes to Chaos', (c) => c.gauntlets, 10],
   ['🎲', 'Triple threat', 'Win a game of each kind', (c) => [c.battleship_won, c.golf_won, c.duel_won].filter((x) => x > 0).length, 3],
   ['⚓', 'Admiral', 'Win 10 Battleship games', (c) => c.battleship_won, 10],
+  ['⚔️', 'Warlord', 'Win 5 games of War', (c) => c.war_won, 5],
   ['🎯', 'Sharpshooter', 'Sink 10 ships', (c) => c.sunk, 10],
   ['⛳', 'Ace', 'Sink a hole in one', (c) => c.hio, 1],
   ['🐦', 'Birdie machine', 'Finish 10 holes under par', (c) => c.under, 10],
