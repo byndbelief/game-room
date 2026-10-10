@@ -912,6 +912,15 @@ toward the bow, wakes, fire and smoke on hit cells, a gold shimmer, shells with 
 flashes on a hit, bubble-trail torpedoes, planes with shadows, a gunboat whose turret follows your aim (`g.aim`), a
 vignette. `__sv()` has `give`, `crate`, `crates`, `fire`, `arm`, `sinking`, `waves`. Tests (scratch): `t_htarms`,
 `t_frac`, `t_tesla`, `t_salvo2`, `t_salvo3`.
+**Putt's looks and hole themes (putt.js, page only).** Every hole is a place: `THEMES[(g.hole − 1) % 9]` (`themeOf()`):
+🌳 meadow, 🌴 tropic (an island in a sea), 🏜️ desert, ❄️ ice, 🍬 candy, 🌋 lava, 🚀 space, 🏰 castle, 🐠 reef; looks only, the
+physics is untouched. A theme is colours (`bg`, `fair`, `fringe`, `tee`, `green`, `flag`, `sand`, `rail` strokes) plus
+painters `tex`, `deco`, `amb(ctx, ts, W, H, front)`, a `pond` kind for `drawPond` (water / lava / ice / void / choc / moat /
+deep) and a `bump` style for `drawBumper`. Ground, texture, decorations, the fairway shadow, rails, the striped fairway
+and the tee are cached in `layer()` (world units, `PAD` 60, keyed by hole, theme, `pw` and the path; size changes
+throttled to 400 ms); hazards, `drawCup`, the waving `drawFlag`, the ball's `trail` and the aim (dots, arrow, power
+ring) draw each frame. `newCup` banners `⛳ COURSE n · <icon> <NAME>` or `<icon> HOLE n · <NAME>` (keep names clear of the
+shell's `HURTS` words and `CUE` marks). `__pt()` has `themes`, `themeKey`, `theme(i)`, `hole`, `layerBuilt`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the
