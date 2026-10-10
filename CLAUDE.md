@@ -957,6 +957,18 @@ action (the stapler, live squirrels, landed crates, acorns in flight; the trunk 
 (1.4/s) in `update`, `draw` composes it into the transform, dives start from it and land on the new day's target,
 `newGame` snaps it, and `pointer` maps taps back through it (`unCam`). A crate still parachuting in isn't framed.
 `__sq()` has `cam` and `unCam`. Test: `t_sqcam2` (Day 1 holds 1.5–2.4×, a screen point round-trips exactly).
+**🐿️ Squirrel's look: a season a Day (squirrel.js, page only).** `SEASONS[(level − 1) % 4]` via `season()`: 🌸 spring
+morning (blossom, petals), ☀️ summer afternoon (low sun, pollen), 🍂 autumn dusk (red-gold canopy, falling leaves), 🌑 dead
+of night (bare trees, cobwebs, a blood moon, ash); a run's Day 5+ comes round again mixed toward night (`lateSeasons`,
+"… AFTER DARK"). Each Day banners `"<icon> DAY n · <NAME>"` (Day 1 at 1.4 s, `game.said`). Static art lives in `look`:
+`buildBack` (sky, orb, stars, clouds, two `ridge()` ranges, `silTree` tree line, light shafts: one opaque canvas at 0.6·k,
+`drawBack` parallax `p` 0.25) and `buildWood` (floor: soil, roots, ferns, leaves, grass, flowers, mushrooms; trees:
+outline/base/lit passes, flared trunks, grain, moss, twigs, foliage in four shade passes, blossom, cobwebs) at
+`k × zBucket(cam.z)` (1/1.6/2.4, ≤ 4 Mpx). `woodFor` rebuilds on a new forest, season or sharper bucket and waits 200 ms
+while a widening stage regrows (plain strokes meanwhile, `look.live`). Squirrels are sprites (`sprite(fur, mode, frame)`,
+`paintSquirrel`; eye at (8.6, −6) for the glowing eyes); `ambStep`/`drawAmb` ~20 petals/motes/leaves/ash; fx `pow`, `spark`,
+`flash`, `smoke`, `flutter`; `muzzle()` kicks the stapler (`game.kick`); `vignette()` painted once per size. A mid-line `//`
+in `camTarget` had switched off framing acorns in flight; fixed. `__sq()` adds `season`, `look`, `fxKinds`, `give(w)`.
 **Fractal Dash and Squirrel Chaos centre with the zoom-out.** fractal.js: `PX` is a `let` eased to `W × 0.5`
 from Stage 2 (`g.centred`), drones spawn behind (`x = cam − 40`, negative `vx`) 40% of the time once
 centred and are culled off either edge; dash-kill radius `R + 20`, shard radius `R + 20`. squirrel.js:
