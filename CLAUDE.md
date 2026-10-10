@@ -121,7 +121,7 @@ username. A new account only becomes a robot once it's in `public.bots`.
   ⚙️ Settings always, and in games 🤖 live-vs-robot (`bot: { on, label, onToggle }`), ⛶ full screen
   and 🗑 delete. Notes (toasts) start below it; don't put per-page full-screen or delete buttons
   back. In a game (`onGamePage()`) chaos news (loot, curses, twists) does *not* toast: it collects
-  in the toolbar's 🔔 (badge + one tick sound; tap for the list), unless the `gamePopups` Setting
+  in the toolbar's 🔔 (badge and a ping animation, silent: a tick per twist sounded like a countdown; tap for the list), unless the `gamePopups` Setting
   (default off) asks for pop-ups. In-game `note()`s are smaller and shorter; errors keep full size.
   **Nothing may block a live game on a phone**: "Live!" splashes use `splash(…, { passThrough: true })`
   (touches go through, 1.4 s); notes on game pages are `pointer-events:none`; golf's `noteMirror`

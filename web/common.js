@@ -542,7 +542,7 @@ function showNews(fresh = false) {
   b.querySelector('b').textContent = newsUnread ? String(Math.min(99, newsUnread)) : '';
   b.querySelector('b').hidden = !newsUnread;
   b.setAttribute('aria-label', newsUnread ? `News: ${newsUnread} new` : 'News');
-  if (fresh && newsUnread) { b.classList.remove('ping'); void b.offsetWidth; b.classList.add('ping'); sfx('tick'); }
+  if (fresh && newsUnread) { b.classList.remove('ping'); void b.offsetWidth; b.classList.add('ping'); }   // silent: a tick per twist sounded like a countdown
   fit();
 }
 // ---------------------------------------------------------------- the chaos curve (058)
