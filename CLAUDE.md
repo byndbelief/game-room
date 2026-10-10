@@ -932,6 +932,18 @@ and the tee are cached in `layer()` (world units, `PAD` 60, keyed by hole, theme
 throttled to 400 ms); hazards, `drawCup`, the waving `drawFlag`, the ball's `trail` and the aim (dots, arrow, power
 ring) draw each frame. `newCup` banners `⛳ COURSE n · <icon> <NAME>` or `<icon> HOLE n · <NAME>` (keep names clear of the
 shell's `HURTS` words and `CUE` marks). `__pt()` has `themes`, `themeKey`, `theme(i)`, `hole`, `layerBuilt`.
+**Rally's places and rides (rally.js, page only).** Every course is a new place, `THEMES[(course − 1) % 6]`, and a new ride,
+`VEHICLES[(course − 1) % 7]`, read through `TH()`/`VH()`; only the look changes. Places: 🍳 kitchen table, 🛏️ bedroom floor,
+🌻 garden path, 📏 office desk, ❄️ snowy sill, 🌃 neon city. Rides: race car, monster truck, tractor, go-kart, hovercraft,
+F1, flying saucer. A theme names its `surf`/`floor`/`tape` textures (`TILES`, painted once into offscreen tiles at `RES`
+4 px a unit, used as patterns via `tex(name)`), kerb and edge colours, skins for the puddle (`drawMilk`), wall (`drawBox`),
+ramp (`drawToaster`), bump (`drawSoldier`, `bumpTxt`) and pocket (`drawHole`), and `th.guards`, which maps the unchanged
+guard keys rail/books/bricks/crayons onto four renderers in `drawGuards(cx, cy, Rv)` (skips segments out of view). Decor
+(`makeDecor`/`drawDecor`) and light (`drawAir`: a cached glow/vignette plus snow, motes or neon specks, before the 🌊
+block). `drawVehicle(vh, body, dark, light, mine, t, c)` in car units; Fig sits at `vh.seat`, nitro at `vh.rear`;
+`g.dust` (≤ 90). `newCourse` banners `"<icon> COURSE n · <PLACE>"`. Road and table edges are one `Path2D` each a frame,
+cut to the points in reach, with `lineDashOffset = cum[i0]`. `__rl()` has `theme`, `vehicle`, `dust`, `decor`,
+`goCourse(n)`. Headless fps dropped from ~60 to ~49–57 (software rendering): watch it on a phone.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the
