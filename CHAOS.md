@@ -217,7 +217,15 @@ middle of the sea and the lanes spread above and below it, so the ships, planes,
 from all sides. Taps and shells in Salvo and Hilltop are forgiving: a near miss still counts. Shells in flight hit what they
 meet: in Hilltop a shell that touches a ☄️ meteor breaks it up (120) and one that meets a falling 💣 bomb or
 enemy shell intercepts it (60), and the 🎯 target takes those on a tap too; in Salvo a shell takes a plane, a bomb, a
-torpedo or a surfaced sub on its way, and one passing low over an enemy ship lands on it. Fractal Dash: from Stage 2 Fig
+torpedo or a surfaced sub on its way, and one passing low over an enemy ship lands on it. **Weapons that last.** Hilltop's
+ally-drone crates hold about twice the rounds they did (cluster and guided 8, heavy and napalm 6) and wait 30 s on the
+ridge, and five new shells come in them: ⚡ railgun (6: a straight beam through everything on its line), 🌀 black hole
+(4: lands, drags tanks and enemy shells in for 2.4 s, then implodes), ❄️ fractal (6: forks at the top of its arc into 2,
+4, 8 bomblets), ✈️ airstrike (4: a jet lays five bombs across the spot) and 🌩️ tesla (6: the blast arcs on to the three
+nearest enemies). Salvo gets 📦 crates of its own, floating across a lane every 9–15 s and on a golden beat (tap one):
+🚀 missiles (8, each homes on the nearest ship), 💥 cluster (6, five shells in a cross), ⚡ laser (6, burns every cell
+within 80 along the tapped lane), ✈️ airstrike (4, a bomber lays six bombs along the lane) and 🌊 tsunami (3, a wave
+that hits every ship at sea, both ways from the middle). Rounds are fired by tapping the sea and never touch the clip. Fractal Dash: from Stage 2 Fig
 runs from the middle of the screen, so drones hunt from behind as well as ahead; a dash takes a drone on a
 near miss and shards come to you. Squirrel Chaos: from Stage 2 Fig and the stapler climb to a perch in the
 middle of the wood, so squirrels, owls, cones and snakes come from above and below; staples land on a near

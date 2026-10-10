@@ -897,6 +897,21 @@ gap. `pointer` tracks `held.left/right` by `e.pointerId`. `__rl()` has `auto(on)
 applied to production 2026-10-03), linked from the lobby's quick entries beside Fractal Dash. Tests (scratch):
 `t_p2p` (countdown holds the cars, the autopilot finishes course 1 in ~21 s with all lives and moves to course 2,
 a swap, a guard bounce, an edge fall and Fig's rescue), `t_runrally` (Rally inside the run).
+**Weapons that last, and Salvo's facelift (hilltop.js, salvo.js).** hilltop `ARTY` rounds roughly doubled (crate
+`life` 30) plus `rail` (`railgun()`: no shell, a `g.beams` line; anything within 16 of it, tanks take 2), `hole` (lands
+into `g.holes`: pulls tanks' x 55/s and enemy shells for 2.4 s, then `boom` r 40 + `hitTank(t, 2)` within 70), `fractal`
+(`s.frac` 3: forks at the apex, then every 0.3 s, `small` bomblets r 15), `strike` (`strike(x)`: a `g.jets` flyover and
+five shells with `wait` until the jet is over them) and `tesla` (`tesla()`: `arc()` bolts to the nearest of tanks, moles,
+worms, balloons within 170, three hops). `hitTank(t, dmg)` and `zap()` are the shared scoring; the mole hit in the
+shells filter had sat inside a `//` comment and is real again. `__ht()` has `give(kind)`, `fire`, `tesla`, `tankXs`,
+`kinds`. salvo.js: `ARMS` (missile/cluster/laser/strike/tsunami), `g.crates` drifting along a lane (`crate()`,
+`pickUp`, tapped first in `fire()`), `g.arm` fired by `fireArm` instead of the clip, `landCell(ship, i)` is the one
+hit path, sunk ships move to `g.sinking` (list, squash and bubble for 1.4 s). The look (`draw`, `drawShip`, `hull`):
+light shafts, two wave layers, glints, buoys on the lanes, pointed hulls with a red waterline, deck, bridge, turrets
+toward the bow, wakes, fire and smoke on hit cells, a gold shimmer, shells with shadows and tracers, spouts on a miss,
+flashes on a hit, bubble-trail torpedoes, planes with shadows, a gunboat whose turret follows your aim (`g.aim`), a
+vignette. `__sv()` has `give`, `crate`, `crates`, `fire`, `arm`, `sinking`, `waves`. Tests (scratch): `t_htarms`,
+`t_frac`, `t_tesla`, `t_salvo2`, `t_salvo3`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the
