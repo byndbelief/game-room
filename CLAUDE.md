@@ -912,6 +912,17 @@ toward the bow, wakes, fire and smoke on hit cells, a gold shimmer, shells with 
 flashes on a hit, bubble-trail torpedoes, planes with shadows, a gunboat whose turret follows your aim (`g.aim`), a
 vignette. `__sv()` has `give`, `crate`, `crates`, `fire`, `arm`, `sinking`, `waves`. Tests (scratch): `t_htarms`,
 `t_frac`, `t_tesla`, `t_salvo2`, `t_salvo3`.
+**Hilltop's look (hilltop.js, page only).** Static layers are drawn once into offscreen canvases in `look`, rebuilt for a new
+`g.seed`: the sky as day/night strips (`initSky`, blended by `g.night`), three midpoint-displacement ranges (`mountainImg`:
+snow far, pines near, night copies; parallax by `(g.me.x − W/2) × 0.04/0.08/0.14`), the rock (`rockImg`), haze, glow
+sprites (`glowImg`/`glowAt`, drawn `'lighter'`) and clouds drifting with the wind (`look.clouds`). `drawGround` clips to
+the ridge over the rock and strokes `ridgePath(dy)` for strata, topsoil, turf and edge; grass and seeded `look.decor`
+hide where `dugAt(x)` is deep or in a lake; `g.scorch` fades under craters. `drawTank` tilts to the slope, recoil
+`g.rc`/`t.rc`, `muzzle()` for `puffs()`; `boom` adds fx `flash`, `fire`, `smoke`, `clod` and `g.shake` (three fx passes);
+shells keep a trail `s.tr`. Enemies now fire **toward** you from either side (tanks: `side` from `dx`, the barrel drawn to
+match; `enemyShell` for moles, worms and serpents used `cos(a)` of an angle past 90° and so lobbed away from you; now
+`|cos a| × sign(dx)`). `__ht().twist(kind)` forces a twist, `eshells` lists enemy shells. Tests (scratch): `hilltop/shots.cjs`,
+`fps.cjs` (busy Stage 3 at 60 fps), `t_eside`.
 **Putt's looks and hole themes (putt.js, page only).** Every hole is a place: `THEMES[(g.hole − 1) % 9]` (`themeOf()`):
 🌳 meadow, 🌴 tropic (an island in a sea), 🏜️ desert, ❄️ ice, 🍬 candy, 🌋 lava, 🚀 space, 🏰 castle, 🐠 reef; looks only, the
 physics is untouched. A theme is colours (`bg`, `fair`, `fringe`, `tee`, `green`, `flag`, `sand`, `rail` strokes) plus
