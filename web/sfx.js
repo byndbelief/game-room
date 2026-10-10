@@ -72,6 +72,9 @@ const SOUNDS = {
   cheer(t) { noise(t, 1.6, 0.35, 'bandpass', 1400, 2200, 0.8, 0.15); noise(t + 0.3, 1.2, 0.2, 'highpass', 3000, 5000, 0.7, 0.2); },
   alarm(t) { for (let i = 0; i < 4; i++) { tone('square', 880, 880, t + i * 0.3, 0.13, 0.08); tone('square', 660, 660, t + i * 0.3 + 0.15, 0.13, 0.08); } },
   stinger(t) { [110, 131, 165].forEach((f) => tone('sawtooth', f, f * 0.98, t, 1.1, 0.07, 0.02)); noise(t, 0.4, 0.4, 'lowpass', 600, 80); tone('sine', 55, 40, t, 1, 0.5); },
+  // 🕳️ the Chaos Run's pockets: a gulp going in, bubbles coming back up
+  gulp(t) { tone('sine', 520, 90, t, 0.45, 0.32, 0.01); noise(t, 0.5, 0.22, 'lowpass', 900, 120, 1, 0.02); tone('sine', 300, 620, t + 0.38, 0.12, 0.1); },
+  surface(t) { for (let i = 0; i < 5; i++) tone('sine', 300 + i * 140, 700 + i * 160, t + i * 0.07, 0.08, 0.11); noise(t, 0.4, 0.14, 'bandpass', 600, 2400, 1.5, 0.05); },
   flash(t) { noise(t, 0.25, 0.6, 'highpass', 5000, 1200, 0.7, 0.002); tone('sine', 120, 30, t, 0.6, 0.9); },
 };
 

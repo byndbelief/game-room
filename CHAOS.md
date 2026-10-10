@@ -146,6 +146,24 @@ fire, tap torpedoes) · ⛳ Putt (drag back and let go) · 💥 Hilltop (drag to
 to beat theirs; a tie is a WAR). Hilltop, Salvo and Putt are the multiplayer games' DNA in thirty-second bites, solo: every cell of a ship must burn; five
 putts a cup on a green of fractal bumps; a fractal ridge that craters, and tanks that fire back.
 
+## 🕳️ Pockets: one level deeper, random in their own way
+
+The run holds the games; each game can hold a **pocket**, a 15–25 second game hidden inside one of its own things. It only
+opens when you're deep (the frame at least half dissolved): the thing glows and pulses a few seconds; tap it and the camera
+falls in. A pocket is never ruled by the logistic curve. Each has its own chaotic system, a different kind of unpredictable:
+
+- **⛳ Inside the cup: the Hénon map**, x' = 1 − 1.4x² + y, y' = 0.3x. Point to point it jumps anywhere, yet every point lands
+  on one thin folded band, the strange attractor. The cups and bumpers are its points: each beat a bumper pops up where the
+  orbit jumps, but they all cluster on the band drawn on the felt.
+- **💥 Down the tunnel: Langton's ant.** Two rules (clear: turn right; dark: turn left; flip the cell, step) and still no
+  shortcut to knowing where it goes. Its trail is the cave, its dark cells loose rock, and it keeps digging while you're down
+  there. When you dig you change what it reads, so you steer the chaos too.
+
+A win brings something small back up (a mulligan, a free putt and a fix; full armour, a shield, a crate). Failing only costs
+the time. The curve keeps beating above you, so the run can still rip you out: the deepest jolt, four frames out (pocket,
+game, run, box), +750. The other games' pockets will each bring their own system (a cellular automaton, a double pendulum, a
+Lorenz flow, a Collatz walk…).
+
 ## 🧘 Calm within the chaos
 
 Some games need a think: a putt lined up, a hand planned. Those are the **calm category** (`CALM` in

@@ -17,6 +17,8 @@
 //   init(host)  start()  enter(from, anchor)  leave() → anchor  update(dt)  draw(t)  onBeat(ev)
 //   pointer(type, p, e)  keydown(e)?  keyup(e)?  resize()?  hudLine()  level()  overText(how) → [title, sub]
 //   endStats() → text  debug()?
+//   🕳️ a pocket (optional): pocket (a pocket module, organs/pockets/*.js), pocketSpot() → { x, y, r, icon } | null (where the
+//   way in is, asked every frame while it's offered), pocketSeed() → what the pocket starts from, pocketReward(result | null)
 // The host an organ gets: { cv, ctx, W, H, k, dpr, reduceMotion, S, banner, add, hurt, heal, over, sfx, ui, morphs }
 import { sb, me, signedIn, sfx, setGameTools, esc, names } from './common.js';
 import { makeCurve, stepCurve, drawMeter, meterText, NEWS, tally, ratingLine, CALM, isCalm, CHAOS, MOOD_SAY, MOOD_NAME, WEIGHTS } from './chaos.js';
@@ -72,7 +74,16 @@ const SHELL_CSS = `
   .stage .shud .score{opacity:calc(1 - .35 * var(--deep, 0));transform-origin:0 0;scale:calc(1 - .2 * var(--deep, 0));transition:opacity .8s,scale .8s}
   .stage .spal{opacity:calc(1 - .65 * var(--deep, 0));scale:calc(1 - .4 * var(--deep, 0));transition:opacity .8s,scale .8s}
   .stage.snap .shud .chaosm,.stage.snap .shud .lvl,.stage.snap .shud .hearts small,.stage.snap .shud .score,.stage.snap .spal{transition:none}
-  @media (prefers-reduced-motion:reduce){.sbanner{animation:none}.verb b.next{animation:none}}`;
+  /* 🕳️ in a pocket: a level deeper, the frame all but gone, and a small clock up top */
+  .spocket{position:absolute;left:50%;top:10px;transform:translateX(-50%);pointer-events:none;display:flex;align-items:baseline;gap:7px;padding:4px 12px 5px 9px;border-radius:99px;background:#000b;border:1px solid #ffffff2a;font-weight:900;font-size:14px;color:#fff;white-space:nowrap;max-width:calc(100% - 140px);overflow:hidden;animation:bpop .3s ease-out}
+  .spocket b{font-family:var(--display,inherit);font-weight:400;font-size:15px;color:var(--gold,#F5C542);min-width:2.3em}
+  .spocket.low b{color:#FF7A6A}
+  .spocket small{font-size:11px;color:var(--muted,#ccc);font-weight:800;overflow:hidden;text-overflow:ellipsis}
+  .stage.inpocket .shud .chaosm,.stage.inpocket .shud .lvl,.stage.inpocket .shud .hearts,.stage.inpocket .shud .combo{opacity:.07}
+  .stage.inpocket .shud .score{opacity:.3}
+  .stage.inpocket .spal{opacity:.22;scale:.45}
+  .stage.inpocket .oui{visibility:hidden}
+  @media (prefers-reduced-motion:reduce){.sbanner{animation:none}.verb b.next{animation:none}.spocket{animation:none}}`;
 
 export function runShell({ organs, key, title, icon, intro, again = 'Play again', W: W0 = 400 }) {
   const $ = (id) => document.getElementById(id);
@@ -90,6 +101,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     <div class="verb" id="verb" hidden></div>
     <div class="oui" id="oui"></div>
     <div class="sbanner" id="banner" hidden></div>
+    <div class="spocket" id="pocket" hidden></div>
     <div class="sover" id="over"><canvas class="boxbg" id="boxbg" aria-hidden="true"></canvas><div class="card" id="overCard"></div></div>`);
   const meter = $('meter');
   // ---------------------------------------------------------------- shared state
@@ -140,8 +152,9 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const playing = held > 0 || S.time - (S.lastIn ?? -9) < 2.5;
     if (playing && !transition) S.depth = Math.min(1, (S.depth || 0) + dt / 14 * (1 + Math.min(5, S.combo || 0) * 0.12));
     else S.depth = Math.max(0, (S.depth || 0) - dt * (transition ? 0 : 0.12));
+    if (pk) S.depth = Math.max(S.depth, 0.92);   // 🕳️ a pocket holds you under
     if (active) S.deepest = Math.max(S.deepest || 0, S.depth);
-    stage.style.setProperty('--deep', deepF().toFixed(3)); setSfxDepth(deepF());   // 🔇 the sound sinks with you
+    stage.style.setProperty('--deep', deepF().toFixed(3)); setSfxDepth(pk ? 1 : deepF());   // 🔇 the sound sinks with you (all the way, in a pocket)
   }
   function surfaceNow() { S.depth = 0; setSfxDepth(0, true); stage.classList.add('snap'); stage.style.setProperty('--deep', '0'); setTimeout(() => stage.classList.remove('snap'), 400); }
   let live = null;   // a scratch copy of the new world, for the jolt's dive back in
@@ -206,6 +219,100 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const m = S.curve.mood, spin = m === 'fig' ? 720 : m === 'kit' ? 0 : m === 'bit' ? 90 : m === 'phi' ? 360 : 180, flip = m === 'kit' ? ' scaleX(-1)' : '';   // Wild spins twice, Mirror flips, Boxy a quarter turn, Golden one turn
     el.style.transition = 'transform .3s cubic-bezier(.2,.9,.3,1.2)'; el.style.transform = `translate(${dx}px, ${dy}px) scale(2.6) rotate(${spin}deg)${flip}`;
     flyT = setTimeout(() => { el.style.transition = 'transform .45s cubic-bezier(.3,1.4,.5,1)'; el.style.transform = ''; flyT = setTimeout(() => { flyT = null; }, 450); }, Math.max(300, dur * 1000 - 200));
+  }
+  // ---------------------------------------------------------------- 🕳️ POCKETS: a game inside the game, one level deeper
+  // Deep enough (POCKET.DEEP of the frame's fade), an organ may show a way further in on one of its own things (Putt's cup,
+  // Hilltop's burrow): it pulses for a few seconds, and a tap on it dives in. A pocket is a mini-organ (organs/pockets/*.js):
+  // start(ph, seed), update(dt), draw(t), pointer(type, p, e), onBeat(ev)?, keydown(e)?, timeUp() → result?, debug(), plus
+  // key, name, icon, goal, dur (15–25 s) and rim (its colour). It is random in its own way (its own chaotic system, never
+  // the curve). The organ it opened from is paused (not updated, not drawn, no beats) and frozen in a snapshot the dive
+  // zooms into and the way back zooms out of. A win (ph.win(result)) hands a small gift back up: organ.pocketReward(result);
+  // running out of time (or ph.lose) only costs the time: pocketReward(null), never a life. The beats keep ticking on the
+  // organ's clock, so the run can still rip you out: the deepest jolt there is, four frames out (pocket, game, run, box).
+  const POCKET = { DEEP: 0.5, FADE: 0.38, OFFER: 8, COOL: 45, MISS: 12, IN: 0.95, OUT: 0.8, JOLT: 750 };
+  let offer = null, pk = null, pend = null, pkCool = 0, glowSpr = null, pkLast = null;
+  host.pocket = {
+    offer: (sp, forced = false) => {   // an organ shows its way in; the shell decides whether it may
+      if (!sp || !active?.pocket || pk || offer || S.over || transition) return false;
+      if (!forced && (pkCool > 0 || deepF() < POCKET.DEEP)) return false;
+      offer = { x: sp.x, y: sp.y, r: sp.r || 18, icon: sp.icon || active.pocket.icon, t: 0, organ: active, forced }; sfx('chime'); return true;
+    },
+    offering: () => !!offer && offer.organ === active, inside: () => !!pk,
+  };
+  function stepOffer(dt) {
+    pkCool = Math.max(0, pkCool - dt);
+    if (offer) {
+      offer.t += dt; const sp = offer.organ === active ? (active.pocketSpot ? active.pocketSpot() : offer) : null;
+      if (sp && sp !== offer) { offer.x = sp.x; offer.y = sp.y; offer.r = sp.r || offer.r; }
+      if (!sp || transition || (!offer.forced && (offer.t > POCKET.OFFER || deepF() < POCKET.FADE))) { offer = null; pend = null; pkCool = Math.max(pkCool, POCKET.MISS); }
+      return;
+    }
+    if (pkCool <= 0 && !transition && tenure >= 2 && deepF() >= POCKET.DEEP && active?.pocketSpot) host.pocket.offer(active.pocketSpot());
+  }
+  function drawOffer(t) {   // a soft glow, two rings rising out of it, the pocket's icon over it: subtle, it's deep down here
+    const o = offer; if (!o || pk) return;
+    const a = Math.min(1, o.t / 0.5) * (o.forced ? 1 : Math.max(0, Math.min(1, (POCKET.OFFER - o.t) / 1.5))); if (a <= 0) return;
+    if (!glowSpr) { glowSpr = document.createElement('canvas'); glowSpr.width = glowSpr.height = 64; const g2 = glowSpr.getContext('2d'), gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,236,170,0.9)'); gr.addColorStop(0.4, 'rgba(255,200,90,0.35)'); gr.addColorStop(1, 'rgba(255,200,90,0)'); g2.fillStyle = gr; g2.fillRect(0, 0, 64, 64); }
+    ctx.save(); ctx.setTransform(host.k, 0, 0, host.k, host.ox, host.oy);
+    const br = 0.5 + 0.5 * Math.sin(t / 260), R = o.r * (2.2 + 0.4 * br);
+    ctx.globalAlpha = a * (0.5 + 0.35 * br); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(glowSpr, o.x - R, o.y - R, R * 2, R * 2); ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#FFE9A8'; for (let i = 0; i < 2; i++) { const u = (t / 1400 + i * 0.5) % 1; ctx.globalAlpha = a * (1 - u) * 0.9; ctx.lineWidth = 2 * (1 - u) + 0.5; ctx.beginPath(); ctx.arc(o.x, o.y, o.r * (1 + u * 1.4), 0, 7); ctx.stroke(); }
+    ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${Math.round(15 + 2 * br)}px serif`; ctx.fillText(o.icon, o.x, o.y - o.r - 13 - 2 * br);
+    ctx.globalAlpha = a * 0.8; ctx.fillStyle = '#FFE9A8'; ctx.font = '900 10px system-ui, sans-serif'; ctx.fillText('tap', o.x, o.y + o.r + 10); ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+  const offerHit = (p) => offer && !transition && Math.hypot(p.x - offer.x, p.y - offer.y) < offer.r + 16;
+  function enterPocket() {
+    const mod = active?.pocket; if (!mod || pk || S.over || transition) return false;
+    const sp = offer || active.pocketSpot?.() || { x: host.W / 2, y: host.H / 2, r: 20 };
+    offer = null; pend = null;
+    ctx.setTransform(host.k, 0, 0, host.k, host.ox, host.oy); active.draw(performance.now());   // the organ, frozen as you left it (without the offer's glow)
+    const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height; snap.getContext('2d').drawImage(cv, 0, 0);
+    const ph = Object.create(host); ph.win = (res) => exitPocket(true, res); ph.lose = (res) => exitPocket(false, res); ph.left = () => (pk ? pk.left : 0); ph.mood = () => S.curve.mood || 'calm';
+    pk = { mod, organ: active, phase: 'in', t: 0, left: mod.dur || 20, snap, at: { x: sp.x, y: sp.y }, depth0: S.depth || 0, won: false, res: null, shown: -1 };
+    mod.start(ph, active.pocketSeed?.() || {});
+    S.pockets = (S.pockets || 0) + 1; S.depth = Math.max(S.depth || 0, 0.95); stage.classList.add('inpocket'); sfx('gulp'); navigator.vibrate?.(30);
+    $('pocket').innerHTML = `<span>${mod.icon}</span><b></b><small>${esc(mod.goal || '')}</small>`;
+    window.__pk = () => (pk && pk.mod === mod ? { ...(mod.debug?.() || {}), phase: pk.phase, left: pk.left } : { phase: 'none', last: pkLast });
+    return true;
+  }
+  function exitPocket(won, res) {   // the way back up: a gentle zoom out through the thing you went in by
+    if (!pk || pk.phase === 'out') return false;
+    const back = pk.phase === 'in' ? POCKET.OUT * (1 - Math.min(1, pk.t / POCKET.IN)) : 0;
+    pk.phase = 'out'; pk.t = back; pk.won = !!won; pk.res = res || null; $('pocket').hidden = true;
+    sfx(won ? 'birdie' : 'surface'); if (won) sfx('surface', { delay: 0.25 });
+    return true;
+  }
+  function finishPocket() {
+    const { organ, won, res, mod, depth0 } = pk; pk = null; stage.classList.remove('inpocket'); pkCool = POCKET.COOL; S.depth = Math.max(0.5, Math.min(S.depth || 0, depth0));
+    pkLast = { key: mod.key, won, pts: res?.pts || 0, gift: res?.gift || null };
+    if (res?.pts) host.add(res.pts);
+    if (won) { S.pocketWins = (S.pocketWins || 0) + 1; organ.pocketReward?.(res); banner(`${mod.icon} ${res?.label || 'BACK UP'}`, res?.sub || '', true); pal.force('gift', 1.4); }
+    else { organ.pocketReward?.(null); banner(`${mod.icon} BACK UP · EMPTY-HANDED`, res?.why || 'only time lost', true); }
+  }
+  function stepPocket(dt) {
+    pk.t += dt;
+    if (pk.phase === 'in') { if (pk.t >= POCKET.IN) { pk.phase = 'play'; pk.t = 0; $('pocket').hidden = false; } return; }
+    if (pk.phase === 'out') { if (pk.t >= POCKET.OUT) finishPocket(); return; }
+    pk.left = Math.max(0, pk.left - dt); pk.mod.update(dt);
+    if (!pk || pk.phase !== 'play') return;
+    if (pk.left <= 0) { exitPocket(false, pk.mod.timeUp?.() || { why: 'time ran out' }); return; }
+    const s = Math.ceil(pk.left); if (s !== pk.shown) { pk.shown = s; const c = $('pocket'); c.querySelector('b').textContent = `0:${String(s).padStart(2, '0')}`; c.classList.toggle('low', s <= 5); }
+  }
+  function drawPocket(t) {
+    const k = host.k, Wd = cv.width, Hd = cv.height, ax = host.ox + pk.at.x * k, ay = host.oy + pk.at.y * k;
+    const live = () => { ctx.setTransform(k, 0, 0, k, host.ox, host.oy); pk.mod.draw(t); };
+    if (pk.phase === 'play') return live();
+    const p = Math.min(1, pk.t / (pk.phase === 'in' ? POCKET.IN : POCKET.OUT)), e = p * p * (3 - 2 * p), u = pk.phase === 'in' ? e : 1 - e;
+    // the organ's frozen frame, the camera falling into the thing you tapped
+    const z = 1 + u * u * 11;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#05040C'; ctx.fillRect(0, 0, Wd, Hd);
+    ctx.translate(ax, ay); ctx.scale(z, z); ctx.translate(-ax, -ay); ctx.drawImage(pk.snap, 0, 0); ctx.restore();
+    // the pocket opens out of it: an iris from the thing's mouth, its rim in the pocket's colour
+    const q = Math.max(0, (u - 0.3) / 0.7); if (q <= 0) return;
+    const Rm = Math.hypot(Math.max(ax, Wd - ax), Math.max(ay, Hd - ay)), R = Math.max(1, q * q * Rm * 1.02);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.beginPath(); ctx.arc(ax, ay, R, 0, 7); ctx.clip(); live(); ctx.restore();
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.strokeStyle = pk.mod.rim || '#FFE9A8'; ctx.globalAlpha = 1 - q; ctx.lineWidth = 3 * host.dpr; ctx.beginPath(); ctx.arc(ax, ay, R, 0, 7); ctx.stroke(); ctx.restore();
   }
   // ---------------------------------------------------------------- sizing
   function size() {
@@ -306,19 +413,21 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (ev.mirror) { wave('mirror'); banner(...NEWS.mirror); }
     if (ev.balance) banner(...NEWS.balance);
     if (ev.golden) { wave('golden'); banner(...NEWS.golden); }
-    active.onBeat(ev);
-    if (morphs && !transition && !S.over && !held) {   // 🧘 nothing morphs during a calm
+    if (pk) pk.mod.onBeat?.(ev); else active.onBeat(ev);   // 🕳️ the organ is paused while you're in its pocket; the pocket hears the beat
+    if (morphs && !transition && !S.over && !held && !S.testHold) {   // 🧘 nothing morphs during a calm
       let to = null, why = '';
       if (ev.window) { to = nextOrgan(); why = 'window'; }
       else if (ev.golden && tenure >= Math.ceil(minTenure() / 2)) { to = [...organs].filter((o) => o !== active).sort((a, b) => (lastUsed.get(a) ?? -1) - (lastUsed.get(b) ?? -1))[0]; why = 'golden'; }
       else if (ev.mirror && prev && prev !== active && tenure >= Math.ceil(minTenure() / 2)) { to = prev; why = 'mirror'; }
       else if (S.runEv?.peak && tenure >= minTenure()) { to = nextOrgan(); why = 'peak'; }   // 🌐 a peak on the run's curve, not the game's
-      else if (tenure >= minTenure() * 2) { to = nextOrgan(); why = 'drift'; }   // a calm run still moves you on, slowly
+      else if (tenure >= minTenure() * 2 && !pk) { to = nextOrgan(); why = 'drift'; }   // (never out of a pocket: only the curve's own events rip you out)   // a calm run still moves you on, slowly
       if (to && to !== active) morphTo(to, why);
     }
   }
   const WHY = { window: '🔁 the window turns the world', golden: '🌻 the golden cut: a dive', mirror: '✨ the mirror: back to the world before', peak: '🌐 a peak on the run: the world twists', drift: '🌐 the run moves you on' };
   function morphTo(to, why) {
+    const ripped = pk; offer = null; pend = null;   // 🕳️ the run doesn't wait for you to come up: it rips you out of the pocket
+    if (ripped) { pk = null; stage.classList.remove('inpocket'); $('pocket').hidden = true; pkCool = POCKET.COOL; S.pocketJolts = (S.pocketJolts || 0) + 1; pkLast = { key: ripped.mod.key, won: false, ripped: true }; ripped.organ.pocketReward?.(null); }
     const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height; snap.getContext('2d').drawImage(cv, 0, 0);
     const anchor = active.leave?.() || null;
     // 🟢 the morph is done in the mood Fig is in as you leave: Wild tears, Mirror folds, Boxy tiles, Golden spirals (calm: a plain pull-in)
@@ -327,13 +436,16 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     active.enter(prev.key, anchor);
     applyTheme(); openCalm(); applyPalTheme(S.curve.mood || 'calm'); pal.set({ r: S.curve.r, mood: S.curve.mood || 'calm' });
     const strips = Array.from({ length: 14 }, (_, i) => ({ i, vx: (Math.random() - 0.5) * 2.4, rot: (Math.random() - 0.5) * 0.9, col: ['#3DD6C6', '#FF5A4A', '#B9A6FF'][i % 3] }));
-    const jolt = S.depth >= 0.4 ? S.depth : 0;
+    const jolt = ripped ? Math.max(0.9, S.depth || 0) : S.depth >= 0.4 ? S.depth : 0;
     if (jolt) {   // ⚡ you were zoned in: the run yanks you out through every layer, then dives into the next game
-      const T1 = 0.45 + 0.45 * jolt, T2 = T1 + 0.25;
-      transition = { t: 0, dur: reduceMotion ? 0.05 : T2 + 0.6, T1, T2, snap, why, anchor, mood, strips, jolt, from: prev, to };
-      S.jolts = (S.jolts || 0) + 1; const pct = Math.round(jolt * 100), bonus = Math.round(500 * jolt); host.add(bonus);
-      surfaceNow(); react('stage'); sfx('boom', { size: 1.4 }); sfx('twist', { delay: 0.12 }); navigator.vibrate?.([60, 40, 120]);
-      banner(`⚡ JOLT · ${pct}% DEEP · +${bonus}`, `you were zoned into ${prev.name}: the run pulls you out to ${to.name}`, true);
+      const T1 = 0.45 + 0.45 * jolt + (ripped ? 0.3 : 0), T2 = T1 + 0.25;
+      // 🕳️ out of a pocket: one frame more, innermost (the pocket's window inside the game's), the organ's frozen frame round it
+      const pocket = ripped ? { snap: ripped.snap, at: { x: host.ox + ripped.at.x * host.k, y: host.oy + ripped.at.y * host.k }, icon: ripped.mod.icon, name: ripped.mod.name } : null;
+      transition = { t: 0, dur: reduceMotion ? 0.05 : T2 + 0.6, T1, T2, snap, why, anchor, mood, strips, jolt, from: prev, to, pocket };
+      S.jolts = (S.jolts || 0) + 1; const pct = Math.round(jolt * 100), bonus = Math.round(500 * jolt) + (ripped ? POCKET.JOLT : 0); host.add(bonus);
+      surfaceNow(); react('stage'); sfx('boom', { size: ripped ? 1.8 : 1.4 }); sfx('twist', { delay: 0.12 }); if (ripped) sfx('surface', { delay: 0.3 }); navigator.vibrate?.(ripped ? [80, 40, 80, 40, 160] : [60, 40, 120]);
+      if (ripped) banner(`⚡ JOLT · OUT OF THE POCKET · +${bonus}`, `you were down ${ripped.mod.name} in ${prev.name}: the run pulls you all the way out to ${to.name}`, true);
+      else banner(`⚡ JOLT · ${pct}% DEEP · +${bonus}`, `you were zoned into ${prev.name}: the run pulls you out to ${to.name}`, true);
       return;
     }
     surfaceNow();
@@ -392,7 +504,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
       S.time += dt;
       S.beatT += dt; const bl = active.beat || 1; while (S.beatT >= bl && !S.over) { S.beatT -= bl; beat(); }
       if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0) S.combo = 0; }
-      if (!S.over) active.update(dt);
+      if (!S.over) { if (pk) stepPocket(dt); else { active.update(dt); stepOffer(dt); } }
       if (resetPending && !S.over) resetOrgan();
       if (Math.abs(zoom - zoomTo) > 0.001 || Math.abs(widen - widenTo) > 0.001) { const e = Math.min(1, dt * 1.5); zoom += (zoomTo - zoom) * e; widen += (widenTo - widen) * e; if (Math.abs(zoom - zoomTo) < 0.002) zoom = zoomTo; if (Math.abs(widen - widenTo) < 0.002) widen = widenTo; size(); }   // 🔍 the board eases out, wider faster than taller
       if (lens) { lens.t += dt; if (lens.t >= lens.dur) clearLens(); }
@@ -401,18 +513,26 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     }
     if (host.ox > 0 || host.oy > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = getComputedStyle(stage).getPropertyValue('--bg').trim() || '#0B0918'; ctx.fillRect(0, 0, cv.width, cv.height); }   // zoomed out: the margins in the organ's colour
     ctx.setTransform(host.k, 0, 0, host.k, host.ox, host.oy);
-    (active || organs[0]).draw(t);
+    if (pk) drawPocket(t); else (active || organs[0]).draw(t);
     { const f = deepF(); if (f > 0.01 && running && !S.over) {   // 🌊 the edges close in as you go deeper, breathing slowly
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); const Wd = cv.width, Hd = cv.height, br = 1 + 0.04 * Math.sin(t / 1400), r0 = Math.min(Wd, Hd) * (0.62 - 0.22 * f) * br, r1 = Math.hypot(Wd, Hd) * 0.6;
       const vg = ctx.createRadialGradient(Wd / 2, Hd * 0.55, r0, Wd / 2, Hd * 0.55, r1); vg.addColorStop(0, 'rgba(2,4,14,0)'); vg.addColorStop(1, `rgba(2,4,14,${0.72 * f})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, Wd, Hd); ctx.restore(); } }
+    if (running && !S.over) drawOffer(t);   // 🕳️ the way in, over the dark
     if (transition?.jolt) {   // ⚡ THE JOLT: out through the layers (the game, the run, the box), a beat at the top, then down into the next game
       const tr = transition; tr.t += dt; const Wd = cv.width, Hd = cv.height, j = tr.jolt, sMin = 0.3 - 0.1 * j, ease = (x) => x * x * (3 - 2 * x);
       if (!live || live.width !== Wd || live.height !== Hd) { live = document.createElement('canvas'); live.width = Wd; live.height = Hd; }
       const showNew = tr.t > (tr.T1 + tr.T2) / 2; if (showNew) live.getContext('2d').drawImage(cv, 0, 0);
-      const s = tr.t < tr.T1 ? 1 + (sMin - 1) * ease(tr.t / tr.T1) : tr.t < tr.T2 ? sMin : sMin + (1 - sMin) * ease(Math.min(1, (tr.t - tr.T2) / (tr.dur - tr.T2)));
-      const shake = tr.t < 0.3 ? (1 - tr.t / 0.3) * 16 * host.dpr * j : 0, cx = Wd / 2 + (Math.random() - 0.5) * shake, cy = Hd / 2 + (Math.random() - 0.5) * shake, d = host.dpr;
+      const s0 = tr.t < tr.T1 ? 1 + (sMin - 1) * ease(tr.t / tr.T1) : tr.t < tr.T2 ? sMin : sMin + (1 - sMin) * ease(Math.min(1, (tr.t - tr.T2) / (tr.dur - tr.T2)));
+      const shake = tr.t < 0.3 ? (1 - tr.t / 0.3) * (tr.pocket ? 22 : 16) * host.dpr * j : 0, cx = Wd / 2 + (Math.random() - 0.5) * shake, cy = Hd / 2 + (Math.random() - 0.5) * shake, d = host.dpr;
+      // 🕳️ from a pocket, until the swap: the pocket's window is innermost (scale ps, centred), the game's is PK× it and hangs
+      // so the thing you went in by sits behind the pocket; after the swap the nest is the usual three, and the sizes meet
+      const PK = 1.55, pkt = tr.pocket && !showNew ? tr.pocket : null, ps = pkt ? (tr.t < tr.T1 ? 1 + (sMin / PK - 1) * ease(tr.t / tr.T1) : sMin / PK) : 0, s = pkt ? ps * PK : s0;
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#07060F'; ctx.fillRect(0, 0, Wd, Hd);
-      const gw = Wd * s, gh = Hd * s, rect = (k) => [cx - gw * k / 2, cy - gh * k / 2, gw * k, gh * k];
+      const gw = Wd * s, gh = Hd * s;
+      let gcx = cx, gcy = cy;
+      if (pkt) { const m = tr.t < tr.T1 ? 1 : Math.max(0, 1 - (tr.t - tr.T1) / Math.max(0.01, (tr.T2 - tr.T1) / 2)), sx = (gw - Wd * ps) / 2, sy = (gh - Hd * ps) / 2;
+        gcx = cx - Math.max(-sx, Math.min(sx, (pkt.at.x / Wd - 0.5) * gw)) * m; gcy = cy - Math.max(-sy, Math.min(sy, (pkt.at.y / Hd - 0.5) * gh)) * m; }
+      const rect = (k) => [gcx - gw * k / 2, gcy - gh * k / 2, gw * k, gh * k];
       const label = (txt, x, y, col, size) => { ctx.font = `900 ${size * d}px Unbounded, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = col; ctx.fillText(txt, x, y); };
       // the box: r4box itself, its gradient rim
       { const [x, y, w, h] = rect(2.35); ctx.fillStyle = '#0E0B22'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 28 * d); ctx.fill(); const g2 = ctx.createLinearGradient(x, y, x + w, y + h); g2.addColorStop(0, '#3DD6C6'); g2.addColorStop(0.5, '#FF5FB0'); g2.addColorStop(1, '#F5C542'); ctx.strokeStyle = g2; ctx.lineWidth = 4 * d; ctx.stroke(); label('r4box · r = 4', cx, y + h - 14 * d, '#F2F4F6', 14); }
@@ -420,8 +540,14 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
       { const [x, y, w, h] = rect(1.55); ctx.fillStyle = '#151131'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 18 * d); ctx.fill(); ctx.strokeStyle = '#B9A6FF'; ctx.lineWidth = 2.5 * d; ctx.stroke(); label('🧬 CHAOS RUN', cx, y + 18 * d, '#C9B8FF', 11);
         const here = showNew ? tr.to : tr.from; organs.forEach((o, i) => { const u = (i + 0.5) / organs.length, ox = x + w * u, oy = y + h - 14 * d; ctx.globalAlpha = o === here ? 1 : 0.45; ctx.font = `${(o === here ? 20 : 14) * d}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.icon, ox, oy); ctx.textBaseline = 'alphabetic'; }); ctx.globalAlpha = 1; }
       // the game: the world you were in, then the next one, as a window you fall back into
-      { const [x, y, w, h] = rect(1); ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, 10 * d * (1 - s) + 1); ctx.clip(); ctx.drawImage(showNew ? live : tr.snap, x, y, w, h); ctx.restore(); ctx.strokeStyle = '#F2F4F6'; ctx.lineWidth = 2 * d; ctx.beginPath(); ctx.roundRect(x, y, w, h, 10 * d * (1 - s) + 1); ctx.stroke();
-        if (s < 0.9) { const o = showNew ? tr.to : tr.from; label(`${o.icon} ${o.name}`, cx, y + h + 16 * d, '#F2F4F6', 11); } }
+      { const [x, y, w, h] = rect(1); ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, Math.max(1, 10 * d * (1 - s) + 1)); ctx.clip(); ctx.drawImage(showNew ? live : pkt ? pkt.snap : tr.snap, x, y, w, h); ctx.restore(); ctx.strokeStyle = '#F2F4F6'; ctx.lineWidth = 2 * d; ctx.beginPath(); ctx.roundRect(x, y, w, h, Math.max(1, 10 * d * (1 - s) + 1)); ctx.stroke();
+        if (s < 0.9) { const o = showNew ? tr.to : tr.from; label(`${o.icon} ${o.name}`, gcx, y + h + 16 * d, '#F2F4F6', 11); } }
+      if (pkt) {   // 🕳️ the pocket: the innermost window, where you were, its rim gold
+        const w = Wd * ps, h = Hd * ps, x = cx - w / 2, y = cy - h / 2, rr = 8 * d * (1 - ps) + 1;
+        ctx.fillStyle = '#000000aa'; ctx.beginPath(); ctx.roundRect(x - 3 * d, y - 3 * d, w + 6 * d, h + 6 * d, rr + 3 * d); ctx.fill();
+        ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, rr); ctx.clip(); ctx.drawImage(tr.snap, x, y, w, h); ctx.restore();
+        ctx.strokeStyle = '#F5C542'; ctx.lineWidth = 2.5 * d; ctx.beginPath(); ctx.roundRect(x, y, w, h, rr); ctx.stroke();
+        if (ps < 0.8) label(`${pkt.icon} ${pkt.name}`, cx, y - 7 * d, '#FFE08A', 10); }
       if (tr.t > tr.T1 && tr.t < tr.T2 + 0.1) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.25 * Math.sin(((tr.t - tr.T1) / (tr.T2 - tr.T1 + 0.1)) * Math.PI); ctx.fillStyle = '#9BE7FF'; ctx.fillRect(0, 0, Wd, Hd); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }   // the swap: a blink at the top of the pull
       if (tr.t < 0.14) { ctx.globalAlpha = (1 - tr.t / 0.14) * 0.75 * j; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, Wd, Hd); ctx.globalAlpha = 1; }   // the slam
       ctx.restore();
@@ -471,6 +597,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   }
   function startRun() {
     S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r; S.run = makeCurve(); S.runEv = null; S.firstLook = true; S.depth = 0; S.deepest = 0; S.jolts = 0; S.lastIn = -9; held = 0; $('runmeter').hidden = $('runphase').hidden = !morphs;
+    pk = null; offer = null; pend = null; pkCool = 0; pkLast = null; S.pockets = 0; S.pocketWins = 0; S.pocketJolts = 0; stage.classList.remove('inpocket'); $('pocket').hidden = true;
     tenure = 0; prev = null; transition = null; lastUsed = new Map(); clocks = new Map(); active = null; zoom = zoomTo = 1; widen = widenTo = 1; clearLens(); size();
     organs.forEach((o) => o.start());
     active = organs[Math.floor(Math.random() * organs.length)]; active.enter(null, null); applyTheme(); calm = 0;
@@ -479,7 +606,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (isCalm(active.key)) setTimeout(() => { if (running && !S.over && active && isCalm(active.key)) openCalm(); }, 1800);
   }
   async function over(how) {
-    if (S.over) return; S.over = true; S.how = how; running = false; S.depth = 0; setSfxDepth(0, true); stage.style.setProperty('--deep', '0'); $('verb').hidden = true; host.ui(''); pal.sleep(); clearLens();
+    if (S.over) return; S.over = true; S.how = how; running = false; pk = null; offer = null; pend = null; stage.classList.remove('inpocket'); $('pocket').hidden = true; S.depth = 0; setSfxDepth(0, true); stage.style.setProperty('--deep', '0'); $('verb').hidden = true; host.ui(''); pal.sleep(); clearLens();
     const [t1, sub] = active.overText?.(how) || ['GAME OVER', ''];
     sfx(how === 'sleeps' ? 'fanfare' : 'lose');
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2><p class="muted small">saving…</p>`);
@@ -488,7 +615,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const board = data?.top?.length ? `<ol class="board">${data.top.map((r, i) => `<li class="${r.player === me.id ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.score.toLocaleString()}</b></li>`).join('')}</ol>` : '';
     // one row per game (its icon, then its numbers), then the run's numbers as chips: easier to read than one long line
     const rows = organs.map((o) => o.endStats?.()).filter(Boolean).map((t) => { const i = t.indexOf(' '); return `<li><span class="si">${esc(t.slice(0, i))}</span><span>${esc(t.slice(i + 1))}</span></li>`; }).join('');
-    const chips = [morphs && `🧬 <b>${S.morphs}</b> morph${S.morphs === 1 ? '' : 's'}`, morphs && `🌐 run <b>r ${S.run.r.toFixed(2)}</b>`, `🌀 ${morphs ? 'best game ' : ''}<b>r ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</b>`, `🌊 deepest <b>${Math.round((S.deepest || 0) * 100)}%</b>`, morphs && S.jolts && `⚡ <b>${S.jolts}</b> jolt${S.jolts === 1 ? '' : 's'}`].filter(Boolean).map((c) => `<span>${c}</span>`).join('');
+    const chips = [morphs && `🧬 <b>${S.morphs}</b> morph${S.morphs === 1 ? '' : 's'}`, morphs && `🌐 run <b>r ${S.run.r.toFixed(2)}</b>`, `🌀 ${morphs ? 'best game ' : ''}<b>r ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</b>`, `🌊 deepest <b>${Math.round((S.deepest || 0) * 100)}%</b>`, morphs && S.jolts && `⚡ <b>${S.jolts}</b> jolt${S.jolts === 1 ? '' : 's'}`, S.pockets && `🕳️ <b>${S.pocketWins || 0}/${S.pockets}</b> pocket${S.pockets === 1 ? '' : 's'}`].filter(Boolean).map((c) => `<span>${c}</span>`).join('');
     const stats = `${rows ? `<ul class="ostats">${rows}</ul>` : ''}<div class="rchips">${chips}</div>`;
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2>${data?.record ? '<p style="color:var(--gold);font-weight:900">🏆 Your new best!</p>' : data ? `<p class="muted small">Your best: ${data.best.toLocaleString()}</p>` : ''}
       ${stats}
@@ -499,13 +626,20 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function showOver(html) { $('overCard').innerHTML = html; $('over').hidden = false; const a = $('again'); if (a) a.onclick = startRun; }
   // ---------------------------------------------------------------- input: the shell listens, the organ decides
   const toWorld = (e) => { const r = cv.getBoundingClientRect(); const sx = cv.width / r.width, sy = cv.height / r.height; let x = ((e.clientX - r.left) * sx - host.ox) / host.k; if (lens?.kind === 'mirror') x = host.W - x; return { x: Math.max(0, Math.min(host.W, x)), y: Math.max(0, Math.min(host.H, ((e.clientY - r.top) * sy - host.oy) / host.k)) }; };   // through the zoom-out (and a mirror lens), clamped to the world
-  const fwd = (type) => (e) => { if (type === 'down') e.preventDefault(); if (type === 'down') { held += 1; S.lastIn = S.time; } else if (type === 'up') held = Math.max(0, held - 1); if (running && !S.over && active) { const p = toWorld(e); if (type === 'down') host.cue('look', p.x, p.y); else if (type === 'move' && (e.buttons || e.touches)) pal.set({ face: p.x < host.W * 0.3 ? -1 : 1 }); active.pointer(type, p, e); } };   // Fig's eyes follow your finger
+  const fwd = (type) => (e) => { if (type === 'down') e.preventDefault(); if (type === 'down') { held += 1; S.lastIn = S.time; } else if (type === 'up') held = Math.max(0, held - 1); if (running && !S.over && active) { const p = toWorld(e);
+    if (pk) { if (pk.phase === 'play') pk.mod.pointer?.(type, p, e); return; }   // 🕳️ in a pocket, every touch is the pocket's
+    if (type === 'down' && offerHit(p)) { pend = { x: p.x, y: p.y }; return; }   // a press on the way in: a tap dives, a drag is the organ's after all
+    if (pend) { if (type === 'move') { if (Math.hypot(p.x - pend.x, p.y - pend.y) > 10) { const q = pend; pend = null; active.pointer('down', q, e); active.pointer('move', p, e); } return; } pend = null; enterPocket(); return; }
+    if (type === 'down') host.cue('look', p.x, p.y); else if (type === 'move' && (e.buttons || e.touches)) pal.set({ face: p.x < host.W * 0.3 ? -1 : 1 }); active.pointer(type, p, e); } };   // Fig's eyes follow your finger
   cv.addEventListener('pointerdown', fwd('down')); cv.addEventListener('pointermove', fwd('move'));
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
-  addEventListener('keydown', (e) => { S.lastIn = S.time; if (running && !S.over) active?.keydown?.(e); });
-  addEventListener('keyup', (e) => { if (running && !S.over) active?.keyup?.(e); });
+  addEventListener('keydown', (e) => { S.lastIn = S.time; if (running && !S.over) { if (pk) { if (pk.phase === 'play') pk.mod.keydown?.(e); } else active?.keydown?.(e); } });
+  addEventListener('keyup', (e) => { if (running && !S.over) { if (pk) pk.mod.keyup?.(e); else active?.keyup?.(e); } });
   window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure(), next: S.runNext }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r, top: c.curve.top || 0 }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, top: S.curve.top || 0, live: true }]] : [])), morphs: S.morphs, depth: S.depth || 0, deep: deepF(), deepest: S.deepest || 0, jolts: S.jolts || 0, jolt: transition?.jolt || 0, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
-    tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why.startsWith('depth:')) { S.depth = +why.slice(6); S.lastIn = S.time; return; } if (why === 'top') { S.curve.n = Math.max(S.curve.n, 28); S.curve.r = CHAOS.RMAX; S.curve.top = TOP_HOLD; return; } if (why === 'climb') { S.curve.n += 20; S.curve.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * S.curve.n); return; } if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
+    pocket: { state: pk ? pk.phase : offer ? 'offer' : 'none', key: pk?.mod.key || null, left: pk?.left ?? null, cool: pkCool, count: S.pockets || 0, wins: S.pocketWins || 0, rips: S.pocketJolts || 0, last: pkLast,
+      offer: offer && { x: offer.x, y: offer.y, r: offer.r, t: offer.t, forced: offer.forced, screen: (() => { const r = cv.getBoundingClientRect(); return { x: r.left + (host.ox + offer.x * host.k) * r.width / cv.width, y: r.top + (host.oy + offer.y * host.k) * r.height / cv.height }; })() } },
+    jpocket: !!transition?.pocket,
+    tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why === 'pocket') { offer = null; pkCool = 0; return host.pocket.offer(active?.pocketSpot?.(), true); } if (why === 'pocketCool') { pkCool = 0; offer = null; return; } if (why.startsWith('hold:')) { S.testHold = why === 'hold:1'; return; } if (why === 'pocketOut') return exitPocket(false, { why: 'test' }); if (why.startsWith('pocketLeft:')) { if (pk) pk.left = +why.slice(11); return; } if (why === 'pocketIn') { if (!offer) host.pocket.offer(active?.pocketSpot?.(), true); return enterPocket(); } if (why.startsWith('depth:')) { S.depth = +why.slice(6); S.lastIn = S.time; return; } if (why === 'top') { S.curve.n = Math.max(S.curve.n, 28); S.curve.r = CHAOS.RMAX; S.curve.top = TOP_HOLD; return; } if (why === 'climb') { S.curve.n += 20; S.curve.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * S.curve.n); return; } if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
   // ---------------------------------------------------------------- go
   (async () => {
     if (!(await signedIn())) return;

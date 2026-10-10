@@ -1023,6 +1023,41 @@ and glow are sprites built once (`buildSprites`, faces lazily); the velvet table
 has the state plus `play(i, li), forceWar(li), setLane, setHand, twist(k), beat(ev), skip, winRound, drain, empty,
 timeout(li), screen, handPos, lanePos`. Tests (scratch): `t_runwar` (every hand kind, a real tap and drag, every twist and
 event, a round, lives and reset, depth, morph and back; 6× throttle Stage 4: 25.6 fps vs Salvo 19.0), `t_wrdeep`.
+**🕳️ Pockets: a game inside the game (shell.js, organs/pockets/).** One level below an organ. Once `deepF()` ≥ `POCKET.DEEP`
+(0.5), after 2+ beats in the organ, outside the cooldown and not mid-morph, the shell asks the organ's `pocketSpot()` →
+`{x, y, r, icon}` every frame and draws the offer (glow, two rising rings, the icon, "tap"). It lapses after `OFFER` (8 s) or
+below `FADE` (0.38), then `MISS` 12 s before another; `COOL` 45 s after any pocket. A tap dives in; a press that drags > 10 px
+goes to the organ as a normal drag (`pend`), so a putt can still start on the cup. In (`IN` 0.95 s): the organ's frozen
+snapshot zooms into the object and the pocket opens from it in a circle of its `rim` colour. Inside: the organ gets no
+update, draw or beats (the pocket gets `onBeat`); depth held ≥ 0.92, sound fully muffled (`setSfxDepth(1)`);
+`.stage.inpocket` fades the HUD, shrinks Fig, hides `.oui`; `#pocket` is a timer chip (red in the last 5 s, silent: the
+owner disliked countdown ticks). Out (`OUT` 0.8 s) zooms back out, then `organ.pocketReward(result)` on a win or
+`pocketReward(null)`, points, a loud banner. Failure never calls `host.hurt`. A morph inside (the curve's own events; the calm
+"drift" waits) rips you out: always a jolt (≥ 0.9), +`POCKET.JOLT` (750), a longer pull-out, four nested frames (the pocket
+window, gold rim with its icon and name, where the object was; the game ×1.55; the run; the box). End card chip "🕳️
+wins/count pockets". **Organ API:** `pocket` (module), `pocketSpot()`, `pocketSeed()`, `pocketReward(res | null)`;
+`host.pocket.offer(spot)`, `offering()`, `inside()`. **Pocket module:** `key, name, icon, goal, dur, rim, system`,
+`start(ph, seed)`, `update`, `draw` (own background; `setTransform(ph.k, 0, 0, ph.k, ph.ox, ph.oy)`), `pointer`, `onBeat?`,
+`keydown?`, `timeUp() → result`, `debug()`; `ph` = host + `win({pts, label, sub, gift})`, `lose(res)`, `left()`, `mood()`.
+`__shell().pocket` (state none/offer/in/play/out, key, left, cool, count, wins, rips, last, offer + `screen`), `jpocket`;
+`force('pocket' | 'pocketIn' | 'pocketOut' | 'pocketLeft:n' | 'pocketCool' | 'hold:1' | 'hold:0')`; `window.__pk()`. A
+negative `roundRect` radius in the jolt once froze `loop`: radii are clamped. Test (scratch): `t_pocket`.
+**⛳ Inside the cup (pockets/cup.js, the Hénon map, 20 s).** Offered on the cup while the ball is still. A round table in the
+hole's felt and rails (`pocketSeed`: theme, path, `pw`), the hole inlaid in miniature, 7,000 Hénon points (a 1.4, b 0.3) as
+gold dust. Flick Fig with Putt's slingshot against gravity (560) from a pad at the bottom; three target cups (34 px pull)
+carry ↩️ `mull`, ➕ `free`, 🔧 `fix`; cups and bumpers are successive orbit points (`onTable`, `nextSpot`), a beat adds a bumper
+and the oldest of 6 sinks. A win adds to `g.mull`/`g.free`/`g.fixes`. putt.js's mulligan: `g.pre` records each putt's spot,
+putts, free and distance; `mulligan(splash)` undoes a putt that splashed or stopped > 4 further from the cup ("↩️ MULLIGAN",
+HUD `↩️n`).
+**💥 Down the tunnel (pockets/burrow.js, Langton's ant, 22 s).** Offered at a burrow within 120 of the tank (your deepest
+crater, `dugAt` > 7, else a fresh spot 60–90 toward the middle; `drawBurrow`). A 13-wide grid below `TOP` 74, 9% dark
+sprinkle (new seed each time), the ant runs from the top middle until 48% is dug: visited cells are tunnel, dark cells
+loose rock (×2.2 to enter, cleared on arrival, so the ant reads them clear). It reveals over `REVEAL` 1.3 s, then keeps
+stepping at 7/s as a red spark (+6 on a peak). Fig walks a Dijkstra route to the open cell nearest the finger (hold to steer;
+arrows/WASD). Darkness thins where the lamp has been (`see`); the lamp (3.3 cells) redraws through a clip. 💎 ore (7, +60
+each), the core = the costliest-to-reach cell; the roof falls in over the last 6 s. Win `{armor, shield, crate: ore >= 3}`;
+`pocketReward` always clears enemy shells and holds their fire 1.6 s. Note (6× throttle): Hilltop deep runs 9–10 fps, its
+burrow 23–28; Putt deep 21, the cup 31–38.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the

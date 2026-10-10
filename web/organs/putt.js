@@ -6,8 +6,12 @@
 // the green left for right (and the ball with it), the balance draws your line to the cup, the golden
 // cut gilds the cup (500), the window sets three cups (sink any), a Fibonacci beat is a free putt.
 // Twists: 💨 wind, 🧊 ice (no friction), 🌊 ripple (the green heaves), 🕳️ tiny cup.
+// 🕳️ Its pocket (deep enough, the cup pulses: tap it): INSIDE THE CUP (pockets/cup.js), a bagatelle table on the Hénon
+// map; a win brings up ↩️ a mulligan (the next bad putt, one that ends further from the cup or in the water, is undone),
+// ➕ a free putt and 🔧 a fix.
 import { fibMult } from '../chaos.js';
 import { drawPal } from '../pals.js';
+import cupPocket from './pockets/cup.js';
 
 let W = 400, R = 6, CUP_R = 11, PUTTS = 5;
 const TWISTS = [
@@ -47,7 +51,7 @@ const nearest = (x, y) => { let best = null; for (let i = 0; i < g.path.length -
 const tee = () => ({ x: g.path[0].x, y: g.path[0].y });
 function parOf() { let p = 1 + (g.path.length - 2) + (g.course >= 4 ? 1 : 0); if (g.bumpers.length >= 2) p += 1; if (g.water.length) p += 1; return Math.max(1, Math.min(6, p)); }
 const PUTTS_OF = () => (g?.par || 3) + 2;
-function newGame() { g = { ball: null, v: { x: 0, y: 0 }, cups: [], bumpers: [], sand: [], water: [], fx: [], putts: 0, hole: 0, course: 1, courseHole: 0, coursePar: 0, courseStrokes: 0, par: 3, twist: null, time: 0, seed: Math.floor(Math.random() * 1e6), wind: 0, guide: 0, free: 0, gold: false, gopher: null, gopherT: 3, restT: 0, fixes: 0 }; sunkN = 0; puttsN = 0; newCup(); }
+function newGame() { g = { ball: null, v: { x: 0, y: 0 }, cups: [], bumpers: [], sand: [], water: [], fx: [], putts: 0, hole: 0, course: 1, courseHole: 0, coursePar: 0, courseStrokes: 0, par: 3, twist: null, time: 0, seed: Math.floor(Math.random() * 1e6), wind: 0, guide: 0, free: 0, gold: false, gopher: null, gopherT: 3, restT: 0, fixes: 0, mull: 0, pre: null }; sunkN = 0; puttsN = 0; newCup(); }
 function spot(margin = 10) {   // a point on the fairway, `margin` in from its edge, off the tee and the cup
   for (let k = 0; k < 24; k++) { const i = Math.floor(Math.random() * (g.path.length - 1)), p = g.path[i], q = g.path[i + 1], t = 0.15 + Math.random() * 0.7, nx = -(q.y - p.y), ny = q.x - p.x, L = Math.hypot(nx, ny) || 1, off = (Math.random() - 0.5) * Math.max(0, g.pw - 2 * margin); const sp = { x: p.x + (q.x - p.x) * t + nx / L * off, y: p.y + (q.y - p.y) * t + ny / L * off }; if ((!g.ball || Math.hypot(sp.x - g.ball.x, sp.y - g.ball.y) > 40) && (!g.cups[0] || Math.hypot(sp.x - g.cups[0].x, sp.y - g.cups[0].y) > 36)) return sp; }
   const e = g.path[g.path.length - 1]; return { x: e.x, y: e.y };
@@ -56,7 +60,7 @@ function newCup(three = false) {
   if (three) { g.cups = [0, 1, 2].map(() => spot(12)); return; }   // 🔁 the window: three cups along the fairway, sink any
   g.path = corridor(bendsOf(g.course), g.course); g.pw = widthOf(g.course); const e = g.path[g.path.length - 1];
   g.ball = tee(); g.cups = [{ x: e.x, y: e.y, big: Math.max(0.6, 1 - 0.08 * (g.course - 1)) }];
-  g.putts = 0; g.hole += 1; g.seed = (g.seed * 16807 + g.hole) % 2147483647; g.gold = false; g.guide = 0; g.gopher = null;
+  g.putts = 0; g.pre = null; g.hole += 1; g.seed = (g.seed * 16807 + g.hole) % 2147483647; g.gold = false; g.guide = 0; g.gopher = null;
   g.bumpers = []; for (let i = 0; i < Math.min(4, g.course - 2); i++) { const sp = spot(14); g.bumpers.push({ x: sp.x, y: sp.y, r: 10 }); }
   g.sand = []; if (g.course >= 2 && Math.random() < 0.6) { const sp = spot(8); g.sand.push({ x: sp.x, y: sp.y, rx: 26, ry: 16 }); }
   g.water = []; if (g.course >= 5) { const sp = spot(10); g.water.push({ x: sp.x, y: sp.y, rx: 22, ry: 14 }); }
@@ -100,6 +104,7 @@ function putt(dx, dy) {
   if (!g || S.over || moving()) return;
   const d = Math.min(150, Math.hypot(dx, dy)); if (d < 8) return;
   const a = Math.atan2(dy, dx), p = d * 5.2;
+  g.pre = { x: g.ball.x, y: g.ball.y, putts: g.putts, free: g.free, d: cupDist(g.ball) };   // ↩️ where a mulligan would put it back
   g.v = { x: -Math.cos(a) * p, y: -Math.sin(a) * p };
   if (g.free > 0) { g.free -= 1; g.fx.push({ kind: 'text', x: g.ball.x, y: g.ball.y - 16, text: '🌻 free putt', life: 0.9 }); } else g.putts += 1;
   puttsN += 1; sfx('putt', { power: d / 150 });
@@ -114,6 +119,15 @@ function fix(x, y) {
   if (bi >= 0) { what = g.bumpers.splice(bi, 1)[0]; } else if (si >= 0) { what = g.sand.splice(si, 1)[0]; } else { what = g.water.splice(wi, 1)[0]; }
   g.fx.push({ kind: 'text', x: what.x, y: what.y - 16, text: `🔧 FIXED · ${g.fixes} left`, life: 1 }); for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28, v = 40 + Math.random() * 90; g.fx.push({ kind: 'dot', x: what.x, y: what.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 50, c: '#A8E08A', life: 0.6, r: 2 }); }
   sfx('clack'); g.par = parOf(); return true;
+}
+const cupDist = (b) => Math.min(...g.cups.map((c) => Math.hypot(b.x - c.x, b.y - c.y)));
+// ↩️ a mulligan (from the cup's pocket): a putt that splashed or stopped further from the cup than it started is undone
+function mulligan(splash) {
+  const pre = g.pre; g.pre = null;
+  if (!(g.mull > 0) || !pre || !g.ball || (!splash && cupDist(g.ball) <= pre.d + 4)) return false;
+  g.mull -= 1; g.ball.x = pre.x; g.ball.y = pre.y; g.putts = pre.putts; g.free = pre.free; g.v = { x: 0, y: 0 }; trail = [];
+  g.fx.push({ kind: 'text', x: pre.x, y: pre.y - 16, text: `↩️ MULLIGAN${g.mull ? ` · ${g.mull} left` : ''}`, life: 1.2, col: '#C9FFF8' }); sfx('chime'); host.cue?.('score', pre.x, pre.y);
+  return true;
 }
 function shoo() { const gp = g.gopher; g.gopher = null; host.add(100); host.cue?.('score', gp.x, gp.y); g.fx.push({ kind: 'text', x: gp.x, y: gp.y - 16, text: 'SHOO! +100', life: 0.9 }); sfx('clack'); }
 function pickUp() {
@@ -152,11 +166,11 @@ function update(dt) {
     b.x += g.v.x * dt; b.y += g.v.y * dt; trail.push({ x: b.x, y: b.y }); if (trail.length > 14) trail.shift();
     { const n = nearest(b.x, b.y), lim = g.pw / 2 - R; if (n.d > lim) { const nx = (b.x - n.x) / n.d, ny = (b.y - n.y) / n.d, dot = g.v.x * nx + g.v.y * ny; if (dot > 0) { g.v.x -= 2 * dot * nx; g.v.y -= 2 * dot * ny; g.v.x *= 0.8; g.v.y *= 0.8; sfx('clack'); } b.x = n.x + nx * lim; b.y = n.y + ny * lim; } }   // the fairway's edge: a bounce off the nearest wall
     g.bumpers.forEach((bp) => { const dx = b.x - bp.x, dy = b.y - bp.y, d = Math.hypot(dx, dy); if (d < bp.r + R) { const nx = dx / d, ny = dy / d, dot = g.v.x * nx + g.v.y * ny; g.v.x -= 2 * dot * nx; g.v.y -= 2 * dot * ny; g.v.x *= 1.15; g.v.y *= 1.15; b.x = bp.x + nx * (bp.r + R + 1); b.y = bp.y + ny * (bp.r + R + 1); bp.hit = 0.3; sfx('boing'); } });
-    if (g.water.some((w) => ((b.x - w.x) / w.rx) ** 2 + ((b.y - w.y) / w.ry) ** 2 < 1)) { g.v = { x: 0, y: 0 }; sfx('plunk'); S.combo = 0; g.fx.push({ kind: 'text', x: b.x, y: b.y - 12, text: 'SPLASH · +1 putt', life: 1 }); g.putts += 1; Object.assign(b, tee()); }
+    if (g.water.some((w) => ((b.x - w.x) / w.rx) ** 2 + ((b.y - w.y) / w.ry) ** 2 < 1)) { g.v = { x: 0, y: 0 }; sfx('plunk'); if (!mulligan(true)) { S.combo = 0; g.fx.push({ kind: 'text', x: b.x, y: b.y - 12, text: 'SPLASH · +1 putt', life: 1 }); g.putts += 1; Object.assign(b, tee()); } }
     const cupR = (c) => CUP_R * (c.big || 1) * (g.twist?.kind === 'tiny' ? 0.5 : 1);
     const cup = g.cups.find((c) => Math.hypot(b.x - c.x, b.y - c.y) < cupR(c) && Math.hypot(g.v.x, g.v.y) < 260);
     if (cup) return sink(cup);
-    if (!moving()) { g.v = { x: 0, y: 0 }; if (g.putts >= PUTTS_OF()) pickUp(); }
+    if (!moving()) { g.v = { x: 0, y: 0 }; if (!mulligan(false) && g.putts >= PUTTS_OF()) pickUp(); }
   }
   // 🐹 the gopher (Stage 2+): when the ball sits still it pops up, runs over and drags the ball off (+1 putt). Tap it to shoo it.
   { const st = host.stage?.() || 1;
@@ -466,10 +480,20 @@ const organ = {
   leave() { drag = null; return g?.ball ? { x: g.ball.x, y: g.ball.y } : null; },
   update, draw, onBeat,
   pointer(type, p) { if (type === 'down') { if (g?.gopher && Math.hypot(g.gopher.x - p.x, g.gopher.y - p.y) < 30) return shoo(); drag = { x0: p.x, y0: p.y, x: p.x, y: p.y }; } else if (type === 'move') { if (drag) { drag.x = p.x; drag.y = p.y; } } else if (drag) { if (Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 8) fix(drag.x0, drag.y0); else putt(drag.x - drag.x0, drag.y - drag.y0); drag = null; } },
-  hudLine: () => (g ? `⛳ course ${g.course} · ${g.courseHole}/3${g.fixes ? ` · 🔧${g.fixes}` : ''}` : ''),
+  hudLine: () => (g ? `⛳ course ${g.course} · ${g.courseHole}/3${g.fixes ? ` · 🔧${g.fixes}` : ''}${g.mull ? ` · ↩️${g.mull}` : ''}` : ''),
+  // 🕳️ the pocket: the cup itself is the way in (while the ball sits still), and what comes up out of it
+  pocket: cupPocket,
+  pocketSpot: () => { if (!g || !g.ball || !g.cups.length || moving() || drag) return null; const c = g.cups[0]; return { x: c.x, y: c.y, r: CUP_R * (c.big || 1) + 6, icon: '🕳️' }; },
+  pocketSeed: () => ({ path: g.path.map((p) => ({ x: p.x, y: p.y })), pw: g.pw, theme: themeOf(), hole: g.hole, course: g.course }),
+  pocketReward(res) {
+    drag = null; if (!res || !g) return; const gf = res.gift || {}, b = g.ball || g.cups[0];
+    g.mull += gf.mull || 0; g.free += gf.free || 0; g.fixes += gf.fix || 0;
+    if (b) g.fx.push({ kind: 'text', x: b.x, y: b.y - 20, text: [gf.mull && '↩️', gf.free && '➕', gf.fix && '🔧'].filter(Boolean).join(' ') + ' from the cup', life: 1.6, big: false, col: '#FFE08A' });
+    sfx('chime', { hi: true });
+  },
   level: () => g?.course || 1,
   overText: (how) => (how === 'picked up' ? ['⛳ PICKED UP', 'Too many cups walked away from.'] : ['RUN OVER', '']),
   endStats: () => (g ? `⛳ ${sunkN} cups in ${puttsN} putts` : ''),
-  debug: () => g && ({ themes: THEMES.map((th) => th.key), themeKey: themeOf().key, theme: (i) => { g.hole = ((i % THEMES.length) + THEMES.length) % THEMES.length; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); return themeOf().key; }, hole: g.hole, layerBuilt: LY?.at || 0, fix, fixes: g.fixes, bumps: g.bumpers, sand: g.sand, water: g.water, jump: (c) => { g.course = c; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); }, gopher: g.gopher, bends: g.path.length - 2, pw: g.pw, path: g.path, ball: g.ball, v: g.v, cups: g.cups, putts: g.putts, sunk: sunkN, par: g.par, course: g.course, courseHole: g.courseHole, allowed: PUTTS_OF(), twist: g.twist?.kind || null, bumpers: g.bumpers.length, W, H: H(), putt }),
+  debug: () => g && ({ themes: THEMES.map((th) => th.key), themeKey: themeOf().key, theme: (i) => { g.hole = ((i % THEMES.length) + THEMES.length) % THEMES.length; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); return themeOf().key; }, hole: g.hole, layerBuilt: LY?.at || 0, fix, fixes: g.fixes, bumps: g.bumpers, sand: g.sand, water: g.water, jump: (c) => { g.course = c; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); }, gopher: g.gopher, bends: g.path.length - 2, pw: g.pw, path: g.path, ball: g.ball, v: g.v, cups: g.cups, putts: g.putts, sunk: sunkN, par: g.par, course: g.course, courseHole: g.courseHole, allowed: PUTTS_OF(), mull: g.mull, free: g.free, pocketSpot: organ.pocketSpot(), twist: g.twist?.kind || null, bumpers: g.bumpers.length, W, H: H(), putt }),
 };
 export default organ;

@@ -6,8 +6,12 @@
 // shell in three (a fractal shell), the balance stills the wind, the golden cut sends a golden tank
 // (500), gift is a shield, a Fibonacci beat is a bigger blast. Twists: 💨 gale, ☄️ meteor shower,
 // 🌱 regrowth (the hill heals), 🌙 night (tanks only show when they fire).
+// 🕳️ Its pocket (deep enough, a burrow glows by your tank, in your deepest crater nearby if there is one: tap it):
+// DOWN THE TUNNEL (pockets/burrow.js), a cave dug by Langton's ant; reaching the core brings up full armour and a
+// shield, and with three ore a loaded crate.
 import { fibMult } from '../chaos.js';
 import { drawPal } from '../pals.js';
+import burrowPocket from './pockets/burrow.js';
 
 let W = 400, G = 620, TANK_W = 22;
 const TWISTS = [
@@ -437,6 +441,14 @@ function shellLook(s) {
   if (!s.mine) return ['255,90,58', '#2A1A22'];
   return s.napalm ? ['255,110,50', '#FF5A3A'] : s.homing ? ['255,224,138', '#FFE08A'] : s.hole ? ['160,130,255', '#2A1A5A'] : s.tesla ? ['155,231,255', '#E6FBFF'] : s.frac || s.small ? ['191,233,255', '#F2FBFF'] : s.strike ? ['255,176,122', '#FFB07A'] : s.big ? ['255,200,87', '#FFF1C8'] : ['61,214,198', '#D8FFF9'];
 }
+// 🕳️ the way into the pocket: a burrow in the hill, warm light coming up out of it
+function drawBurrow(x, t) {
+  const y = hAt(x) + 1, pu = 0.5 + 0.5 * Math.sin(t / 240);
+  ctx.fillStyle = '#4A2E1A'; ctx.beginPath(); ctx.ellipse(x - 13, y - 1, 7, 4, -0.3, Math.PI, 0); ctx.ellipse(x + 13, y - 1, 7, 4, 0.3, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#0E0605'; ctx.beginPath(); ctx.ellipse(x, y, 12, 5, 0, 0, 7); ctx.fill();
+  ctx.globalCompositeOperation = 'lighter'; glowAt('255,170,80', x, y - 2, 22 + 6 * pu, 0.55 + 0.25 * pu); ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.ellipse(x, y + 1, 6, 2, 0, 0, 7); ctx.fill();
+}
 function draw(t) {
   W = host?.W || W;
   const k = host.k, Hh = H();
@@ -468,6 +480,7 @@ function draw(t) {
     ctx.globalAlpha = 0.55 * (1 - nt); ctx.drawImage(look.haze, 0, y0 + hh * 0.35, W, hh * 0.4); ctx.globalAlpha = 1; }
   look.clouds.forEach((c) => { const im = look.cloudImg[c.img]; ctx.globalAlpha = c.a * (1 - 0.55 * nt); ctx.drawImage(im, c.x - 80 * c.s, c.y - 35 * c.s, 160 * c.s, 70 * c.s); }); ctx.globalAlpha = 1;
   drawGround(t, Hh);
+  if (g.burrow && host.pocket?.offering?.()) drawBurrow(g.burrow.x, t);
   if (night > 0.01) { ctx.fillStyle = `rgba(4,4,20,${0.5 * night})`; ctx.fillRect(0, Hh * 0.25, W, Hh); }
   // wind: a pill with an arrow as long as the wind
   { const wv = g.wind, txt = `wind ${Math.abs(Math.round(wv))}`; ctx.font = '900 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; const tw = ctx.measureText(txt).width + 34; ctx.fillStyle = 'rgba(16,10,40,0.55)'; ctx.beginPath(); ctx.roundRect(W / 2 - tw / 2, 14, tw, 20, 10); ctx.fill();
@@ -582,10 +595,26 @@ const organ = {
   update, draw, onBeat,
   pointer(type, p) { if (type === 'down') drag = { x0: p.x, y0: p.y, x: p.x, y: p.y }; else if (type === 'move') { if (drag) { drag.x = p.x; drag.y = p.y; } } else if (drag) { if (Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 10) tap(drag.x0, drag.y0); else fire(drag.x - drag.x0, drag.y - drag.y0); drag = null; } },
   hudLine: () => (g ? `💥 ${killsN} K.O. · ${g.tanks.length} dug in` : ''),
+  // 🕳️ the pocket: a burrow by your tank (your deepest crater within reach, else a fresh one), and what comes up out of it
+  pocket: burrowPocket,
+  pocketSpot() {
+    if (!g) return null;
+    if (!g.burrow || g.time - g.burrow.at > 1) { let best = null; for (let x = Math.max(24, g.me.x - 120); x <= Math.min(W - 24, g.me.x + 120); x += 4) { if (Math.abs(x - g.me.x) < 36 || inLake(x)) continue; const d = dugAt(x); if (d > 7 && (!best || d > best.d)) best = { x, d }; }
+      const side = g.me.x < W / 2 ? 1 : -1; g.burrow = { x: best ? best.x : Math.max(24, Math.min(W - 24, g.me.x + side * (60 + Math.random() * 30))), crater: !!best }; }
+    g.burrow.at = g.time; return { x: g.burrow.x, y: hAt(g.burrow.x) - 2, r: 18, icon: '⛏️' };
+  },
+  pocketSeed: () => ({ seed: Math.floor(Math.random() * 1e9), stage: stage(), crater: !!g?.burrow?.crater }),
+  pocketReward(res) {
+    if (!g) return; drag = null; g.burrow = null; g.fireT = Math.max(g.fireT, 1.6); g.shells = g.shells.filter((s) => s.mine);   // a breath on the way back up
+    if (!res) return; const gf = res.gift || {}, y = hAt(g.me.x) - 36;
+    if (gf.armor) { g.me.armor = ARMOR; g.me.calmT = 0; } if (gf.shield) g.shield = 1;
+    if (gf.crate) { const ks = Object.keys(ARTY), kd = ks[Math.floor(Math.random() * ks.length)]; g.arty = { kind: kd, n: ARTY[kd].n }; renderBar(); }
+    g.fx.push({ kind: 'text', x: g.me.x, y, text: `🛡 FULL${gf.crate ? ` · ${ARTY[g.arty.kind].icon} ${g.arty.n}` : ''}`, life: 1.6, big: true, col: '#C9FFF8' }); g.fx.push({ kind: 'ring', x: g.me.x, y: y + 26, r: 4, R: 40, life: 0.5, col: '#9BE7FF' }); sfx('chime', { hi: true });
+  },
   level: () => 1 + Math.floor(killsN / 5),
   overText: (how) => (how === 'shelled' ? ['💥 KNOCKED OUT', 'Too many direct hits.'] : ['RUN OVER', '']),
   endStats: () => (g ? `💥 ${killsN} K.O. from ${shotsN} shells` : ''),
-  debug: () => g && ({ ...(() => ({ me: g.me.x, armor: g.me.armor, hitMe: (x, r = 20) => boom(x, hAt(x) - 4, r, false), tanks: g.tanks.length, moles: g.moles.length, lakes: g.lakes.length, balloons: g.balloons.length, worms: g.worms.length, wormsAt: g.worms.map((w) => ({ ...wormHead(w), phase: w.phase, t: w.t })), arty: g.arty, beams: g.beams.length, holes: g.holes.length, jets: g.jets.length, bolts: g.bolts.length, give: (k) => { g.arty = { kind: k, n: ARTY[k].n }; renderBar(); }, fire, tesla, tankXs: g.tanks.map((t) => [t.x, hAt(t.x)]), eshells: g.shells.filter((s) => !s.mine).map((s) => [Math.round(s.x), Math.round(s.vx)]), kinds: Object.keys(ARTY), drones: g.drones.length, drops: g.drops.map((c) => ({ x: c.x, y: c.y, kind: c.kind, down: c.down })), tap, stage: stage(), twist: (kind) => { g.twist = { kind, until: g.time + 6 }; } }))() }),
+  debug: () => g && ({ ...(() => ({ me: g.me.x, armor: g.me.armor, shield: g.shield, burrow: g.burrow, hitMe: (x, r = 20) => boom(x, hAt(x) - 4, r, false), tanks: g.tanks.length, moles: g.moles.length, lakes: g.lakes.length, balloons: g.balloons.length, worms: g.worms.length, wormsAt: g.worms.map((w) => ({ ...wormHead(w), phase: w.phase, t: w.t })), arty: g.arty, beams: g.beams.length, holes: g.holes.length, jets: g.jets.length, bolts: g.bolts.length, give: (k) => { g.arty = { kind: k, n: ARTY[k].n }; renderBar(); }, fire, tesla, tankXs: g.tanks.map((t) => [t.x, hAt(t.x)]), eshells: g.shells.filter((s) => !s.mine).map((s) => [Math.round(s.x), Math.round(s.vx)]), kinds: Object.keys(ARTY), drones: g.drones.length, drops: g.drops.map((c) => ({ x: c.x, y: c.y, kind: c.kind, down: c.down })), tap, stage: stage(), twist: (kind) => { g.twist = { kind, until: g.time + 6 }; } }))() }),
   shellsN: () => g?.shells.filter((s) => s.mine).length, debug0: () => g && ({ tanks: g.tanks.map((t) => ({ x: t.x, y: hAt(t.x), gold: t.gold, quiet: t.quiet })), me: { x: g.me.x, y: hAt(g.me.x) }, shells: g.shells.length, kills: killsN, wind: g.wind, twist: g.twist?.kind || null, W, H: H(), fire }),
 };
 export default organ;
