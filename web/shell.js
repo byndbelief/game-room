@@ -22,6 +22,7 @@ import { sb, me, signedIn, sfx, setGameTools, esc, names } from './common.js';
 import { makeCurve, stepCurve, drawMeter, meterText, NEWS, tally, ratingLine, CALM, isCalm, CHAOS, MOOD_SAY, MOOD_NAME, WEIGHTS } from './chaos.js';
 import { palWidget, PAL, drawPal } from './pals.js';
 import { applyPalTheme } from './common.js';
+import { setSfxDepth } from './sfx.js';
 
 const SHELL_CSS = `
   .shud{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;padding:8px 10px;pointer-events:none;font-weight:900;text-shadow:0 2px 4px #000c}
@@ -140,9 +141,9 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (playing && !transition) S.depth = Math.min(1, (S.depth || 0) + dt / 14 * (1 + Math.min(5, S.combo || 0) * 0.12));
     else S.depth = Math.max(0, (S.depth || 0) - dt * (transition ? 0 : 0.12));
     if (active) S.deepest = Math.max(S.deepest || 0, S.depth);
-    stage.style.setProperty('--deep', deepF().toFixed(3));
+    stage.style.setProperty('--deep', deepF().toFixed(3)); setSfxDepth(deepF());   // 🔇 the sound sinks with you
   }
-  function surfaceNow() { S.depth = 0; stage.classList.add('snap'); stage.style.setProperty('--deep', '0'); setTimeout(() => stage.classList.remove('snap'), 400); }
+  function surfaceNow() { S.depth = 0; setSfxDepth(0, true); stage.classList.add('snap'); stage.style.setProperty('--deep', '0'); setTimeout(() => stage.classList.remove('snap'), 400); }
   let live = null;   // a scratch copy of the new world, for the jolt's dive back in
   function glitchRun() { if (S.over) return; glitchT = 1.1; wave('glitch', true); const others = organs.filter((o) => o !== active && o.theme); const th = others[Math.floor(Math.random() * others.length)]; if (th) applyTheme(th.theme); active.glitch?.(true, S.curve.mood); pal.hurt(); sfx('buzz'); banner(NEWS.glitch[0], `${PAL[S.curve.mood || 'calm'].name}'s mind flickers: nothing changed. Probably.`); }
   function tear() {   // slices of the frame shoved sideways, and a colour band, for the glitch's life
@@ -478,7 +479,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (isCalm(active.key)) setTimeout(() => { if (running && !S.over && active && isCalm(active.key)) openCalm(); }, 1800);
   }
   async function over(how) {
-    if (S.over) return; S.over = true; S.how = how; running = false; $('verb').hidden = true; host.ui(''); pal.sleep(); clearLens();
+    if (S.over) return; S.over = true; S.how = how; running = false; S.depth = 0; setSfxDepth(0, true); stage.style.setProperty('--deep', '0'); $('verb').hidden = true; host.ui(''); pal.sleep(); clearLens();
     const [t1, sub] = active.overText?.(how) || ['GAME OVER', ''];
     sfx(how === 'sleeps' ? 'fanfare' : 'lose');
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2><p class="muted small">saving…</p>`);

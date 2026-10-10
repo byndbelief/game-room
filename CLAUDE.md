@@ -1064,7 +1064,7 @@ quiet past 0.6 unless it's a hurt or `loud`. A breathing vignette is drawn after
 world, then 0.6 s in): nested rounded rects (game ×1, run ×1.55 with the organs' icons, box ×2.35 with the gradient rim
 and "r4box · r = 4"), a white slam and shake at the start; no Fig fly. `surfaceNow()` zeroes depth with the `.snap`
 class so the frame comes back at once. +500 × depth, `S.jolts`, `S.deepest` (end card chips 🌊 / ⚡). `host.depth()` /
-`host.deep()` for organs, and each draws its own going under from it (a block marked 🌊 near the end of its
+🔇 The sound sinks too: `setSfxDepth(deepF())` (sfx.js: master gain × (1 − 0.75·d) and a lowpass `muffle` 20 kHz → 700 Hz, eased; `surfaceNow` and `over` snap it back with `setSfxDepth(0, true)`; test `t_sound` spies on `setTargetAtTime`). `host.deep()` for organs, and each draws its own going under from it (a block marked 🌊 near the end of its
 `draw`): salvo tint + caustic lines + bubbles; hilltop a dusk gradient, stars and a bigger haloed moon (right after
 the sky); putt an offscreen `nightL` with `destination-out` pools on the ball and cup, then fireflies; squirrel (screen
 space, before the glitch) mist bands and fireflies; fractal triangle rings from (W·0.82, H·0.45) and streaks; rally

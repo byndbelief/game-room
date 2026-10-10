@@ -3,7 +3,7 @@
 // first tap are silently skipped. Settings (⚙️, in common.js) mutes them; the choice is
 // remembered on this device.
 
-let ac = null, master = null, noiseBuf = null;
+let ac = null, master = null, muffle = null, noiseBuf = null, under = 0;
 const KEY = 'sfx.muted';
 let muted = (() => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } })();
 
@@ -12,7 +12,7 @@ function ctx() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     ac = new AC();
-    master = ac.createGain(); master.gain.value = 0.5; master.connect(ac.destination);
+    master = ac.createGain(); master.gain.value = 0.5; muffle = ac.createBiquadFilter(); muffle.type = 'lowpass'; muffle.frequency.value = 20000; master.connect(muffle).connect(ac.destination); depthNow();
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   }
@@ -82,4 +82,8 @@ export function sfx(name, opts) {
   try { SOUNDS[name](a.currentTime + 0.01 + (opts?.delay || 0), opts || {}); } catch { /* never break a game over a sound */ }
 }
 export const isMuted = () => muted;
+// 🌊 going under (the Chaos Run's depth, 0 → 1): the sound sinks with you, quieter and muffled as if heard through water
+// (a lowpass from 20 kHz down to ~700 Hz, the volume to a quarter); 0 brings it straight back (a jolt).
+function depthNow(snap) { if (!ac || !master) return; const t = ac.currentTime, k = snap ? 0.01 : 0.35; master.gain.setTargetAtTime(0.5 * (1 - 0.75 * under), t, k); muffle.frequency.setTargetAtTime(20000 * Math.pow(700 / 20000, under), t, k); }
+export function setSfxDepth(d, snap = false) { const v = Math.max(0, Math.min(1, d)); if (Math.abs(v - under) < 0.01 && !snap) return; under = v; depthNow(snap); }
 export function setMuted(m) { muted = m; try { localStorage.setItem(KEY, m ? '1' : '0'); } catch {} }

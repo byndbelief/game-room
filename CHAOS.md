@@ -111,7 +111,7 @@ HUD and meter, banners, the intro and end cards, the leaderboard, full screen, i
 two. The shell measures it: `depth` (0 → 1) rises while you play steadily (input in the last 2.5 s or a finger held
 down, ~14 s to the bottom, faster with a combo) and drains when you stop (0.12/s) or get hurt (halved). As it rises the
 frame dissolves: the curve meters, the stage line and Fig fade and shrink, the run's notices go quiet (hurts still
-speak), and the edges of the screen close in with a slow breath. The chaos doesn't wait for you: a switch that lands
+speak), and the edges of the screen close in with a slow breath. The sound goes under too: quieter and muffled, as if heard through water, until a jolt brings it back at once. The chaos doesn't wait for you: a switch that lands
 40% deep or more is a **⚡ jolt**. The frame slams back, the screen flashes and shakes, and the camera pulls out
 through every layer (the game in its window, the 🧬 Chaos Run holding every game round its rim, the r4box rim around
 it), blinks, and dives into the next game. The deeper you were, the further it pulls and the more it pays (500 ×
