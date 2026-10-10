@@ -163,6 +163,11 @@ falls in. A pocket is never ruled by the logistic curve. Each has its own chaoti
   folds at a sharp corner, so two nearby starts drift twice as far apart every step. Each row of roots puts its gap at the
   next iterate: far left, then halfway, then all the way right, jagged and never settling into a rhythm.
 
+- **⚓ The sunken wreck: the Lorenz attractor**, dx = σ(y − x), dy = x(ρ − z) − y, dz = xy − βz, the weather model behind
+  "the butterfly effect". The eels ride its flow: loops round one wing, then the other, and no telling how many before they
+  switch. The butterfly is drawn faintly in the water so you can read where they'll go, the coins lie on it, and the key
+  waits in the eye of a wing, the one place they circle and never cross.
+
 A win brings something small back up (a mulligan, a free putt and a fix; full armour, a shield, a crate). Failing only costs
 the time. The curve keeps beating above you, so the run can still rip you out: the deepest jolt, four frames out (pocket,
 game, run, box), +750. The other games' pockets will each bring their own system (a cellular automaton, a double pendulum, a

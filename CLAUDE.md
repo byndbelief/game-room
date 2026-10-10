@@ -1069,6 +1069,17 @@ draws only the visible slice plus sprites. Win `{heart: 1, crate, acorns}`: `poc
 crate into `game.arsenal`/`game.weapon` (`renderBar`); either way it clears acorns, pinecones and stun. `__pk()` has `gaps`,
 `rows`, `fig`, `passed`, `got`, `bumps`, `flaps`, `crate`, `flap(x)`, `auto(on)`, `toScreen`, `win`, `lose`, `beat`. 6×
 throttle: Squirrel deep ~18 fps, the knothole 25–32. Test (scratch): `t_pk_knothole`.
+**⚓ The sunken wreck (pockets/wreck.js, the Lorenz attractor, 22 s).** Offered on a wreck under the waves (`g.wreck`,
+`drawWreck`): where the last ship you sank went down (set as `g.sinking` finishes), else an old one between two lanes, ≥ 90
+from the boat; it fades in and away after ~24 s unless on offer. A flooded hold (planks, ribs, portholes, the torn hatch and
+its light, silt, cached in `buildLook`) with the butterfly traced faintly in the water. Eels ride the Lorenz flow (σ 10, ρ 28,
+β 8/3; RK4, steps ≤ 0.004, `RATE` 0.2) projected x across, z up (`P`), trails of `SEGS` 18 points `GAP` 5.5 apart; 3 eels (4
+from Stage 3), a peak surges them ×1.7, a big beat adds one (≤ 5). Fig swims to the finger (hold to steer, arrows/WASD;
+`SPEED` 150). 9 🪙 (+20) and 2 💰 (+60) lie on one Lorenz orbit; the 🗝️ sits in the eye of the far wing, the chest on the floor
+under the other. An eel's touch stuns 0.9 s (then 2 s grace) and drops a coin that sinks and can be picked up again; never
+`host.hurt`. Win `{arm, heart: 1, coins}`: `pocketReward` loads a full `ARMS` crate into `g.arm`, `host.heal(1)`, and always
+clears torpedoes and bombs and refills the clip. Its banner leaves out the weapon icon (the laser's ⚡ is a cue mark).
+`__sv()` has `wreck`, `hurtMe()`. 6× throttle: Salvo deep 13–15 fps, the wreck 27–38. Test (scratch): `t_pk_wreck`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the

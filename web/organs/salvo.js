@@ -10,8 +10,12 @@
 // of something better, fired by tapping the sea like a shell: 🚀 missiles (home on the nearest ship), 💥 cluster
 // (five shells in a cross), ⚡ laser (burns every cell near the tap, all along that lane), ✈️ airstrike (a bomber lays
 // six bombs along the lane), 🌊 tsunami (one wave, a hit on every ship at sea). Rounds don't touch the clip.
+// 🕳️ Its pocket (deep enough, a ship you sank, or an old wreck's shadow, glints under the waves: tap it): THE SUNKEN
+// WRECK (pockets/wreck.js), a flooded hold where eels ride the Lorenz attractor; the captain's chest sends up a weapon
+// crate loaded and ready, a heart back for Salvo, and the coins as points.
 import { fibMult } from '../chaos.js';
 import { drawPal } from '../pals.js';
+import wreckPocket from './pockets/wreck.js';
 
 let W = 400, LANES = 6, AMMO = 6, RELOAD_S = 1.2, CELL = 40;
 // 🎚️ As the board zooms out (Stage 2+) the boat sails to the middle of the sea and the lanes spread around it
@@ -176,7 +180,7 @@ function update(dt) {
   g.beams = g.beams.filter((bm) => { bm.life -= dt; return bm.life > 0; });
   g.bombers = g.bombers.filter((bb) => { bb.x += bb.dir * 300 * dt; bb.drops = bb.drops.filter((dx) => { if ((bb.dir > 0 && bb.x >= dx) || (bb.dir < 0 && bb.x <= dx)) { g.shells.push({ x0: dx, y0: bb.y, x: dx, y: laneY(bb.lane), t: 0, tf: 0.35, bomb: true }); return false; } return true; }); return bb.x > -80 && bb.x < W + 80; });
   g.waves = g.waves.filter((wv) => { wv.y += wv.dir * 260 * dt; g.ships.slice().forEach((sh) => { if (!wv.hit.has(sh) && (wv.dir < 0 ? laneY(sh.lane) >= wv.y && laneY(sh.lane) <= wv.y0 : laneY(sh.lane) <= wv.y && laneY(sh.lane) >= wv.y0)) { wv.hit.add(sh); const open = sh.hits.map((h, i) => (h ? -1 : i)).filter((i) => i >= 0); if (open.length) burn(sh, open[Math.floor(Math.random() * open.length)]); } }); g.torps = g.torps.filter((tp) => Math.abs(torpPos(tp).y - wv.y) > 20); return wv.y > -40 && wv.y < H() + 40; });
-  g.sinking = g.sinking.filter((sk) => { sk.t += dt; if (Math.random() < dt * 20) g.fx.push({ kind: 'bubble', x: sk.x + Math.random() * sk.len * CELL, y: sk.y + (Math.random() - 0.5) * 14, life: 0.8, r: 1.5 + Math.random() * 3 }); return sk.t < 1.4; });
+  g.sinking = g.sinking.filter((sk) => { sk.t += dt; if (Math.random() < dt * 20) g.fx.push({ kind: 'bubble', x: sk.x + Math.random() * sk.len * CELL, y: sk.y + (Math.random() - 0.5) * 14, life: 0.8, r: 1.5 + Math.random() * 3 }); if (sk.t >= 1.4 && !host.pocket?.offering?.()) g.wreck = { x: Math.max(30, Math.min(W - 30, sk.x + sk.len * CELL / 2)), y: sk.y + 6, len: sk.len, dir: sk.dir, gold: sk.gold, at: g.time }; return sk.t < 1.4; });   // 🕳️ where it went down, a wreck lies
   g.arms.forEach((a) => { a.t += dt; if (a.alive) a.h = Math.min(a.hmax, a.h + 60 * dt); else a.h = Math.max(0, a.h - 200 * dt);
     if (a.alive && a.h >= a.hmax && Math.random() < dt * 0.5) { const s = g.ships.find((sh) => Math.abs(sh.x + sh.len * CELL / 2 - a.x) < 60); if (s) { g.ships.splice(g.ships.indexOf(s), 1); g.fx.push({ kind: 'text', x: a.x, y: H() - a.h, text: 'DRAGGED UNDER', life: 1, col: '#C9B8FF' }); } } });
   g.arms = g.arms.filter((a) => a.alive || a.h > 0);
@@ -222,6 +226,18 @@ function drawShip(sh, y, t, alpha = 1, sink = 0) {
   if (gold) { ctx.globalAlpha = alpha * (0.25 + 0.25 * Math.sin(t / 200)); ctx.strokeStyle = '#FFF1B8'; ctx.lineWidth = 3; hull(sh.x - 3, L + 6, y, dir, 15); ctx.stroke(); }
   ctx.restore();
 }
+// 🕳️ the way into the pocket: a wreck's shadow under the waves (where a ship went down, or an old one), a mast askew,
+// bubbles, and a glint of gold in its hold. It fades in when it's new and away after a while (unless it's on offer).
+function drawWreck(wk, t) {
+  const age = g.time - wk.at, on = host.pocket?.offering?.(), a = Math.min(1, age / 0.6) * (on ? 1 : Math.max(0, Math.min(1, (24 - age) / 4))); if (a <= 0.01) return;
+  const L = Math.max(2, wk.len || 3) * CELL * 0.8, x0 = wk.x - L / 2, y = wk.y, pu = 0.5 + 0.5 * Math.sin(t / 260);
+  ctx.save(); ctx.globalAlpha = a * 0.55; ctx.fillStyle = '#020C18'; hull(x0, L, y, wk.dir || 1, 9); ctx.fill();
+  ctx.globalAlpha = a * 0.35; ctx.strokeStyle = '#7FB8D8'; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.strokeStyle = '#3A5A70'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(wk.x, y); ctx.lineTo(wk.x + 16 * (wk.dir || 1), y - 22); ctx.stroke();
+  ctx.globalAlpha = a * (0.5 + 0.4 * pu); ctx.fillStyle = wk.gold ? '#FFE9A0' : '#F5C542'; ctx.beginPath(); ctx.arc(wk.x - 6, y + 1, 2.2 + pu, 0, 7); ctx.fill();
+  ctx.globalAlpha = a * 0.6; ctx.strokeStyle = 'rgba(220,240,255,0.8)'; ctx.lineWidth = 1; for (let i = 0; i < 3; i++) { const u = ((t / 1300) + i / 3) % 1; ctx.beginPath(); ctx.arc(wk.x - 10 + i * 9, y - 4 - u * 26, 1.2 + u * 1.5, 0, 7); ctx.stroke(); }
+  ctx.restore();
+}
 function draw(t) {
   W = host?.W || W;
   const k = host.k, Hh = H();
@@ -237,6 +253,7 @@ function draw(t) {
   ctx.setLineDash([2, 10]); ctx.strokeStyle = 'rgba(190,230,255,0.10)'; ctx.lineWidth = 1; for (let i = 0; i < LANES; i++) { ctx.beginPath(); ctx.moveTo(0, laneY(i) + 18); ctx.lineTo(W, laneY(i) + 18); ctx.stroke(); } ctx.setLineDash([]);
   for (let i = 0; i < LANES; i++) [8, W - 8].forEach((bx) => { const by = laneY(i) + 18 + Math.sin(t / 400 + i + bx) * 1.5; ctx.fillStyle = i % 2 ? '#E4572E' : '#F2F4F6'; ctx.beginPath(); ctx.arc(bx, by, 3, 0, 7); ctx.fill(); });
   if (!g) return;
+  if (g.wreck) drawWreck(g.wreck, t);
   // 📦 crates bobbing along a lane, a flag on top
   (g.crates || []).forEach((c) => { const y = laneY(c.lane) + Math.sin(c.t * 3) * 2, a = ARMS[c.kind]; ctx.fillStyle = 'rgba(220,240,255,0.35)'; ctx.beginPath(); ctx.ellipse(c.x, y + 9, 16, 4, 0, 0, 7); ctx.fill();
     const glow = ctx.createRadialGradient(c.x, y, 2, c.x, y, 30); glow.addColorStop(0, 'rgba(245,197,66,0.45)'); glow.addColorStop(1, 'rgba(245,197,66,0)'); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(c.x, y, 30, 0, 7); ctx.fill();
@@ -319,9 +336,30 @@ const organ = {
   pointer(type, p) { if (type === 'down') fire(p.x, p.y); },
   keydown(e) { if (e.key === 'r' || e.key === 'R') reload(); },
   hudLine: () => (g ? `⚓ ${sunkN} sunk · ${g.ships.length} at sea` : ''),
+  // 🕳️ the pocket: a wreck under the waves (the last ship you sank, else an old one between the lanes), and what comes up
+  pocket: wreckPocket,
+  pocketSpot() {
+    if (!g) return null;
+    const b = BOAT();
+    if (!g.wreck || (g.time - g.wreck.at > 20 && !host.pocket?.offering?.())) {   // no fresh wreck of yours: an old one, between two lanes, clear of the boat
+      let x = W / 2, y = H() / 2;
+      for (let i = 0; i < 20; i++) { const l = Math.floor(Math.random() * (LANES - 1)); x = 50 + Math.random() * (W - 100); y = (laneY(l) + laneY(l + 1)) / 2 + 4; if (Math.hypot(x - b.x, y - b.y) > 90) break; }
+      g.wreck = { x, y, len: 3, dir: Math.random() < 0.5 ? 1 : -1, gold: false, at: g.time };
+    }
+    return { x: g.wreck.x, y: g.wreck.y, r: 20, icon: '🏴‍☠️' };
+  },
+  pocketSeed: () => ({ seed: Math.floor(Math.random() * 1e9), stage: host.stage?.() || 1, gold: !!g?.wreck?.gold, arms: Object.entries(ARMS).map(([kind, a]) => ({ kind, icon: a.icon, name: a.name, n: a.n })) }),
+  pocketReward(res) {
+    if (!g) return; g.wreck = null; g.torps = []; g.bombs = []; g.reloadT = 0; g.ammo = Math.max(g.ammo, AMMO);   // a breath on the way back up
+    if (!res) return; const gf = res.gift || {}, b = BOAT();
+    if (gf.arm && ARMS[gf.arm]) { g.arm = { kind: gf.arm, n: ARMS[gf.arm].n }; renderBar(); }
+    if (gf.heart) host.heal?.(gf.heart);
+    const a = g.arm && ARMS[g.arm.kind]; g.fx.push({ kind: 'text', x: b.x, y: b.y - 46, text: `${a ? `${a.icon} ${g.arm.n}` : ''}${gf.heart ? ' · ❤️' : ''}${gf.coins ? ` · 🪙${gf.coins}` : ''} from the wreck`, life: 1.8, big: false, col: '#FFE08A' });
+    splash(b.x, b.y - 10, '#F5C542', 22); sfx('chime', { hi: true });
+  },
   level: () => 1 + Math.floor(sunkN / 5),
   overText: (how) => (how === 'torpedoed' ? ['💥 GUNBOAT DOWN', 'Too many torpedoes got through.'] : ['RUN OVER', '']),
   endStats: () => (g ? `⚓ ${sunkN} sunk from ${shotsN} shells` : ''),
-  debug: () => g && ({ spread: g.spread, boat: BOAT(), lanes: [laneY(0), laneY(LANES - 1)], planes: g.planes?.length || 0, bombs: g.bombs?.length || 0, subs: g.subs?.length || 0, ships: g.ships.map((s) => ({ x: s.x, y: laneY(s.lane), len: s.len, hits: s.hits.filter(Boolean).length })), torps: g.torps.map(torpPos), ammo: g.ammo, sunk: sunkN, arm: g.arm, crates: g.crates.map((c) => ({ x: c.x, y: laneY(c.lane), kind: c.kind })), kinds: Object.keys(ARMS), give: (k) => { g.arm = { kind: k, n: ARMS[k].n }; renderBar(); }, crate: () => crate(), fire, sinking: g.sinking.length, beams: g.beams.length, bombers: g.bombers.length, waves: g.waves.length, twist: g.twist?.kind || null, arms: g.arms.length, W, H: H() }),
+  debug: () => g && ({ spread: g.spread, boat: BOAT(), lanes: [laneY(0), laneY(LANES - 1)], planes: g.planes?.length || 0, bombs: g.bombs?.length || 0, subs: g.subs?.length || 0, ships: g.ships.map((s) => ({ x: s.x, y: laneY(s.lane), len: s.len, hits: s.hits.filter(Boolean).length })), torps: g.torps.map(torpPos), ammo: g.ammo, sunk: sunkN, arm: g.arm, crates: g.crates.map((c) => ({ x: c.x, y: laneY(c.lane), kind: c.kind })), kinds: Object.keys(ARMS), give: (k) => { g.arm = { kind: k, n: ARMS[k].n }; renderBar(); }, crate: () => crate(), fire, wreck: g.wreck, hurtMe: () => host.hurt('torpedoed'), sinking: g.sinking.length, beams: g.beams.length, bombers: g.bombers.length, waves: g.waves.length, twist: g.twist?.kind || null, arms: g.arms.length, W, H: H() }),
 };
 export default organ;
