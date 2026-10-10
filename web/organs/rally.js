@@ -90,7 +90,7 @@ const spotOn = (s, off = 0) => { const p = at(s); return { x: p.x + Math.cos(p.a
 const sOf = (units) => units / g.track.len;   // table units along the road → progress
 
 // ---------------------------------------------------------------- a race
-function newGame() { g = { course: 1, seed: Math.floor(Math.random() * 1e6), track: null, me: null, rivals: [], items: [], obs: [], fx: [], pennies: [], twist: null, time: 0, dir: 1, dark: 0, spin: 0, nitro: 0, bumper: 0, air: 0, paw: null, glitch: false, glitchPal: null, dust: [], decor: [], skids: [], fin: null }; finishN = 0; outsN = 0; newCourse(); }
+function newGame() { g = { course: 1, seed: Math.floor(Math.random() * 1e6), track: null, me: null, rivals: [], items: [], obs: [], fx: [], pennies: [], twist: null, time: 0, dir: 1, dark: 0, spin: 0, nitro: 0, bumper: 0, air: 0, paw: null, glitch: false, glitchPal: null, dust: [], decor: [], skids: [], fin: null, solids: [], shake: 0 }; finishN = 0; outsN = 0; obsHitsN = 0; rivalHitsN = 0; newCourse(); }
 function newCourse() {
   { const th = TH(); g.secs = cutSecs(g.seed + g.course * 13).map((c, i) => ({ ...th.secs[i], ...c })); }
   g.track = makeTrack(g.course, g.seed + g.course * 97, g.secs); g.obs = []; g.pennies = []; g.items = []; g.done = false; g.go = COUNT; g.goShown = 4; g.camA = null;
@@ -100,7 +100,7 @@ function newCourse() {
   const s0 = sOf(GRID), p0 = at(s0); g.me = { x: p0.x, y: p0.y, a: p0.a, v: 0, s: s0, prevS: s0 };
   // the grid: rivals in pairs just ahead of you (you start at the back, with the road open behind you)
   g.rivals = []; const n = 1 + Math.min(4, stage());
-  for (let i = 0; i < n; i++) { const s = sOf(GRID + 44 * (1 + (i >> 1))), side = i % 2 ? 1 : -1, p = spotOn(s, side * g.track.w * 0.22); g.rivals.push({ x: p.x, y: p.y, a: at(s).a, v: 0, s, skill: 0.8 + Math.random() * 0.2 + 0.03 * stage(), hue: [0, 40, 200, 280, 120][i % 5], n: i + 2, out: 0, done: false }); }
+  for (let i = 0; i < n; i++) { const s = sOf(GRID + 44 * (1 + (i >> 1))), side = i % 2 ? 1 : -1, p = spotOn(s, side * g.track.w * 0.22); g.rivals.push({ x: p.x, y: p.y, a: at(s).a, v: 0, s, skill: 0.8 + Math.random() * 0.2 + 0.03 * stage(), hue: [0, 40, 200, 280, 120][i % 5], n: i + 2, out: 0, done: false, clip: (Math.random() - 0.5) * 14 }); }   // clip: how tight it shaves an obstacle (now and then too tight)
   // the hazards, placed on the tape: milk (ice), a toaster (ramp), the pocket (from course 2), boxes (walls) along the edges
   const put = (kind, s, off, extra) => g.items.push({ kind, ...spotOn(s, off), s, ...extra });
   // hazards keep off the bridges and clear of the islands: a spot that lands there slides along the road to a clear one
@@ -115,6 +115,9 @@ function newCourse() {
     let c = c0 + hash(g.seed + 20 + i) * 0.05; for (let k = 1; k < 14 && !okE(c); k++) { const d = Math.ceil(k / 2) * 0.03 * (k % 2 ? 1 : -1); if (okE(c + d) && c + d > 0.1 && c + d < 0.9) { c += d; break; } }
     if (okE(c) && !g.edges.some((e) => Math.abs(e.c - c) < 0.1)) g.edges.push({ s0: c - half, s1: c + half, c, side }); });
   for (let i = 0; i < 3 + g.course; i++) { const s = 0.08 + hash(g.seed + 10 + i) * 0.84, side = hash(g.seed + 40 + i) < 0.5 ? 1 : -1; if (edgeAt(s, side) || !clear(s, 40)) continue; put('box', s, side * (g.track.w / 2 + 16), { w: 26, h: 18 }); }
+  // 🥤 the solid things: each fork's centrepiece (the fruit bowl, the toy box, the mug…), then the obstacles on the road
+  g.solids = g.islands.map((isl) => (isl.solid = makeSolid(isl.kind, isl.s, 0, isl.wi * 0.95, at(isl.s).a + Math.PI / 2, { island: true, sec: isl.sec })));
+  placeObstacles();
   g.rims = { 1: buildRim(1), '-1': buildRim(-1) }; g.drims = { 1: buildRim(1, true), '-1': buildRim(-1, true) }; g.decor = makeDecor(); g.dust = [];
   g.pieces = makePieces(); buildSecPaths();
   { const a = (TH().sun || 45) * Math.PI / 180; g.sun = { x: Math.cos(a), y: Math.sin(a) }; }
@@ -181,7 +184,7 @@ function onBeat(ev) {
 function mirrorSwap() {
   const me = g.me, r = g.rivals.filter((x) => !x.out && !x.done && !x.fall && !x.rescue && x.s > me.s && (x.s - me.s) * g.track.len < 400).sort((a, b) => a.s - b.s)[0];
   if (!r || me.fall || me.rescue) { host.add(250); g.fx.push({ kind: 'text', x: me.x, y: me.y - 30, text: '✨ MIRROR +250', life: 1 }); sfx('chime'); return; }
-  for (const k of ['x', 'y', 'a', 'v', 's', 'prevS']) { const t = me[k]; me[k] = r[k]; r[k] = t; }
+  for (const k of ['x', 'y', 'a', 'v', 'vx', 'vy', 'vs', 'w', 's', 'prevS']) { const t = me[k]; me[k] = r[k]; r[k] = t; }
   g.fx.push({ kind: 'text', x: me.x, y: me.y - 30, text: '✨ SWAPPED', life: 1.1, big: true }); host.cue?.('score', me.x, me.y); sfx('chime', { hi: true });
 }
 function twist() {
@@ -191,15 +194,34 @@ function twist() {
 }
 
 // ---------------------------------------------------------------- the race
-function bounceAlong(c, ta, isMe, nx = 0, ny = 0) {   // a bump: speed lost and the car turned back along the road, so it never sits stalled against a wall
-  if (nx || ny) sparks(c.x + nx * R, c.y + ny * R, nx, ny, c.v, isMe ? 9 : 4);
-  c.a = ta + wrapA(c.a - ta) * 0.4; c.v = Math.max(c.v * 0.7, 40); c.bob = 1;
+// 🛞 Handling: a car has momentum. Its velocity (vx, vy) is its own, apart from where the nose points (a): the tyres pull
+// the sideways part of it back toward the nose, fast (GRIP_RATE) but only so hard (GRIP_ACC × the surface's grip), so a
+// fast corner lets the tail step out (slip, skid marks) and milk barely bites. The throttle eases off toward top speed;
+// the steering loses a little bite flat out (UNDER, understeer). A knock spins the car through its yaw rate (w).
+// Everything else still reads and sets c.v (the speed): syncVel brings the velocity along when something sets it.
+const GRIP_ACC = 540, GRIP_RATE = 14, UNDER = 0.16, YAW_DAMP = 0.02, REST = 0.35;
+function syncVel(c) {
+  if (c.vx != null && c.vs === c.v) return;
+  const m = Math.hypot(c.vx || 0, c.vy || 0);
+  if (!(c.v > 0)) { c.vx = 0; c.vy = 0; } else if (c.vx == null || m < 1) { c.vx = Math.cos(c.a) * c.v; c.vy = Math.sin(c.a) * c.v; } else { c.vx *= c.v / m; c.vy *= c.v / m; }
+  c.vs = c.v;
+}
+const setSpeed = (c) => { c.v = c.vs = Math.hypot(c.vx, c.vy); };
+function bounceAlong(c, ta, isMe, nx = 0, ny = 0) {   // a guard or the wall behind the grid: the car glances off and is turned back along the road, so it never sits stalled against a wall
+  syncVel(c);
+  if (nx || ny) {   // n points out, into the guard: the part of the velocity going that way comes back, a little softer
+    sparks(c.x + nx * R, c.y + ny * R, nx, ny, c.v, isMe ? 9 : 4);
+    const vn = c.vx * nx + c.vy * ny; if (vn > 0) { c.vx -= (1 + 0.3) * vn * nx; c.vy -= (1 + 0.3) * vn * ny; } c.vx *= 0.9; c.vy *= 0.9;
+  } else { const sp = Math.max(c.v * 0.7, 40); c.vx = Math.cos(ta) * sp; c.vy = Math.sin(ta) * sp; }
+  c.a = ta + wrapA(c.a - ta) * 0.4; c.w = 0;
+  const fw = c.vx * Math.cos(ta) + c.vy * Math.sin(ta); if (fw < 40) { c.vx += Math.cos(ta) * (40 - fw); c.vy += Math.sin(ta) * (40 - fw); }
+  setSpeed(c); c.bob = 1;
   if (isMe && !c.bumpT) { c.bumpT = 0.4; sfx('clack'); }
 }
 // ✴️ sparks off a guard or a wall: short bright streaks thrown back off it (in the dust pool, drawn as lines)
-function sparks(x, y, nx, ny, v, n) {
+function sparks(x, y, nx, ny, v, n, cols) {
   if (v < 50) return;
-  for (let i = 0; i < n; i++) { const a = Math.atan2(-ny, -nx) + (Math.random() - 0.5) * 2.2, sp = 80 + Math.random() * 160 * Math.min(1.5, v / 150); g.dust.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.25 + Math.random() * 0.2, max: 0.45, r: 1, grow: 0, col: Math.random() < 0.5 ? '#FFE36B' : '#FFFFFF', a: 1, spark: true }); }
+  for (let i = 0; i < n; i++) { const a = Math.atan2(-ny, -nx) + (Math.random() - 0.5) * 2.2, sp = 80 + Math.random() * 160 * Math.min(1.5, v / 150); g.dust.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.25 + Math.random() * 0.2, max: 0.45, r: 1, grow: 0, col: cols ? cols[i % cols.length] : Math.random() < 0.5 ? '#FFE36B' : '#FFFFFF', a: 1, spark: true }); }
   while (g.dust.length > 150) g.dust.shift();
 }
 // 🛞 skid marks: two rear-wheel lines while a car slides, kept for the whole course (the oldest go past SKIDS)
@@ -211,49 +233,191 @@ function skidMark(c, on) {
   if (c.skP) { if (Math.hypot(l[0] - c.skP[0][0], l[1] - c.skP[0][1]) < 3) return; g.skids.push([c.skP[0][0], c.skP[0][1], l[0], l[1]], [c.skP[1][0], c.skP[1][1], r[0], r[1]]); if (g.skids.length > SKIDS) g.skids.splice(0, g.skids.length - SKIDS); }
   c.skP = [l, r];
 }
-// a fork: the lane a car takes round the island ahead (its side of the road as it comes up, rivals by their number)
+
+// ---------------------------------------------------------------- 🥤 solid things: the islands' centrepieces and the obstacles on the road
+// SOLID: each kind's footprint, as a share of its sprite radius r: c = a circle, b = a rounded box [half width, half depth,
+// corner] in the sprite's own frame; side = the colour of its sides (drawn as height); fx = what flies off it when hit.
+// The kinds with an r stand on the road (ROADOBS per place), the rest are the forks' centrepieces.
+const SOLID = {
+  fruitbowl: { c: 0.98, side: '#163F8A', fx: 'fruit' },
+  toybox: { b: [0.95, 0.62, 0.1], side: '#7A4A20', fx: 'wood' },
+  mug: { c: 0.76, side: '#1A55B8', fx: 'splash', drink: '#7A4524' },
+  snowglobe: { c: 0.98, side: '#4A2C14', fx: 'glitter' },
+  fountain: { c: 0.98, side: '#1A1430', fx: 'splash', drink: '#3DE0FF' },
+  cup: { r: 26, c: 0.76, side: '#C3CAD4', fx: 'splash', drink: '#7A4524', snd: 'cup' },
+  jar: { r: 22, c: 0.9, side: '#B8DDF0', fx: 'shards', snd: 'cup' },
+  spoon: { r: 38, b: [0.92, 0.22, 0.18], lay: 0.7, side: '#8A93A3', fx: 'spark', snd: 'clack' },
+  block: { r: 24, b: [0.75, 0.75, 0.1], side: '#B8935A', fx: 'wood' },
+  books: { r: 30, b: [0.84, 0.62, 0.06], side: '#F2EAD4', fx: 'paper' },
+  lego: { r: 28, b: [0.92, 0.48, 0.06], side: null, fx: 'plastic', snd: 'clack' },
+  pot: { r: 24, c: 0.82, side: '#9A4824', fx: 'soil' },
+  mushroom: { r: 26, c: 0.88, side: '#EFE4CC', fx: 'soil' },
+  gnome: { r: 22, c: 0.9, side: '#2F6B9A', fx: 'shards', snd: 'cup' },
+  pencilcup: { r: 24, c: 0.8, side: '#2A2E38', fx: 'spark', snd: 'clack' },
+  stapler: { r: 34, b: [0.92, 0.27, 0.2], lay: 0.9, side: '#1A1D25', fx: 'spark', snd: 'clack' },
+  snowman: { r: 26, c: 0.66, side: '#D6E7F5', fx: 'snow' },
+  pine: { r: 24, c: 0.8, side: '#164C2C', fx: 'snow' },
+  cone: { r: 20, c: 0.86, side: '#C2410C', fx: 'neon', snd: 'clack' },
+  barrel: { r: 22, c: 0.88, side: '#2A1250', fx: 'neon', snd: 'clack' },
+};
+const ROADOBS = { kitchen: ['cup', 'jar', 'spoon'], bedroom: ['block', 'books', 'lego'], garden: ['pot', 'mushroom', 'gnome'], desk: ['pencilcup', 'books', 'stapler'], snow: ['snowman', 'pine'], neon: ['cone', 'barrel'] };
+const FXCOL = { splash: ['#FFFFFF'], shards: ['#FFFFFF', '#E8F4FF', '#C0392B', '#BFE3FF'], wood: ['#C98E4A', '#E9B877', '#8A5A2B'], paper: ['#F5F0E0', '#FFFFFF', '#7A1F2B', '#2D7FF9'], fruit: ['#E8283C', '#7BC043', '#FF8A1F', '#7A3FA8'], soil: ['#4A2C17', '#6B4226', '#3E8A28', '#8A5A30'], snow: ['#FFFFFF', '#DDF2FF', '#F4FAFF'], glitter: ['#FFFFFF', '#CFEFFF', '#FFD23F', '#FF5DA2'], plastic: ['#EE2B3B', '#2D7FF9', '#FFD23F', '#22C55E'], neon: ['#FF3DF2', '#3DE0FF', '#B6FF7A'], spark: null };
+const spriteCol = (kind) => DECOL[Math.floor(hash(kind.length * 77 + kind.charCodeAt(0)) * 6)];   // the colour sprite() rolls first (the lego brick's)
+const shade = (hex, f) => { const n = parseInt(hex.slice(1, 7), 16), ch = (k) => Math.max(0, Math.min(255, Math.round(((n >> k) & 255) * f))); return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`; };
+function makeSolid(kind, s, lat, r, a, extra) {
+  const D = SOLID[kind], P = PIECES[kind], p = spotOn(s, lat), o = { kind, x: p.x, y: p.y, s, lat, r, a, h: P.h * r / P.r, fx: D.fx, drink: D.drink, snd: D.snd, wob: 0, free: 0, ...extra };
+  o.side = D.side || shade(spriteCol(kind), 0.62); o.sideLit = shade(o.side, 1.25);
+  if (D.c) { o.shape = 'c'; o.cr = r * D.c; o.lext = o.cr; } else {
+    o.shape = 'b'; o.hx = r * D.b[0]; o.hy = r * D.b[1]; o.rr = r * D.b[2]; o.cr = Math.hypot(o.hx, o.hy);
+    const rel = a - (at(s).a + Math.PI / 2); o.lext = o.hx * Math.abs(Math.cos(rel)) + o.hy * Math.abs(Math.sin(rel)); }
+  return o;
+}
+// 🚧 a few obstacles stand on the road each course (2 + course, up to 5), from the place's own things: never on a bridge,
+// in a tunnel or a fork, clear of the grid, the finish, the hazards, the open edges and each other, and always to one
+// side, leaving a clear lane at least 2.5 cars wide on the other (o.free says which side that is)
+function placeObstacles() {
+  const L = g.track.len, w = g.track.w, vocab = ROADOBS[TH().key] || ROADOBS.kitchen, n = 2 + Math.min(3, g.course), lo = sOf(GRID + 320), hi = FINISH - sOf(260);
+  let relax = 1; const okS = (s) => [s - sOf(70), s, s + sOf(70)].every((q) => { const k = secAt(q).kind; return k !== 'bridge' && k !== 'tunnel' && k !== 'fork'; }) && !islandNear(s, 160)
+    && !(g.edges || []).some((e) => s > e.s0 - sOf(60) && s < e.s1 + sOf(60)) && !g.items.some((i) => Math.abs(i.s - s) * L < 90 * relax) && !g.solids.some((o) => Math.abs(o.s - s) * L < 200 * relax);
+  // candidates: sixteen slots along the road taken in a stride (jittered, a few passes), so the obstacles spread out along it
+  for (let tries = 0, made = 0; made < n && tries < 160; tries++) {
+    if (tries === 96) relax = 0.7;   // a crowded road: closer together on the last passes
+    const h = (k) => hash(g.seed + g.course * 53 + 400 + tries * 7 + k), u = (((tries * 7 + Math.floor(hash(g.seed + g.course) * 16)) % 16) + h(0)) / 16, s = lo + (((u + 0.37 * Math.floor(tries / 16)) % 1)) * (hi - lo); if (!okS(s)) continue;
+    const kind = vocab[(made + g.course) % vocab.length], D = SOLID[kind], r = D.r * (0.9 + 0.2 * h(1)), ra = at(s).a, a = D.lay ? ra + (h(2) - 0.5) * D.lay : h(2) * 6.28;
+    const probe = makeSolid(kind, s, 0, r, a), sd = h(3) < 0.5 ? 1 : -1, q0 = probe.lext + 10, q1 = w / 2 - probe.lext * 0.4, q = q0 <= q1 ? q0 + h(4) * (q1 - q0) : q0;
+    if (w / 2 + q - probe.lext < 2.5 * 2 * R) continue;
+    g.solids.push(makeSolid(kind, s, sd * q, r, a, { free: -sd })); made += 1;
+  }
+}
+// where a car touches a solid thing: the push out (pen) and the surface normal (n, out of it), or null
+function contact(c, o) {
+  let nx, ny, pen;
+  if (o.shape === 'c') { const dx = c.x - o.x, dy = c.y - o.y, d = Math.hypot(dx, dy); pen = o.cr + R - d; if (pen <= 0) return null; if (d > 1e-6) { nx = dx / d; ny = dy / d; } else { nx = -Math.cos(c.a); ny = -Math.sin(c.a); } }
+  else {
+    const ca = Math.cos(o.a), sa = Math.sin(o.a), dx = c.x - o.x, dy = c.y - o.y, lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca, ex = Math.max(0, o.hx - o.rr), ey = Math.max(0, o.hy - o.rr);
+    let ux = lx - Math.max(-ex, Math.min(ex, lx)), uy = ly - Math.max(-ey, Math.min(ey, ly)); const d = Math.hypot(ux, uy);
+    if (d < 1e-6) { if (ex - Math.abs(lx) < ey - Math.abs(ly)) { ux = Math.sign(lx) || 1; uy = 0; pen = ex - Math.abs(lx) + o.rr + R; } else { ux = 0; uy = Math.sign(ly) || 1; pen = ey - Math.abs(ly) + o.rr + R; } }
+    else { pen = o.rr + R - d; if (pen <= 0) return null; ux /= d; uy /= d; }
+    nx = ux * ca - uy * sa; ny = ux * sa + uy * ca; }
+  return { nx, ny, pen };
+}
+// the bounce off it: out along the normal, the velocity reflected with REST, and the speed lost by how square the hit was
+// (k: 1 head on, 0 a scrape): a glancing scrape keeps most of it, head on keeps a third. Off-centre hits slew the car
+// round (yaw kick); a square one turns its nose toward the free side, so it doesn't just ram it again. Returns the
+// impact speed (into the surface) and k.
+function bounceOff(c, hit, free = 0) {
+  const { nx, ny, pen } = hit; c.x += nx * pen; c.y += ny * pen; syncVel(c);
+  const vn = c.vx * nx + c.vy * ny; if (vn >= 0) return { imp: 0, k: 0 };
+  const sp = Math.hypot(c.vx, c.vy) || 1, k = Math.min(1, -vn / sp), tx = -ny, ty = nx, vt = (c.vx * tx + c.vy * ty) * (1 - 0.2 * k), vn2 = -vn * REST;
+  c.vx = nx * vn2 + tx * vt; c.vy = ny * vn2 + ty * vt; setSpeed(c);
+  const side = -Math.sin(c.a) * nx + Math.cos(c.a) * ny, kick = Math.min(1, -vn / 120);
+  c.w = (c.w || 0) + side * k * kick * 5 + (Math.abs(side) < 0.35 ? (free || Math.sign(side) || 1) * k * k * kick * 2.4 : 0);
+  return { imp: -vn, k };
+}
+// 💥 what a hit looks and sounds like: crumbs, splashes, shards, snow or sparks off the thing, it wobbles, a thud (a clink
+// for a cup, a clack for metal and plastic); your own hard hits shake the screen and count (obsHits)
+let obsHitsN = 0, rivalHitsN = 0;
+function impact(c, o, hit, b, isMe) {
+  if (b.imp < 25 || c.hitT > 0) return;
+  c.hitT = 0.22; o.wob = Math.min(1, o.wob + b.imp / 160);
+  const x = c.x - hit.nx * R, y = c.y - hit.ny * R, n = Math.round((isMe ? 10 : 4) * Math.min(1.6, b.imp / 100)), cols = o.fx === 'splash' ? [o.drink || '#7EC8F5', '#FFFFFF', o.drink || '#7EC8F5'] : FXCOL[o.fx];
+  if (!cols || o.fx === 'neon') sparks(x, y, -hit.nx, -hit.ny, Math.max(60, b.imp * 1.4), n, cols);
+  else for (let i = 0; i < n; i++) { const a = Math.atan2(hit.ny, hit.nx) + (Math.random() - 0.5) * 2.4, sp = 50 + Math.random() * 130 * Math.min(1.4, b.imp / 120), wet = o.fx === 'splash' || o.fx === 'snow';
+    g.dust.push({ x, y, vx: Math.cos(a) * sp + c.vx * 0.2, vy: Math.sin(a) * sp + c.vy * 0.2, life: 0.35 + Math.random() * 0.3, max: 0.65, r: 1 + Math.random() * (wet ? 1.8 : 1.4), grow: wet ? 2.5 : 0, col: cols[i % cols.length], a: 0.95 }); }
+  while (g.dust.length > 150) g.dust.shift();
+  if (!isMe) { rivalHitsN += 1; return; }
+  obsHitsN += 1; c.bob = 1;
+  sfx(b.imp > 90 ? 'thud' : (o.snd || 'thud')); if (o.fx === 'splash' && b.imp > 60) sfx('splash');
+  if (b.imp > 70 && !host.reduceMotion) g.shake = Math.max(g.shake || 0, Math.min(6, b.imp / 35));
+  if (b.imp > 110) { g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: o.island ? '💥 CRUNCH' : '💥 THUNK', life: 0.8 }); }
+}
+// 🚗💥🚗 two cars meet: pushed apart, and the push along the line between them is shared (equal masses, restitution 0.5),
+// so a rear-ender shoves the car ahead on and a side swipe slews both a little. Returns the closing speed.
+function carHit(a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy); if (d >= R * 2 || d < 1e-6) return 0;
+  const nx = dx / d, ny = dy / d, push = (R * 2 - d) / 2; a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+  syncVel(a); syncVel(b);
+  const vr = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny; if (vr >= 0) return 0;
+  const j = -(1 + 0.5) * vr / 2; a.vx -= j * nx; a.vy -= j * ny; b.vx += j * nx; b.vy += j * ny;
+  const tv = (b.vx - a.vx) * -ny + (b.vy - a.vy) * nx, twist = Math.max(-1, Math.min(1, tv / 200)) * Math.min(1, j / 80);
+  a.w = (a.w || 0) + twist * 1.6; b.w = (b.w || 0) - twist * 1.6; setSpeed(a); setSpeed(b); a.bob = b.bob = Math.min(1, j / 60);
+  return -vr;
+}
+// the line a car takes: a fork's lane round the island ahead (its side of the road as it comes up, rivals by their
+// number), else round the next obstacle up the road (avoidLat), else the middle of the tape
+const LOOK = 260;
 function aimAt(c, ahead) {
   const s = c.s + ahead, isl = islandNear(s, 60);
-  if (!isl) { c.lane = 0; return at(s); }
-  if (!c.lane) c.lane = c.lat ? Math.sign(c.lat) : (c.n || 1) % 2 ? 1 : -1;
-  return spotOn(s, c.lane * (isl.wi + (g.track.w / 2 - isl.wi) / 2));
+  if (isl) { if (!c.lane) c.lane = c.lat ? Math.sign(c.lat) : (c.n || 1) % 2 ? 1 : -1; return spotOn(s, c.lane * (isl.wi + (g.track.w / 2 - isl.wi) / 2)); }
+  c.lane = 0;
+  const dl = avoidLat(c); return dl ? spotOn(s, dl) : at(s);
+}
+// 🚧 round the next obstacle within LOOK up the road: the side with the lane (or the side the car is already on, if
+// there's room there), passing a car's width plus a margin off it, eased in as it comes up and held while passing.
+// A rival's margin is its own (c.clip), so now and then one shaves it.
+function avoidLat(c) {
+  const L = g.track.len, w = g.track.w; let o = null, bd = 1e9;
+  for (const q of g.solids) { if (q.island) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }
+  if (!o) { c.dodge = null; return 0; }
+  const margin = c.n ? 7 + (c.clip || 0) : 12, line = (sd) => (sd > 0 ? o.lat + o.lext + R + margin : o.lat - o.lext - R - margin), room = (sd) => (sd > 0 ? w / 2 - 2 - (o.lat + o.lext) : (o.lat - o.lext) + w / 2 - 2);
+  if (!c.dodge || c.dodge.o !== o) { const mine = (c.lat || 0) > o.lat ? 1 : -1; c.dodge = { o, sd: room(mine) >= 2 * R + margin + 4 ? mine : (o.free || -mine) }; }
+  const lim = w / 2 - R - 2, tgt = Math.max(-lim, Math.min(lim, line(c.dodge.sd))), k = smooth01((LOOK - bd) / (LOOK * 0.5));
+  return tgt * k;
 }
 function drive(c, dt, steer, brake, isMe) {
-  if (c.fall > 0) { c.fall -= dt; c.x += Math.cos(c.a) * c.v * dt * 0.5; c.y += Math.sin(c.a) * c.v * dt * 0.5; c.a += dt * 5; if (c.fall <= 0) { if (isMe) startRescue(c); else respawn(c, false); } return; }   // 🪂 tumbling off the table
+  if (c.fall > 0) { c.fall -= dt; c.x += (c.vx ?? Math.cos(c.a) * c.v) * dt * 0.5; c.y += (c.vy ?? Math.sin(c.a) * c.v) * dt * 0.5; c.a += dt * 5; if (c.fall <= 0) { if (isMe) startRescue(c); else respawn(c, false); } return; }   // 🪂 tumbling off the table
   if (c.rescue) { stepRescue(c, dt); return; }
   const n = nearest(c.x, c.y), onTape = n.d < g.track.w / 2, milk = g.items.find((i) => i.kind === 'milk' && Math.hypot(i.x - c.x, i.y - c.y) < i.r);
-  const vmax = topSpeed() * (isMe && g.nitro > 0 ? 1.5 : 1) * (onTape ? 1 : 0.55) * (isMe ? 1 : c.skill);
-  const v0 = c.v;
-  if (c.spin > 0) { c.spin -= dt; c.a += dt * 9; c.v *= Math.pow(0.5, dt); } else {
-    const grip = milk ? 0.25 : 1; c.a += steer * TURN * grip * dt * Math.min(1, c.v / 80 + 0.3);
-    c.v += (brake ? -400 : (vmax - c.v) * ACCEL) * dt; if (c.v < 0) c.v = 0; if (milk) c.v = Math.max(c.v, vmax * 0.6);
+  const vmax = topSpeed() * (isMe && g.nitro > 0 ? 1.5 : 1) * (onTape ? 1 : 0.55) * (isMe ? 1 : c.skill) * (c.kerb ? 0.8 : 1);
+  syncVel(c);
+  const v0 = c.v, grip = (milk ? 0.25 : 1) * (onTape ? 1 : 0.8) * (c.air > 0 ? 0.35 : 1);
+  // the nose first (the steering, a spin-out, the yaw left by a knock), then the velocity measured against it
+  c.w = (c.w || 0) * Math.pow(YAW_DAMP, dt); c.a += c.w * dt;
+  let ca = Math.cos(c.a), sa = Math.sin(c.a), vF = c.vx * ca + c.vy * sa;
+  if (c.spin > 0) { c.spin -= dt; c.a += dt * 9; }
+  else { const under = 1 - UNDER * smooth01((vF - 110) / 170); c.a += steer * TURN * (milk ? 0.25 : 1) * dt * Math.min(1, Math.max(0, vF) / 80 + 0.3) * under; }
+  ca = Math.cos(c.a); sa = Math.sin(c.a); vF = c.vx * ca + c.vy * sa; let vL = -c.vx * sa + c.vy * ca;
+  if (c.spin > 0) { const f = Math.pow(0.5, dt); vF *= f; vL *= f; }
+  else {
+    // the throttle (always on: the car always goes) pulls less the nearer top speed it is; the brakes bite hard
+    if (brake) { if (vF > 0) vF = Math.max(0, vF - 420 * dt); } else vF += (vmax - vF) * ACCEL * dt;
+    if (milk) vF = Math.max(vF, vmax * 0.6);
+    // the tyres: the sideways slide pulled back toward the nose, up to what the surface can give
+    const lim = GRIP_ACC * grip * (0.7 + 0.3 * topSpeed() / VMAX) * dt, dv = Math.max(-lim, Math.min(lim, -vL * Math.min(1, GRIP_RATE * dt))); vL += dv;
   }
-  // the look of it: wheels roll, the front wheels turn, brake lights, a skid on a hard turn, a spin, milk or a stamp on the brakes
+  c.vx = ca * vF - sa * vL; c.vy = sa * vF + ca * vL; setSpeed(c);
+  c.slip = c.v > 30 ? Math.atan2(vL, Math.max(1, Math.abs(vF))) : 0;
+  // the look of it: wheels roll, the front wheels turn, brake lights, a skid when it slides, spins, milk or a stamp on the brakes
   c.roll = (c.roll || 0) + c.v * dt; c.st = (c.st || 0) + (steer - (c.st || 0)) * Math.min(1, dt * 10); c.brk = brake || (v0 - c.v) > 140 * dt;
-  c.skid = c.v > 60 && (c.spin > 0 || (milk && c.v > 80) || (brake && c.v > 90) || (Math.abs(steer) > 0.65 && c.v > topSpeed() * 0.62));
+  c.skid = c.v > 60 && (c.spin > 0 || Math.abs(c.slip) > 0.14 || (milk && c.v > 80) || (brake && c.v > 90) || (Math.abs(steer) > 0.65 && c.v > topSpeed() * 0.62));
   c.bob = Math.max(0, (c.bob || 0) - dt * 3);
   if (c.air > 0) { c.air -= dt; if (c.air <= 0) c.bob = 1; }
-  let vx = Math.cos(c.a) * c.v, vy = Math.sin(c.a) * c.v;
+  if (c.hitT > 0) c.hitT -= dt;
+  let vx = c.vx, vy = c.vy;
   if (g.twist?.kind === 'magnet') { const t = at(c.s + 0.001); vx += Math.cos(t.a + Math.PI / 2) * 70 * g.twist.dir; vy += Math.sin(t.a + Math.PI / 2) * 70 * g.twist.dir; }
   if (g.twist?.kind === 'fan') vx += 60 * g.twist.dir;
   c.x += vx * dt; c.y += vy * dt;
-  // walls: the cereal boxes
+  // 🥤 the solid things: the forks' centrepieces and the obstacles on the road (a car in the air clears the low ones)
+  const L = g.track.len;
+  for (const o of g.solids) { if (Math.abs(o.s - c.s) * L > o.cr + R + 40 || (c.air > 0 && o.h < 16)) continue; const hit = contact(c, o); if (!hit) continue; const b = bounceOff(c, hit, o.free || (o.island ? Math.sign(c.lat || 1) : 0)); impact(c, o, hit, b, isMe); }
+  // walls: the cereal boxes (square to the table), the same bounce
   const walls = g.items.filter((i) => i.kind === 'box').concat(g.obs.filter((o) => o.kind === 'box'));
-  walls.forEach((b) => { if (Math.abs(c.x - b.x) < b.w / 2 + R && Math.abs(c.y - b.y) < b.h / 2 + R) { const dx = c.x - b.x, dy = c.y - b.y; if (Math.abs(dx) / b.w > Math.abs(dy) / b.h) { c.x = b.x + Math.sign(dx) * (b.w / 2 + R); sparks(c.x - Math.sign(dx) * R, c.y, -Math.sign(dx), 0, c.v, isMe ? 7 : 3); } else { c.y = b.y + Math.sign(dy) * (b.h / 2 + R); sparks(c.x, c.y - Math.sign(dy) * R, 0, -Math.sign(dy), c.v, isMe ? 7 : 3); } c.bob = 1;
-    const ta = at(nearest(c.x, c.y).s).a; c.a = ta + wrapA(c.a - ta) * 0.4; c.v = Math.max(c.v * 0.6, 50);
+  walls.forEach((b) => { if (Math.abs(c.x - b.x) > b.w / 2 + R || Math.abs(c.y - b.y) > b.h / 2 + R) return; const hit = contact(c, { shape: 'b', x: b.x, y: b.y, a: 0, hx: b.w / 2, hy: b.h / 2, rr: 2 }); if (!hit) return;
+    const bo = bounceOff(c, hit); sparks(c.x - hit.nx * R, c.y - hit.ny * R, -hit.nx, -hit.ny, Math.max(c.v, bo.imp), isMe ? 7 : 3); c.bob = 1;
+    if (c.v < 50) { const ta = at(nearest(c.x, c.y).s).a; c.a = ta + wrapA(c.a - ta) * 0.4; c.vx += Math.cos(ta) * 50; c.vy += Math.sin(ta) * 50; setSpeed(c); }   // never stuck against it
     if (isMe) b.hit = true;   // 📦 dented: only a box your car has hit can be smashed by a tap
-    if (isMe && !c.bumpT) { c.bumpT = 0.5; if (g.bumper) { g.bumper = 0; } else { c.spin = 0.3; sfx('clack'); } } } });
+    if (isMe && !c.bumpT) { c.bumpT = 0.5; if (g.bumper) { g.bumper = 0; } else { c.spin = 0.3; sfx('clack'); } } });
   if (c.bumpT > 0) c.bumpT = Math.max(0, c.bumpT - dt);
   const n2 = nearest(c.x, c.y); c.prevS = c.s; c.s = n2.s; c.off = n2.d;
-  const ta = at(n2.s).a, nx = -Math.sin(ta), ny = Math.cos(ta); let lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny; const side = Math.sign(lat) || 1;
-  // 🍎 the island in a fork: a lens round the thing in the middle; a car that touches it is put back in its lane
-  { const isl = islandNear(n2.s, 0); if (isl && c.air <= 0) { const u = (n2.s - isl.s) * g.track.len / isl.lh, half = isl.wi * Math.sqrt(Math.max(0, 1 - u * u)) + R; if (Math.abs(lat) < half) { const sd = side; lat = sd * half; c.x = n2.px + nx * lat; c.y = n2.py + ny * lat; bounceAlong(c, ta, isMe, -nx * sd, -ny * sd); c.lane = sd; } } }
+  const ta = at(n2.s).a, nx = -Math.sin(ta), ny = Math.cos(ta), lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny, side = Math.sign(lat) || 1;
+  // 🍎 a fork's island: a kerbed lens round the thing in the middle; driving over its kerb rumbles and slows you
+  { const isl = islandNear(n2.s, 0); c.kerb = false; if (isl && c.air <= 0) { const u = (n2.s - isl.s) * L / isl.lh, half = isl.wi * Math.sqrt(Math.max(0, 1 - u * u)); if (Math.abs(lat) < half + R * 0.4) { c.kerb = true; if (c.v > 60) c.bob = Math.max(c.bob, 0.35); } } }
   c.lat = lat;
   // behind the grid the road is closed by a wall
   if (n2.s <= 0.0005) { const p0 = at(0), back = (c.x - p0.x) * Math.cos(p0.a) + (c.y - p0.y) * Math.sin(p0.a); if (back < 0) { c.x -= Math.cos(p0.a) * back; c.y -= Math.sin(p0.a) * back; bounceAlong(c, p0.a, isMe); } }
   // past the tape's edge where the table ends: over you go
   if (edgeAt(n2.s, side)) { if (c.air <= 0 && Math.abs(lat) > g.track.w / 2 + 6) { c.fall = 0.7; if (isMe) { host.cue?.('near', c.x, c.y); sfx('whistle', { dur: 0.5 }); g.fx.push({ kind: 'text', x: c.x, y: c.y - 24, text: '🪂 WHOOPS', life: 1 }); } } return; }
-  // 🧱 a guard on the table's edge: bounce back along the road
+  // 🧱 a guard on the table's edge: glance off it and back along the road
   const lim = g.track.w / 2 + marginAt(n2.s, side) - R;
   if (Math.abs(lat) > lim) { c.x = n2.px + nx * side * lim; c.y = n2.py + ny * side * lim; bounceAlong(c, ta, isMe, nx * side, ny * side); }
 }
@@ -293,10 +457,12 @@ function update(dt) {
     const sk = r.skill; r.skill = sk * (gap < -350 ? 1.18 : gap > 280 ? 0.9 : 1); drive(r, dt, Math.max(-1, Math.min(1, da * 2.5)), false, false); r.skill = sk;
     if (r.s >= FINISH) { r.done = true; r.place = 1 + g.rivals.filter((x) => x.done && x !== r).length + (g.done ? 1 : 0); return; }
     if (gap < -520 && r.off < 40 && !r.fall && !r.rescue) { r.out = 4; outsN += 1; const pts = 150; host.add(pts); host.cue?.('kill', r.x, r.y); g.fx.push({ kind: 'text', x: me.x, y: me.y - 34, text: `🏁 LEFT BEHIND +${pts}`, life: 1.1, big: true }); sfx('cheer', { delay: 0.05 }); }   // flat
-    // bumping
-    const dx = r.x - me.x, dy = r.y - me.y, d = Math.hypot(dx, dy); if (d < R * 2 && d > 0 && !me.rescue && !me.fall) { const push = (R * 2 - d) / 2, nx = dx / d, ny = dy / d; r.x += nx * push; r.y += ny * push; me.x -= nx * push; me.y -= ny * push; if (g.bumper) { r.spin = 0.5; g.bumper = 0; } } });
-  const live = g.rivals.filter((r) => !r.done && !(r.out > 0));
-  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) { const a = live[i], b = live[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy); if (d < R * 2 && d > 0) { const push = (R * 2 - d) / 2; a.x -= dx / d * push; a.y -= dy / d * push; b.x += dx / d * push; b.y += dy / d * push; } }
+    // 🚗💥 bumping: a real knock, momentum shared (with the 🛡️ bumper on, the rival spins off it)
+    if (!me.rescue && !me.fall && !r.fall && !r.rescue) { const hv = carHit(me, r); if (hv > 0 && g.bumper) { r.spin = 0.5; g.bumper = 0; } if (hv > 45 && !me.hitT) { me.hitT = 0.25; sfx('clack'); if (hv > 110 && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); } } });
+  const live = g.rivals.filter((r) => !r.done && !(r.out > 0) && !r.fall && !r.rescue);
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) carHit(live[i], live[j]);
+  if (g.shake > 0) g.shake = g.shake > 0.05 ? g.shake * Math.pow(0.002, dt) : 0;
+  g.solids.forEach((o) => { if (o.wob > 0) o.wob = Math.max(0, o.wob - dt * 1.6); });
   kickDust(me, dt, true); g.rivals.forEach((r) => kickDust(r, dt, false)); stepDust(dt);
   skidMark(me, me.skid); g.rivals.forEach((r) => skidMark(r, r.skid && !(r.out > 0) && !r.done));
   if (me.s >= FINISH && !me.fall && !me.rescue) finish();
@@ -575,6 +741,12 @@ const PIECES = {
   sign: { r: 40, h: 18, paint: (x, R, rnd) => { const c = ['#FF3DF2', '#3DE0FF', '#B6FF7A', '#FFD23F'][Math.floor(rnd() * 4)], word = ['OPEN', 'r = 4', 'EAT', 'ZOOM', 'FIG'][Math.floor(rnd() * 5)]; rrect(x, -R * 0.92, -R * 0.42, R * 1.84, R * 0.84, 6, '#0A0414', c, 2.5); x.shadowColor = c; x.shadowBlur = 10; x.fillStyle = c; x.font = '900 22px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(word, 0, 1); x.shadowBlur = 0; x.fillStyle = '#FFFFFF'; x.fillText(word, 0, 1); x.globalAlpha = 0.5; x.fillStyle = c; x.fillText(word, 0, 1); x.globalAlpha = 1; } },
   building: { r: 44, h: 60, paint: (x, R, rnd) => { const c = ['#FF3DF2', '#3DE0FF', '#B6FF7A'][Math.floor(rnd() * 3)]; rrect(x, -R * 0.8, -R * 0.8, R * 1.6, R * 1.6, 3, '#141024', c, 2); rrect(x, -R * 0.62, -R * 0.62, R * 1.24, R * 1.24, 2, '#1E1838'); circ(x, 8, 8, 14, null, '#FFD86B', 1.5); x.fillStyle = '#FFD86B'; x.font = '900 14px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('H', 8, 9); rrect(x, -26, -26, 14, 10, 2, '#3A3550'); rrect(x, -26, -12, 14, 10, 2, '#3A3550'); for (let k = 0; k < 6; k++) circ(x, -R * 0.8 + k * R * 0.32, -R * 0.8, 2, rnd() < 0.5 ? c : '#FFD86B'); } },
   fountain: { r: 38, h: 20, paint: (x, R) => { circ(x, 0, 0, R * 0.98, '#1E1838', '#3DE0FF', 3); x.shadowColor = '#3DE0FF'; x.shadowBlur = 12; circ(x, 0, 0, R * 0.82, '#2B4CFF66', '#FF3DF2', 2); x.shadowBlur = 0; [0.62, 0.42].forEach((f) => circ(x, 0, 0, R * f, null, '#9BE7FF', 1.5)); circ(x, 0, 0, R * 0.2, '#FFFFFF', '#3DE0FF', 2); for (let k = 0; k < 8; k++) circ(x, Math.cos(k * 0.785) * R * 0.3, Math.sin(k * 0.785) * R * 0.3, 2, '#E0FBFF'); } },
+  // 🚧 the obstacles' own things (the rest share the set pieces' sprites)
+  jar: { r: 22, h: 28, paint: (x, R) => { circ(x, 0, 0, R * 0.92, '#DCEFFA', '#8FB8CF', 2); circ(x, 0, 0, R * 0.8, '#FFFFFF'); x.save(); x.beginPath(); x.arc(0, 0, R * 0.8, 0, 7); x.clip(); x.fillStyle = '#E8283Ccc'; for (let k = -6; k <= 6; k += 2) { x.fillRect(k * 7, -R, 7, R * 2); x.fillRect(-R, k * 7, R * 2, 7); } x.restore(); circ(x, 0, 0, R * 0.8, null, '#A3121F', 1.5); x.strokeStyle = '#FFD23F'; x.lineWidth = 4; x.beginPath(); x.arc(0, 0, R * 0.58, 0, 7); x.stroke(); circ(x, R * 0.58, 0, 4, '#FFD23F'); x.strokeStyle = '#FFFFFFaa'; x.lineWidth = 3; x.beginPath(); x.arc(0, 0, R * 0.86, 3.5, 4.5); x.stroke(); } },
+  spoon: { r: 38, h: 4, paint: (x, R) => { rrect(x, -R * 0.92, -R * 0.1, R * 1.15, R * 0.2, R * 0.1, '#C9D1DC', '#6A7180', 1.5); x.fillStyle = '#C9D1DC'; x.strokeStyle = '#6A7180'; x.lineWidth = 1.5; x.beginPath(); x.ellipse(R * 0.55, 0, R * 0.38, R * 0.22, 0, 0, 7); x.fill(); x.stroke(); x.fillStyle = '#9AA3B2'; x.beginPath(); x.ellipse(R * 0.57, 1, R * 0.28, R * 0.14, 0, 0, 7); x.fill(); x.fillStyle = '#FFFFFFcc'; x.beginPath(); x.ellipse(R * 0.48, -R * 0.08, R * 0.14, R * 0.05, -0.2, 0, 7); x.fill(); x.fillRect(-R * 0.85, -R * 0.06, R * 0.9, 2); } },
+  books: { r: 30, h: 22, paint: (x, R) => { [['#2D7FF9', 0.16], ['#22C55E', -0.1], ['#7A1F2B', 0]].forEach(([c, a], k) => { x.save(); x.rotate(a); rrect(x, -R * 0.84, -R * 0.62, R * 1.68, R * 1.24, 3, '#F5F0E0', '#00000055', 1.5); rrect(x, -R * 0.84, -R * 0.62, R * 1.58, R * 1.24, 3, c, '#00000066', 1.5); if (k === 2) { x.fillStyle = '#FFD23F'; x.fillRect(-R * 0.6, -R * 0.2, R * 1.1, 4); x.fillRect(-R * 0.6, R * 0.05, R * 0.7, 2.5); x.fillStyle = '#ffffff30'; x.fillRect(-R * 0.84, -R * 0.62, R * 1.58, 4); } x.restore(); }); } },
+  cone: { r: 20, h: 26, paint: (x, R) => { rrect(x, -R * 0.82, -R * 0.82, R * 1.64, R * 1.64, 6, '#1A1030', '#FF3DF2', 2.5); circ(x, 0, 0, R * 0.62, '#FF6A00', '#B33F00', 1.5); x.strokeStyle = '#FFFFFF'; x.lineWidth = 7; x.beginPath(); x.arc(0, 0, R * 0.4, 0, 7); x.stroke(); x.strokeStyle = '#3DE0FF'; x.lineWidth = 2; x.stroke(); circ(x, 0, 0, R * 0.18, '#FFB070', '#B33F00', 1); circ(x, -4, -4, 3, '#FFFFFF88'); } },
+  barrel: { r: 22, h: 30, paint: (x, R) => { circ(x, 0, 0, R * 0.9, '#2A1250', '#FF3DF2', 3); [0.72, 0.52].forEach((f) => circ(x, 0, 0, R * f, null, '#3DE0FF', 2)); circ(x, R * 0.38, -R * 0.3, 5, '#12062A', '#B6FF7A', 1.5); x.fillStyle = '#B6FF7A'; x.font = '900 20px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('☢', -4, 6); x.strokeStyle = '#FFFFFF66'; x.lineWidth = 3; x.beginPath(); x.arc(0, 0, R * 0.84, 3.5, 4.4); x.stroke(); } },
 };
 function sprite(kind) {
   let c = SPRITES.get(kind); if (c) return c;
@@ -593,7 +765,7 @@ function makePieces() {
       const p = spotOn(s, side * (w / 2 + MARGIN + 10 + r)), nr = nearest(p.x, p.y);
       if (nr.d < w / 2 + MARGIN + r || out.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r + r + 8)) continue;
       out.push({ kind, x: p.x, y: p.y, r, a: at(s).a + Math.PI / 2 + (h(3) - 0.5) * 0.9, s }); }
-    if (sc.island) { const isl = g.islands.find((i) => i.sec === sc.i); if (isl) { const p = at(isl.s); out.push({ kind: sc.island, x: p.x, y: p.y, r: isl.wi * 0.95, a: p.a + Math.PI / 2, s: isl.s, island: true }); } } });
+  });
   return out;
 }
 // the sections' shapes, built once a course as Path2D: the ground patch along the road, the gap under a bridge, a
@@ -907,6 +1079,30 @@ function drawBox(b, upright, t, th = TH()) {
     ctx.strokeStyle = `rgba(255, 236, 120, ${0.55 + 0.45 * Math.sin(t / 120)})`; ctx.lineWidth = 2.5; ctx.strokeRect(x - 3, y - 3, b.w + 6, b.h + 6);
   }
 }
+// 🥤 a solid thing, drawn with height: its shadow cast away from the sun (the footprint swept that way, one flat fill), its
+// sides (the footprint swept up to its top, which leans away from the middle of the view, the way a camera over the table
+// sees a tall thing) and its top, the cached sprite. A knock sets it wobbling.
+function hull(P) {   // the convex hull of a few points (monotone chain)
+  P.sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = [];
+  for (const p of P) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let i = P.length - 1; i >= 0; i--) { const p = P[i]; while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function footSweep(o, dx, dy) {   // the footprint swept by (dx, dy): a stadium for a round thing, the hull of two boxes for a square one
+  ctx.beginPath();
+  if (o.shape === 'c') { const r = o.cr; if (Math.hypot(dx, dy) < 0.5) { ctx.arc(o.x, o.y, r, 0, 7); return; } const th = Math.atan2(dy, dx); ctx.arc(o.x, o.y, r, th + Math.PI / 2, th + Math.PI * 1.5); ctx.arc(o.x + dx, o.y + dy, r, th - Math.PI / 2, th + Math.PI / 2); ctx.closePath(); return; }
+  const ca = Math.cos(o.a), sa = Math.sin(o.a), P = [];
+  [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([u, v]) => { const x = o.x + ca * u * o.hx - sa * v * o.hy, y = o.y + sa * u * o.hx + ca * v * o.hy; P.push([x, y], [x + dx, y + dy]); });
+  hull(P).forEach(([x, y], i) => ctx[i ? 'lineTo' : 'moveTo'](x, y)); ctx.closePath();
+}
+function drawSolid(o, vc, sun, t) {
+  const dx = o.x - vc.x, dy = o.y - vc.y, d = Math.hypot(dx, dy) || 1, lean = Math.min(o.h * 0.6, d * o.h * g.zoom / 620), lx = dx / d * lean, ly = dy / d * lean;
+  ctx.fillStyle = '#00000038'; footSweep(o, sun.x * o.h * 0.8, sun.y * o.h * 0.8); ctx.fill();
+  ctx.fillStyle = o.side; footSweep(o, lx, ly); ctx.fill(); ctx.strokeStyle = '#00000048'; ctx.lineWidth = 1.2; ctx.stroke();
+  if (lean > 1.5) { ctx.strokeStyle = o.sideLit; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(o.x - sun.x * o.cr * 0.9, o.y - sun.y * o.cr * 0.9); ctx.lineTo(o.x - sun.x * o.cr * 0.9 + lx, o.y - sun.y * o.cr * 0.9 + ly); ctx.stroke(); }   // a glint up the lit side
+  const wb = o.wob > 0 && !host.reduceMotion ? o.wob * Math.sin(t / 28) : 0, s = o.r * 1.15;
+  ctx.save(); ctx.translate(o.x + lx + wb * 2.5, o.y + ly); ctx.rotate(o.a + wb * 0.08); ctx.drawImage(sprite(o.kind), -s, -s, s * 2, s * 2); ctx.restore();
+}
 // 🪖 the bump (the soldier): an army man, a teddy, a gnome, a rubber duck, a snowman, a robot
 function drawSoldier(o, t, th = TH()) {
   const x = o.x, y = o.y, ring = (r, f, s, lw = 1.5) => { ctx.fillStyle = f; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); if (s) { ctx.strokeStyle = s; ctx.lineWidth = lw; ctx.stroke(); } }, dot = (dx, dy, r, f) => { ctx.fillStyle = f; ctx.beginPath(); ctx.arc(x + dx, y + dy, r, 0, 7); ctx.fill(); };
@@ -978,7 +1174,8 @@ function draw(t) {
     const vx = (v1x / n1) * 0.45 + (v2x / n2) * 0.55, vy = (v1y / n1) * 0.45 + (v2y / n2) * 0.55, gn = Math.hypot(vx, vy) || 1;
     const bx = (vx / gn) * (1 - hw) + Math.cos(me.a) * hw, by = (vy / gn) * (1 - hw) + Math.sin(me.a) * hw;
     const want = -(Math.atan2(by, bx) + Math.PI / 2); g.guideA = Math.atan2(vy, vx); if (g.camA == null) g.camA = want; const da = ((want - g.camA + Math.PI * 3) % (Math.PI * 2)) - Math.PI; g.camA += da * Math.min(1, 0.07); }
-  ctx.save(); ctx.translate(W / 2, Hh * CAR_Y); ctx.scale(g.zoom, g.zoom); ctx.rotate(g.camA + (g.turn || 0)); ctx.translate(-me.x, -me.y);
+  const vc = toTable({ x: W / 2, y: Hh * 0.5 });   // the middle of the view, on the table (tall things lean away from it)
+  ctx.save(); ctx.translate(W / 2, Hh * CAR_Y); if (g.shake > 0.05) ctx.translate((Math.random() - 0.5) * 2 * g.shake, (Math.random() - 0.5) * 2 * g.shake); ctx.scale(g.zoom, g.zoom); ctx.rotate(g.camA + (g.turn || 0)); ctx.translate(-me.x, -me.y);
   const Rv = Math.hypot(W, Hh) / g.zoom, gx0 = Math.floor((me.x - Rv) / 60) * 60, gy0 = Math.floor((me.y - Rv) / 60) * 60;   // the table under a turning camera: a disc's worth of grain
   const th = TH(), vh = VH(), L = g.track.len, tw = g.track.w, sun = g.sun;
   // only what's in view: the road climbs (y falls) all the way, so the points within reach in y are one run of each list
@@ -1056,10 +1253,12 @@ function draw(t) {
     ctx.lineJoin = 'round'; ctx.save(); ctx.translate(sun.x * 5, sun.y * 5); ctx.fillStyle = '#00000050'; ctx.fill(isl.path); ctx.restore();
     ctx.strokeStyle = st.kerbEdge; ctx.lineWidth = 12; ctx.stroke(isl.path); ctx.strokeStyle = st.kerb[0]; ctx.lineWidth = 8; ctx.stroke(isl.path); ctx.strokeStyle = st.kerb[1]; ctx.setLineDash([9, 9]); ctx.stroke(isl.path); ctx.setLineDash([]);
     ctx.fillStyle = tex(th.surf); ctx.fill(isl.path); ctx.strokeStyle = '#00000030'; ctx.lineWidth = 3; ctx.stroke(isl.path);
-    const p = g.pieces.find((q) => q.island && Math.abs(q.s - isl.s) < 1e-6); if (p) { const P = PIECES[p.kind], hgt = P.h * p.r / P.r; softShadow(p.x + sun.x * hgt * 0.5, p.y + sun.y * hgt * 0.5, p.r, p.r, 0.45); ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); const s = p.r * 1.15; ctx.drawImage(sprite(p.kind), -s, -s, s * 2, s * 2); ctx.restore(); } });
+    if (isl.solid) drawSolid(isl.solid, vc, sun, t); });
   // hazards, each drawn as the thing it is (a label stands upright on the milk and the boxes, whichever way the table turns)
   g.items.forEach((i) => { if (i.kind === 'milk') drawMilk(i, upright, th); else if (i.kind === 'hole') drawHole(i, th); else if (i.kind === 'toaster') drawToaster(i, th); else if (i.kind === 'box') drawBox(i, upright, t, th); });
   g.obs.forEach((o) => { if (o.kind === 'box') drawBox(o, upright, t, th); else drawSoldier(o, t, th); });
+  // 🚧 the obstacles standing on the road
+  g.solids.forEach((o) => { if (!o.island && Math.abs(o.x - me.x) < Rv + o.r && Math.abs(o.y - me.y) < Rv + o.r) drawSolid(o, vc, sun, t); });
   drawDust();
   g.pennies.forEach((p) => { const r = 6 + Math.sin(t / 150 + p.t) * 1; ctx.fillStyle = '#00000040'; ctx.beginPath(); ctx.arc(p.x + 1.5, p.y + 2, r, 0, 7); ctx.fill(); ctx.fillStyle = '#E08A3C'; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); ctx.strokeStyle = '#FFD27A'; ctx.lineWidth = 1.8; ctx.stroke(); ctx.fillStyle = '#FFF3C4'; ctx.beginPath(); ctx.arc(p.x - r * 0.35, p.y - r * 0.35, r * 0.28, 0, 7); ctx.fill(); });
   if (g.paw) { const p = at(g.paw.s); ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a + Math.PI / 2); ctx.fillStyle = '#F29E4C'; ctx.fillRect(-30, 0, 60, 300); ctx.beginPath(); ctx.ellipse(0, 0, 30, 22, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#C4621B'; for (let i = 0; i < 6; i++) ctx.fillRect(-30, 18 + i * 40, 60, 12); ctx.fillStyle = '#FF9EB5'; ctx.beginPath(); ctx.ellipse(0, 4, 12, 9, 0, 0, 7); ctx.fill(); for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(i * 11, -11, 5.5, 0, 7); ctx.fill(); } ctx.fillStyle = '#fff'; for (let i = -1.5; i <= 1.5; i++) { ctx.beginPath(); ctx.moveTo(i * 9 - 2, -20); ctx.lineTo(i * 9, -28); ctx.lineTo(i * 9 + 2, -20); ctx.fill(); } ctx.restore(); }
@@ -1151,8 +1350,10 @@ const organ = {
   level: () => g?.course || 1,
   overText: (how) => (how === 'fell in the pocket' ? ['🕳️ POCKETED', 'Too many trips down the pocket.'] : how === 'off the table' ? ['🫳 OFF THE TABLE', 'The table is only so big.'] : how === 'fell off the edge' ? ['🪂 OVER THE EDGE', 'Mind the open edges.'] : ['RUN OVER', '']),
   endStats: () => (g ? `🏎️ ${finishN} ${finishN === 1 ? 'finish' : 'finishes'} · ${outsN} rivals left behind` : ''),
-  debug: () => g && ({ auto: (on) => { g.auto = on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n) => { g.course = Math.max(1, n | 0); newCourse(); },
+  debug: () => g && ({ auto: (on) => { g.auto = on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); },
     sections: g.secs.map((sc) => ({ i: sc.i, icon: sc.icon, name: sc.name, kind: sc.kind, s0: sc.s0, s1: sc.s1 })), section: secAt(g.me.s).i, secShown: g.secShown, islands: g.islands.map((i) => ({ s: i.s, lh: i.lh, wi: i.wi, kind: i.kind })), lane: g.me.lane || 0, lat: g.me.lat || 0,
-    goSection: (i) => { const sc = g.secs[Math.max(0, Math.min(g.secs.length - 1, i | 0))], sk = sc.s0 + 0.012, p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; }, pieces: g.pieces.length, skids: g.skids.length, skid: !!g.me.skid, sparks: g.dust.filter((p) => p.spark).length, dim: g.dimNow, inRoof: g.inRoof, map: mapRect(H()), fin: g.fin ? g.fin.t : null, zoomTarget: camZoom() }),
+    goSection: (i) => { const sc = g.secs[Math.max(0, Math.min(g.secs.length - 1, i | 0))], sk = sc.s0 + 0.012, p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, pieces: g.pieces.length, skids: g.skids.length, skid: !!g.me.skid, sparks: g.dust.filter((p) => p.spark).length, dim: g.dimNow, inRoof: g.inRoof, map: mapRect(H()), fin: g.fin ? g.fin.t : null, zoomTarget: camZoom(),
+    obstacles: g.solids.map((o) => ({ s: o.s, lat: o.lat, r: o.cr, lext: o.lext, kind: o.kind, shape: o.shape, island: !!o.island, free: o.free, x: o.x, y: o.y })), obsHits: obsHitsN, rivalObsHits: rivalHitsN, slip: g.me.slip || 0, vel: { x: g.me.vx || 0, y: g.me.vy || 0 }, w: g.me.w || 0, shake: g.shake || 0,
+    hitObstacle: (i = 0, d = 70, v, dl = 0) => { const o = g.solids[i]; if (!o) return null; const sk = o.s - d / g.track.len, p = spotOn(sk, o.lat + dl), a = at(sk).a, me = g.me; me.x = p.x; me.y = p.y; me.a = a; me.s = me.prevS = sk; me.lat = o.lat + dl; me.spin = 0; me.w = 0; me.air = 0; me.v = v ?? topSpeed(); me.vx = Math.cos(a) * me.v; me.vy = Math.sin(a) * me.v; me.vs = me.v; return { x: o.x, y: o.y, r: o.cr }; } }),
 };
 export default organ;

@@ -957,6 +957,24 @@ are edge strokes; floor and table top are even-odd fills round what covers them;
 Keep it that way (ms/frame vs the previous version: course 1 22.8 vs 23.9, course 6 21.5 vs 28.5). `window.__rlOff`
 switches layers off for profiling. Skids capped at `SKIDS` (700), dust and sparks at 150. `__rl()` adds `sections`,
 `section`, `goSection(i)`, `islands`, `pieces`, `skids`, `map`, `fin`, `zoomTarget` and more.
+**Rally's obstacles and handling (rally.js, page only).** Solid things are `g.solids`: each fork's centrepiece
+(`isl.solid`, `island: true`) and 2 + course (≤ 5) obstacles on the road from the place's own things (`ROADOBS`:
+cup/jar/spoon, block/books/lego, pot/mushroom/gnome, pencilcup/books/stapler, snowman/pine, cone/barrel).
+`placeObstacles()` keeps them off bridges, tunnels and forks, clear of the grid, finish, hazards, open edges and each
+other, always to one side with a clear lane of at least 2.5 cars (`o.free` is that side). `SOLID` gives each kind's
+footprint (`c` circle or `b` rounded box), side colour and debris. `contact()` finds the push-out and surface normal,
+`bounceOff()` reflects the velocity with `REST` (0.35), loses speed by how square the hit was and kicks yaw (`c.w`,
+turning a square hit's nose to the free side), `impact()` throws debris, wobbles the thing, plays a sound, shakes the
+screen (`g.shake`) and counts your hits (`obsHits`). Hits cost speed only, never lives; the island lens is a kerb you
+can mount (rumble, 0.8× speed). `drawSolid()`: swept shadow, sides up to a top leaning away from the view centre, the
+cached sprite. Rivals and the autopilot steer round with `avoidLat()` (`LOOK` 260; a rival's own `c.clip` margin lets
+one shave one now and then). **Handling:** cars carry a velocity (`vx`, `vy`) apart from their heading; `drive()` pulls
+the sideways part toward the nose at `GRIP_RATE`, capped at `GRIP_ACC` × surface grip (milk 0.25, off the tape 0.8, in
+the air 0.35), so fast corners slide (`c.slip`, skids past 0.14 rad); understeer at speed (`UNDER`), yaw decay
+(`YAW_DAMP`). Code that sets `c.v` still works: `syncVel()` rescales the velocity. Guards reflect the car
+(`bounceAlong`); cars collide as circles sharing momentum (`carHit`). `__rl()` adds `obstacles`, `hitObstacle(i, d, v,
+dl)`, `obsHits`, `rivalObsHits`, `slip`, `vel`, `w`, `shake`, `goCourse(n, seed)`. Tests (scratch): `t_rlobs`,
+`t_rlauto`, `t_rlautoc`, `t_rllock`, `t_rlplace`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the
