@@ -1080,6 +1080,18 @@ under the other. An eel's touch stuns 0.9 s (then 2 s grace) and drops a coin th
 `host.hurt`. Win `{arm, heart: 1, coins}`: `pocketReward` loads a full `ARMS` crate into `g.arm`, `host.heal(1)`, and always
 clears torpedoes and bombs and refills the clip. Its banner leaves out the weapon icon (the laser's ⚡ is a cue mark).
 `__sv()` has `wreck`, `hurtMe()`. 6× throttle: Salvo deep 13–15 fps, the wreck 27–38. Test (scratch): `t_pk_wreck`.
+**🪜 Under the card (pockets/ladder.js, a Collatz walk, 20 s).** Offered on the House's face-down pile (`pocketSpot`; with
+the pile empty, a face-down House card in a war's pot). War hands its own card art down through `pocketSeed().art`
+(`spriteOf`, back, shadow, glow, felt, `suit`). A ladder of 8/9/10 rungs (by stage) with Fig on it, a face-up card and a
+deck. Call ⬆️ HIGHER / ⬇️ LOWER (tap the top or bottom half, swipe, arrows/W/S): right climbs a rung (+30 + 10·rung), wrong
+slides down two plus a 0.6 s lock (`STUN`), a tie deals again. The deck is a hailstone walk (n → n/2 or 3n + 1 from a seeded
+start, 16+ steps); rank is `2 + round(12·ln n / ln max)` (not n mod 13, which doesn't fall when n halves; the peak is a golden
+Ace, +150), suit by parity (odd red, even black), so black falls or ties and red leaps; a walk that lands on 1 starts a new one
+(`s.after` is pre-dealt, so `nextDir` can peek). The trail panel shows the numbers so far and a "?". Win `{high: 2, cards: 4,
+heal: 1}`: two J–A cards into the hand (the lowest goes to the pile to make room), +4 to the pile, `host.heal(1)`;
+`pocketReward` always gives every waiting lane its whole fuse back. `__pk()` reports `step` (not `phase`: the shell
+overwrites that), `nextDir`, `btn`, `call(dir)`, `right()`, `wrongCall()`. 6× throttle: War deep 21–24 fps, the ladder 32–42.
+Test (scratch): `t_pk_ladder`.
 **Fractal Dash's ground (fractal.js `groundY`).** A base bulb every `BULB_P` (260) px along the track
 (radius 80–150, centre 0.72 r below `base = H × 0.72` so only the cap shows), each with 2–3 children on
 its rim at 0.2–0.32 r, recursively to `levels = 2 + min(3, round(rough × 1.6))`; the ground is the

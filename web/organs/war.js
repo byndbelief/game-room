@@ -10,8 +10,11 @@
 // fuses, gift is a free high card, the golden cut deals a golden card (beat it for 618), gold is a golden Ace in your
 // hand, fib makes the next win pay double. Twists: 🔄 reverse (low wins), 🃏 a joker in your hand, ⚔️ double war
 // (ties everywhere, wars pay double), 🌪️ shuffle (every card on the table changes).
+// 🕳️ Its pocket (deep enough, the House's face-down pile glows: tap it): UNDER THE CARD (pockets/ladder.js), higher or
+// lower up a ladder of cards dealt by a Collatz walk; the top brings up two high cards, four more for your pile and a life.
 import { fibMult } from '../chaos.js';
 import { drawPal } from '../pals.js';
+import ladderPocket from './pockets/ladder.js';
 
 let W = 400;
 const CW = 58, CH = 82;   // a card, in world units
@@ -412,6 +415,27 @@ const organ = {
   leave() { if (g) g.drag = null; return { x: W / 2, y: laneY() }; },
   update, draw, onBeat, pointer,
   keydown(e) { const n = +e.key; if (g && n >= 1 && n <= g.hand.length) { const li = urgent(); if (li >= 0) play(n - 1, li); } },
+  // 🕳️ the pocket: the House's face-down pile is the way in (with the pile gone, a face-down card in a war's pot), and what
+  // comes up out of it: two high cards into your hand, four more for your pile, a life
+  pocket: ladderPocket,
+  pocketSpot() {
+    if (!g || g.drag) return null;
+    if (g.foe.length && g.foeIn <= 0) { const p = foeP(); return { x: p.x, y: p.y - Math.min(10, g.foe.length) * 1.2, r: CW / 2, icon: '🪜' }; }
+    for (const l of g.lanes) { const it = l.pot.find((q) => q.side === 'foe' && q.c.f < 0.5 && !q.c.mv); if (it) return { x: it.c.x, y: it.c.y, r: CW / 2 - 4, icon: '🪜' }; }
+    return null;
+  },
+  pocketSeed: () => ({ seed: Math.floor(Math.random() * 1e9), stage: st(), round: g?.round || 1, art: look.back ? { sprite: spriteOf, back: look.back, shadow: look.shadow, shP: look.shP, glow: look.glow, felt: look.felt, suit, CW, CH } : null }),
+  pocketReward(res) {
+    if (!g) return; g.drag = null; g.lanes.forEach((l) => { if (ready(l)) l.t = Math.max(l.t, l.tmax); });   // a breath on the way back up: every waiting card gets its whole fuse
+    if (!res) return; const gf = res.gift || {};
+    for (let k = 0; k < (gf.high || 0); k++) {   // high cards for your hand: the lowest one there goes to your pile to make room
+      if (g.hand.length >= HAND()) { let lo = -1; g.hand.forEach((c, i) => { if (!c.joker && !c.gold && (lo < 0 || c.r < g.hand[lo].r)) lo = i; }); if (lo >= 0) { const out = g.hand.splice(lo, 1)[0]; to(out, mineP().x, mineP().y - 8, 0.45, { lift: 20, delay: k * 0.1 }); flip(out, 0, 0.3, 0.1); out.dest = 'me'; g.fly.push(out); } }
+      giveCard(11 + Math.floor(Math.random() * 4));
+    }
+    if (gf.cards) { g.mine.push(...deck(gf.cards, 0.7)); text(mineP().x + 46, mineP().y - 60, `+${gf.cards} CARDS`, TEAL); sparks(mineP().x, mineP().y - 20, TEAL, 16, 140); }
+    if (gf.heal) host.heal(gf.heal);
+    text(W / 2, handY() - 84, '🪜 HIGH CARDS FROM UNDER', GOLD, true); sfx('chime', { hi: true });
+  },
   hudLine: () => (g ? `⚔️ ${g.mine.length + g.hand.length} v ${g.foe.length}` : ''),
   level: () => g?.round || 1,
   overText: (how) => (how === 'too slow' ? ['⏱️ OUT OF TIME', 'The House took too many cards that waited too long.'] : how === 'out of cards' ? ['🂠 CLEANED OUT', 'Not a card left to throw.'] : ['RUN OVER', '']),
@@ -429,6 +453,7 @@ const organ = {
     skip: () => g.lanes.forEach((l) => { l.wait = 0; }), winRound: () => { g.foe = []; g.lanes.forEach((l, i) => { if (l.state !== 'empty') sweep(l, i, 'me'); }); }, drain: () => { g.mine = []; }, empty: () => { g.mine = []; g.hand = []; },
     timeout: (li = 0) => { const l = g.lanes[li]; if (ready(l)) l.t = 0.001; return ready(l); },
     screen: (x, y) => { const cv = host.cv, r = cv.getBoundingClientRect(), s = r.width / cv.width; return { x: r.left + (x * host.k + host.ox) * s, y: r.top + (y * host.k + host.oy) * s }; },
+    handRanks: () => g.hand.map((c) => c.r), handN: g.hand.length, pile: g.mine.length, pileSpot: () => organ.pocketSpot(),
     handPos: (i) => g.hand[i] && { x: g.hand[i].x, y: g.hand[i].y }, lanePos: (li) => ({ x: laneX(li), y: laneY() + 46 }),
   }),
 };

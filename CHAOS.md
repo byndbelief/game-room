@@ -168,6 +168,10 @@ falls in. A pocket is never ruled by the logistic curve. Each has its own chaoti
   switch. The butterfly is drawn faintly in the water so you can read where they'll go, the coins lie on it, and the key
   waits in the eye of a wing, the one place they circle and never cross.
 
+- **🪜 Under the card: a Collatz walk**, n → n/2 if even, 3n + 1 if odd. Nobody has proved it always comes down to 1, yet it
+  always has. The deck is the walk: halving and halving makes runs of falling cards, then an odd one leaps the deck up out of
+  nowhere (its peak a golden Ace). The trail of hailstone numbers is the hint, and a sharp eye learns which suits fall.
+
 A win brings something small back up (a mulligan, a free putt and a fix; full armour, a shield, a crate). Failing only costs
 the time. The curve keeps beating above you, so the run can still rip you out: the deepest jolt, four frames out (pocket,
 game, run, box), +750. The other games' pockets will each bring their own system (a cellular automaton, a double pendulum, a
