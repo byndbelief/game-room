@@ -65,6 +65,12 @@ const SHELL_CSS = `
   .sover .rchips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;font-size:12px}
   .sover .rchips span{padding:3px 9px;border-radius:999px;background:#ffffff12;color:var(--muted,#ccc)} .sover .rchips b{color:#fff}
   .sover .organs{display:flex;gap:10px;justify-content:center;font-size:28px}
+  /* 🌊 SUBMERGED: the deeper you're zoned into a game (--deep, 0 → 1), the more the frame around it dissolves */
+  .stage .shud .chaosm{opacity:calc(1 - .92 * var(--deep, 0));transition:opacity .8s}
+  .stage .shud .lvl,.stage .shud .hearts small{opacity:calc(1 - .85 * var(--deep, 0));transition:opacity .8s}
+  .stage .shud .score{opacity:calc(1 - .35 * var(--deep, 0));transform-origin:0 0;scale:calc(1 - .2 * var(--deep, 0));transition:opacity .8s,scale .8s}
+  .stage .spal{opacity:calc(1 - .65 * var(--deep, 0));scale:calc(1 - .4 * var(--deep, 0));transition:opacity .8s,scale .8s}
+  .stage.snap .shud .chaosm,.stage.snap .shud .lvl,.stage.snap .shud .hearts small,.stage.snap .shud .score,.stage.snap .spal{transition:none}
   @media (prefers-reduced-motion:reduce){.sbanner{animation:none}.verb b.next{animation:none}}`;
 
 export function runShell({ organs, key, title, icon, intro, again = 'Play again', W: W0 = 400 }) {
@@ -122,6 +128,22 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   let calm = 0;
   // ⚡ a glitch: seconds left of the flicker a held peak sets off (the theme is another organ's meanwhile)
   let glitchT = 0;
+  // 🌊 DEPTH: how zoned in you are. It rises while you play steadily (input in the last 2.5 s or a finger held down, faster
+  // with a combo going, ~14 s to the bottom) and drains when you stop or get hurt. As it rises the frame dissolves (the
+  // meters, the stage line, Fig, the notices; --deep on the stage) and the edges close in. Then the chaos run does what it
+  // does: a switch that lands while you're deep is a ⚡ JOLT, the frame slams back and the camera pulls out through every
+  // layer (the game, the run, the box) before it dives into the next game. The deeper you were, the further it pulls.
+  let held = 0;
+  const deepF = () => { const d = S.depth || 0, e = Math.max(0, Math.min(1, (d - 0.2) / 0.6)); return e * e * (3 - 2 * e); };   // the frame's fade, eased in from 20% deep
+  function stepDepth(dt) {
+    const playing = held > 0 || S.time - (S.lastIn ?? -9) < 2.5;
+    if (playing && !transition) S.depth = Math.min(1, (S.depth || 0) + dt / 14 * (1 + Math.min(5, S.combo || 0) * 0.12));
+    else S.depth = Math.max(0, (S.depth || 0) - dt * (transition ? 0 : 0.12));
+    if (active) S.deepest = Math.max(S.deepest || 0, S.depth);
+    stage.style.setProperty('--deep', deepF().toFixed(3));
+  }
+  function surfaceNow() { S.depth = 0; stage.classList.add('snap'); stage.style.setProperty('--deep', '0'); setTimeout(() => stage.classList.remove('snap'), 400); }
+  let live = null;   // a scratch copy of the new world, for the jolt's dive back in
   function glitchRun() { if (S.over) return; glitchT = 1.1; wave('glitch', true); const others = organs.filter((o) => o !== active && o.theme); const th = others[Math.floor(Math.random() * others.length)]; if (th) applyTheme(th.theme); active.glitch?.(true, S.curve.mood); pal.hurt(); sfx('buzz'); banner(NEWS.glitch[0], `${PAL[S.curve.mood || 'calm'].name}'s mind flickers: nothing changed. Probably.`); }
   function tear() {   // slices of the frame shoved sideways, and a colour band, for the glitch's life
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -136,8 +158,9 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     cv, ctx, W: W0, H: 640, k: 1, dpr: 1, ox: 0, oy: 0, reduceMotion, S, sfx, morphs,
     banner, add: (pts) => { S.score += Math.max(0, Math.round(pts)); },
     heal: (n = 1) => { if (active) S.lives[active.key] = Math.min(3, livesOf(active.key) + n); },
-    hurt: (how) => { S.combo = 0; S.comboT = 0; pal.hurt(); if (!active) return false; S.lives[active.key] = livesOf(active.key) - 1; if (S.lives[active.key] <= 0) resetPending = how; return false; },
+    hurt: (how) => { S.combo = 0; S.comboT = 0; S.depth = (S.depth || 0) * 0.5; pal.hurt(); if (!active) return false; S.lives[active.key] = livesOf(active.key) - 1; if (S.lives[active.key] <= 0) resetPending = how; return false; },
     over, ui: (html) => { $('oui').innerHTML = html || ''; return $('oui'); },
+    depth: () => S.depth || 0, deep: () => deepF(),   // 🌊 organs may deepen their own world with it
     organ: () => active?.key, activeBeat: () => active?.beat || 1, stage: () => stageOf() + 1,   // 🎚️ the run's stage, for organs that grow with it
     // 🟢 Fig in the corner watches the field from outside it: organs cue it on what happens and where (x in world units),
     // it turns to look that way and acts it out — a kill bounces it, a score winks, a near miss makes it flinch, a pickup is a gift
@@ -209,7 +232,8 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   // short word sits beside it for a moment. Nothing lands over the field; the sub-line is for the ratings only.
   const CUE = [['🌻', 'golden'], ['✨', 'mirror'], ['⚖️', 'balance'], ['🔁', 'window'], ['⚡', 'peak'], ['🧘', 'gift'], ['🎚️', 'big'], ['🛡️', 'gift'], ['🌀', 'peak'], ['🔂', 'window'], ['🌟', 'gold'], ['🟢', null]];
   const HURTS = /OUCH|ZAP|SPLASH|HIT|BOMBED|BONK|PICKED|DRONED|GLITCH|OVER PAR/;
-  function banner(t, sub) {
+  function banner(t, sub, loud = false) {
+    if (!loud && deepF() > 0.6 && !HURTS.test(t)) { const cue = CUE.find(([m]) => t.includes(m)); if (cue?.[1]) pal.force(cue[1], 1.2); return; }   // 🌊 deep: the run keeps its news to itself
     const b = $('banner'); b.textContent = t; b.title = sub || ''; b.hidden = false;
     b.style.animation = 'none'; void b.offsetWidth; b.style.animation = '';
     clearTimeout(bannerT); bannerT = setTimeout(() => { b.hidden = true; }, 1400);
@@ -302,6 +326,16 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     active.enter(prev.key, anchor);
     applyTheme(); openCalm(); applyPalTheme(S.curve.mood || 'calm'); pal.set({ r: S.curve.r, mood: S.curve.mood || 'calm' });
     const strips = Array.from({ length: 14 }, (_, i) => ({ i, vx: (Math.random() - 0.5) * 2.4, rot: (Math.random() - 0.5) * 0.9, col: ['#3DD6C6', '#FF5A4A', '#B9A6FF'][i % 3] }));
+    const jolt = S.depth >= 0.4 ? S.depth : 0;
+    if (jolt) {   // ⚡ you were zoned in: the run yanks you out through every layer, then dives into the next game
+      const T1 = 0.45 + 0.45 * jolt, T2 = T1 + 0.25;
+      transition = { t: 0, dur: reduceMotion ? 0.05 : T2 + 0.6, T1, T2, snap, why, anchor, mood, strips, jolt, from: prev, to };
+      S.jolts = (S.jolts || 0) + 1; const pct = Math.round(jolt * 100), bonus = Math.round(500 * jolt); host.add(bonus);
+      surfaceNow(); react('stage'); sfx('boom', { size: 1.4 }); sfx('twist', { delay: 0.12 }); navigator.vibrate?.([60, 40, 120]);
+      banner(`⚡ JOLT · ${pct}% DEEP · +${bonus}`, `you were zoned into ${prev.name}: the run pulls you out to ${to.name}`, true);
+      return;
+    }
+    surfaceNow();
     transition = { t: 0, dur: reduceMotion ? 0.05 : (mood === 'phi' ? 1.2 : mood === 'bit' ? 1.0 : 0.9), snap, why, anchor, mood, strips };
     if (!reduceMotion) fly(transition.dur); wave('morph', true); banner(`${to.icon} ${to.name.toUpperCase()}`, `${to.verb} · ${WHY[why]} · ${fresh ? 'its own curve, from calm' : `back to its ${STAGES[stageOf()].name}, r ${S.curve.r.toFixed(2)}`}`); sfx(why === 'golden' ? 'birdie' : 'twist');
   }
@@ -361,12 +395,37 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
       if (resetPending && !S.over) resetOrgan();
       if (Math.abs(zoom - zoomTo) > 0.001 || Math.abs(widen - widenTo) > 0.001) { const e = Math.min(1, dt * 1.5); zoom += (zoomTo - zoom) * e; widen += (widenTo - widen) * e; if (Math.abs(zoom - zoomTo) < 0.002) zoom = zoomTo; if (Math.abs(widen - widenTo) < 0.002) widen = widenTo; size(); }   // 🔍 the board eases out, wider faster than taller
       if (lens) { lens.t += dt; if (lens.t >= lens.dur) clearLens(); }
+      stepDepth(dt);
       hud();
     }
     if (host.ox > 0 || host.oy > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = getComputedStyle(stage).getPropertyValue('--bg').trim() || '#0B0918'; ctx.fillRect(0, 0, cv.width, cv.height); }   // zoomed out: the margins in the organ's colour
     ctx.setTransform(host.k, 0, 0, host.k, host.ox, host.oy);
     (active || organs[0]).draw(t);
-    if (transition) {   // the old world zooms away from where you were, and the new one is underneath
+    { const f = deepF(); if (f > 0.01 && running && !S.over) {   // 🌊 the edges close in as you go deeper, breathing slowly
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); const Wd = cv.width, Hd = cv.height, br = 1 + 0.04 * Math.sin(t / 1400), r0 = Math.min(Wd, Hd) * (0.62 - 0.22 * f) * br, r1 = Math.hypot(Wd, Hd) * 0.6;
+      const vg = ctx.createRadialGradient(Wd / 2, Hd * 0.55, r0, Wd / 2, Hd * 0.55, r1); vg.addColorStop(0, 'rgba(2,4,14,0)'); vg.addColorStop(1, `rgba(2,4,14,${0.72 * f})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, Wd, Hd); ctx.restore(); } }
+    if (transition?.jolt) {   // ⚡ THE JOLT: out through the layers (the game, the run, the box), a beat at the top, then down into the next game
+      const tr = transition; tr.t += dt; const Wd = cv.width, Hd = cv.height, j = tr.jolt, sMin = 0.3 - 0.1 * j, ease = (x) => x * x * (3 - 2 * x);
+      if (!live || live.width !== Wd || live.height !== Hd) { live = document.createElement('canvas'); live.width = Wd; live.height = Hd; }
+      const showNew = tr.t > (tr.T1 + tr.T2) / 2; if (showNew) live.getContext('2d').drawImage(cv, 0, 0);
+      const s = tr.t < tr.T1 ? 1 + (sMin - 1) * ease(tr.t / tr.T1) : tr.t < tr.T2 ? sMin : sMin + (1 - sMin) * ease(Math.min(1, (tr.t - tr.T2) / (tr.dur - tr.T2)));
+      const shake = tr.t < 0.3 ? (1 - tr.t / 0.3) * 16 * host.dpr * j : 0, cx = Wd / 2 + (Math.random() - 0.5) * shake, cy = Hd / 2 + (Math.random() - 0.5) * shake, d = host.dpr;
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#07060F'; ctx.fillRect(0, 0, Wd, Hd);
+      const gw = Wd * s, gh = Hd * s, rect = (k) => [cx - gw * k / 2, cy - gh * k / 2, gw * k, gh * k];
+      const label = (txt, x, y, col, size) => { ctx.font = `900 ${size * d}px Unbounded, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = col; ctx.fillText(txt, x, y); };
+      // the box: r4box itself, its gradient rim
+      { const [x, y, w, h] = rect(2.35); ctx.fillStyle = '#0E0B22'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 28 * d); ctx.fill(); const g2 = ctx.createLinearGradient(x, y, x + w, y + h); g2.addColorStop(0, '#3DD6C6'); g2.addColorStop(0.5, '#FF5FB0'); g2.addColorStop(1, '#F5C542'); ctx.strokeStyle = g2; ctx.lineWidth = 4 * d; ctx.stroke(); label('r4box · r = 4', cx, y + h - 14 * d, '#F2F4F6', 14); }
+      // the run: every game it holds round its rim, the one you're in lit
+      { const [x, y, w, h] = rect(1.55); ctx.fillStyle = '#151131'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 18 * d); ctx.fill(); ctx.strokeStyle = '#B9A6FF'; ctx.lineWidth = 2.5 * d; ctx.stroke(); label('🧬 CHAOS RUN', cx, y + 18 * d, '#C9B8FF', 11);
+        const here = showNew ? tr.to : tr.from; organs.forEach((o, i) => { const u = (i + 0.5) / organs.length, ox = x + w * u, oy = y + h - 14 * d; ctx.globalAlpha = o === here ? 1 : 0.45; ctx.font = `${(o === here ? 20 : 14) * d}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(o.icon, ox, oy); ctx.textBaseline = 'alphabetic'; }); ctx.globalAlpha = 1; }
+      // the game: the world you were in, then the next one, as a window you fall back into
+      { const [x, y, w, h] = rect(1); ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, 10 * d * (1 - s) + 1); ctx.clip(); ctx.drawImage(showNew ? live : tr.snap, x, y, w, h); ctx.restore(); ctx.strokeStyle = '#F2F4F6'; ctx.lineWidth = 2 * d; ctx.beginPath(); ctx.roundRect(x, y, w, h, 10 * d * (1 - s) + 1); ctx.stroke();
+        if (s < 0.9) { const o = showNew ? tr.to : tr.from; label(`${o.icon} ${o.name}`, cx, y + h + 16 * d, '#F2F4F6', 11); } }
+      if (tr.t > tr.T1 && tr.t < tr.T2 + 0.1) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.25 * Math.sin(((tr.t - tr.T1) / (tr.T2 - tr.T1 + 0.1)) * Math.PI); ctx.fillStyle = '#9BE7FF'; ctx.fillRect(0, 0, Wd, Hd); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }   // the swap: a blink at the top of the pull
+      if (tr.t < 0.14) { ctx.globalAlpha = (1 - tr.t / 0.14) * 0.75 * j; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, Wd, Hd); ctx.globalAlpha = 1; }   // the slam
+      ctx.restore();
+      if (tr.t >= tr.dur) transition = null;
+    } else if (transition) {   // the old world zooms away from where you were, and the new one is underneath
       transition.t += dt; const p = Math.min(1, transition.t / transition.dur), e = p * p * (3 - 2 * p);
       // 🟢 Fig (the chip itself, flown into the middle of the field) takes the old world apart in its own way
       const fx = cv.width / 2, fy = cv.height * 0.42, snap = transition.snap, Wd = cv.width, Hd = cv.height, PHI = 1.618;
@@ -410,7 +469,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     banner(`🔁 ${active.name.toUpperCase()} STARTS OVER · ❤️ −1`, `${how} · the run has ${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); sfx('buzz'); navigator.vibrate?.(80);
   }
   function startRun() {
-    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r; S.run = makeCurve(); S.runEv = null; S.firstLook = true; $('runmeter').hidden = $('runphase').hidden = !morphs;
+    S.score = 0; S.hearts = 3; S.lives = {}; resetPending = null; S.combo = 0; S.comboT = 0; S.tally = {}; S.curve = makeCurve(); S.beatT = 0; S.beats = 0; S.over = false; S.how = null; S.time = 0; S.morphs = 0; S.allBeats = 0; S.maxR = S.curve.r; S.run = makeCurve(); S.runEv = null; S.firstLook = true; S.depth = 0; S.deepest = 0; S.jolts = 0; S.lastIn = -9; held = 0; $('runmeter').hidden = $('runphase').hidden = !morphs;
     tenure = 0; prev = null; transition = null; lastUsed = new Map(); clocks = new Map(); active = null; zoom = zoomTo = 1; widen = widenTo = 1; clearLens(); size();
     organs.forEach((o) => o.start());
     active = organs[Math.floor(Math.random() * organs.length)]; active.enter(null, null); applyTheme(); calm = 0;
@@ -428,7 +487,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     const board = data?.top?.length ? `<ol class="board">${data.top.map((r, i) => `<li class="${r.player === me.id ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.score.toLocaleString()}</b></li>`).join('')}</ol>` : '';
     // one row per game (its icon, then its numbers), then the run's numbers as chips: easier to read than one long line
     const rows = organs.map((o) => o.endStats?.()).filter(Boolean).map((t) => { const i = t.indexOf(' '); return `<li><span class="si">${esc(t.slice(0, i))}</span><span>${esc(t.slice(i + 1))}</span></li>`; }).join('');
-    const chips = [morphs && `🧬 <b>${S.morphs}</b> morph${S.morphs === 1 ? '' : 's'}`, morphs && `🌐 run <b>r ${S.run.r.toFixed(2)}</b>`, `🌀 ${morphs ? 'best game ' : ''}<b>r ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</b>`].filter(Boolean).map((c) => `<span>${c}</span>`).join('');
+    const chips = [morphs && `🧬 <b>${S.morphs}</b> morph${S.morphs === 1 ? '' : 's'}`, morphs && `🌐 run <b>r ${S.run.r.toFixed(2)}</b>`, `🌀 ${morphs ? 'best game ' : ''}<b>r ${Math.max(S.maxR || 0, S.curve.r).toFixed(2)}</b>`, `🌊 deepest <b>${Math.round((S.deepest || 0) * 100)}%</b>`, morphs && S.jolts && `⚡ <b>${S.jolts}</b> jolt${S.jolts === 1 ? '' : 's'}`].filter(Boolean).map((c) => `<span>${c}</span>`).join('');
     const stats = `${rows ? `<ul class="ostats">${rows}</ul>` : ''}<div class="rchips">${chips}</div>`;
     showOver(`<h2 style="color:#FF9A8A">${esc(t1)}</h2>${sub ? `<p class="muted small">${esc(sub)}</p>` : ''}<h2>${icon} ${S.score.toLocaleString()} points</h2>${data?.record ? '<p style="color:var(--gold);font-weight:900">🏆 Your new best!</p>' : data ? `<p class="muted small">Your best: ${data.best.toLocaleString()}</p>` : ''}
       ${stats}
@@ -439,13 +498,13 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function showOver(html) { $('overCard').innerHTML = html; $('over').hidden = false; const a = $('again'); if (a) a.onclick = startRun; }
   // ---------------------------------------------------------------- input: the shell listens, the organ decides
   const toWorld = (e) => { const r = cv.getBoundingClientRect(); const sx = cv.width / r.width, sy = cv.height / r.height; let x = ((e.clientX - r.left) * sx - host.ox) / host.k; if (lens?.kind === 'mirror') x = host.W - x; return { x: Math.max(0, Math.min(host.W, x)), y: Math.max(0, Math.min(host.H, ((e.clientY - r.top) * sy - host.oy) / host.k)) }; };   // through the zoom-out (and a mirror lens), clamped to the world
-  const fwd = (type) => (e) => { if (type === 'down') e.preventDefault(); if (running && !S.over && active) { const p = toWorld(e); if (type === 'down') host.cue('look', p.x, p.y); else if (type === 'move' && (e.buttons || e.touches)) pal.set({ face: p.x < host.W * 0.3 ? -1 : 1 }); active.pointer(type, p, e); } };   // Fig's eyes follow your finger
+  const fwd = (type) => (e) => { if (type === 'down') e.preventDefault(); if (type === 'down') { held += 1; S.lastIn = S.time; } else if (type === 'up') held = Math.max(0, held - 1); if (running && !S.over && active) { const p = toWorld(e); if (type === 'down') host.cue('look', p.x, p.y); else if (type === 'move' && (e.buttons || e.touches)) pal.set({ face: p.x < host.W * 0.3 ? -1 : 1 }); active.pointer(type, p, e); } };   // Fig's eyes follow your finger
   cv.addEventListener('pointerdown', fwd('down')); cv.addEventListener('pointermove', fwd('move'));
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
-  addEventListener('keydown', (e) => { if (running && !S.over) active?.keydown?.(e); });
+  addEventListener('keydown', (e) => { S.lastIn = S.time; if (running && !S.over) active?.keydown?.(e); });
   addEventListener('keyup', (e) => { if (running && !S.over) active?.keyup?.(e); });
-  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure(), next: S.runNext }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r, top: c.curve.top || 0 }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, top: S.curve.top || 0, live: true }]] : [])), morphs: S.morphs, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
-    tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why === 'top') { S.curve.n = Math.max(S.curve.n, 28); S.curve.r = CHAOS.RMAX; S.curve.top = TOP_HOLD; return; } if (why === 'climb') { S.curve.n += 20; S.curve.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * S.curve.n); return; } if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
+  window.__shell = () => ({ organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure(), next: S.runNext }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r, top: c.curve.top || 0 }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, top: S.curve.top || 0, live: true }]] : [])), morphs: S.morphs, depth: S.depth || 0, deep: deepF(), deepest: S.deepest || 0, jolts: S.jolts || 0, jolt: transition?.jolt || 0, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
+    tally: { ...S.tally }, force: (why) => { if (why === 'glitch') return glitchRun(); if (why.startsWith('depth:')) { S.depth = +why.slice(6); S.lastIn = S.time; return; } if (why === 'top') { S.curve.n = Math.max(S.curve.n, 28); S.curve.r = CHAOS.RMAX; S.curve.top = TOP_HOLD; return; } if (why === 'climb') { S.curve.n += 20; S.curve.r = Math.min(CHAOS.RMAX, CHAOS.R0 + CHAOS.DR * S.curve.n); return; } if (why.startsWith('lens:')) return putLens(why.slice(5), 3); if (why.startsWith('mood:')) { S.curve.mood = why.slice(5); S.curve.moodLeft = 3; applyPalTheme(S.curve.mood); return; } if (why === 'stage') { S.beats = STAGES[Math.min(3, stageOf() + 1)].beats; zoomTo = STAGES[stageOf()].zoom; widenTo = STAGES[stageOf()].widen; return; } const to = why === 'mirror' && prev ? prev : nextOrgan(); morphTo(to, why); }, over: S.over, end: (how) => over(how), hurt: () => host.hurt('test') });
   // ---------------------------------------------------------------- go
   (async () => {
     if (!(await signedIn())) return;

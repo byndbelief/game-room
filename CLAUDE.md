@@ -1055,6 +1055,18 @@ curve box at the last move (`curveMood(curve)` reads the mood off `hist`/`hold`)
 the middle of every `glitch()` (`#glitchPal`, a driven `palWidget` at r = 4 with `hurt()`), and the
 shell names it in the calm banner and hurts it on a run glitch.
 
+**🌊 Depth and the jolt** (shell.js): `S.depth` via `stepDepth(dt)` in `loop` (`held` pointers or `S.lastIn` within 2.5 s;
+`dt / 14 × (1 + 0.12·min(5, combo))` up, 0.12/s down, `host.hurt` halves it; no change during a transition); `deepF()`
+eases it from 0.2 to 0.8 into `--deep` on `#stage`, which the CSS uses to fade `.chaosm`, `.lvl`, the hearts' small line,
+the score (and `scale`) and `#spal` (`scale` composes with the transforms `react`/`fly` set). `banner(t, sub, loud)` stays
+quiet past 0.6 unless it's a hurt or `loud`. A breathing vignette is drawn after the organ. `morphTo` at depth ≥ 0.4 makes
+`transition.jolt` (T1 out 0.45 + 0.45·j, a 0.25 s hold where the content swaps from `snap` to a `live` copy of the new
+world, then 0.6 s in): nested rounded rects (game ×1, run ×1.55 with the organs' icons, box ×2.35 with the gradient rim
+and "r4box · r = 4"), a white slam and shake at the start; no Fig fly. `surfaceNow()` zeroes depth with the `.snap`
+class so the frame comes back at once. +500 × depth, `S.jolts`, `S.deepest` (end card chips 🌊 / ⚡). `host.depth()` /
+`host.deep()` for organs. `__shell()` has `depth`, `deep`, `deepest`, `jolts`, `jolt`; `force('depth:0.9')`. Test
+(scratch): `t_deep` (real taps build it, idle drains it, the fade's opacities, a forced jolt frame by frame, a shallow
+morph doesn't jolt, the end card chips).
 **The end card's numbers** (shell.js `over`): one row per game (`.ostats`: its icon from the first word of
 `endStats()`, then the rest), then the run's numbers as chips (`.rchips`: 🧬 morphs, 🌐 run r, 🌀 best game r).
 **Solo score cap (082).** `solo_submit` and the `solo_scores` check both capped a score at 1,000,000 (063,

@@ -107,6 +107,16 @@ a module that draws a world and maps the nine events to its own nouns, and owns 
 owns the canvas, the beat clock and the curve, the tally and the rating, hearts, score and combo, the
 HUD and meter, banners, the intro and end cards, the leaderboard, full screen, input and the save.
 
+**🌊 Submerged, then jolted.** The point of a game inside a game inside a game is the moment you forget the outer
+two. The shell measures it: `depth` (0 → 1) rises while you play steadily (input in the last 2.5 s or a finger held
+down, ~14 s to the bottom, faster with a combo) and drains when you stop (0.12/s) or get hurt (halved). As it rises the
+frame dissolves: the curve meters, the stage line and Fig fade and shrink, the run's notices go quiet (hurts still
+speak), and the edges of the screen close in with a slow breath. The chaos doesn't wait for you: a switch that lands
+40% deep or more is a **⚡ jolt**. The frame slams back, the screen flashes and shakes, and the camera pulls out
+through every layer (the game in its window, the 🧬 Chaos Run holding every game round its rim, the r4box rim around
+it), blinks, and dives into the next game. The deeper you were, the further it pulls and the more it pays (500 ×
+depth). The end card shows your deepest dive and how many jolts you took.
+
 One organ makes an ordinary game page (`squirrel.html`, `fractal.html`). Several make a **Chaos Run**
 (`run.html`): the curve decides which organ you're in, and the world morphs when it says so:
 
