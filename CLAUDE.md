@@ -884,8 +884,8 @@ sets the weapon, `spend()` drops back to the stapler at zero.
 **Rally (organs/rally.js): a race from start to finish, no laps.** `makeTrack(course, seed)` lays an **open road** in
 20-unit steps, length `3200 + 500 (course − 1)` (course capped at 7): its heading is "up" plus `Σ rough × 1.1 × k^−0.8 ×
 sin(2π · 0.6k · len/3200 · u + φ)` over `FIB = [3, 5, 8, 13, 21]`, `rough = 0.35 + 0.12 (course − 1)`, eased in over the
-first eighth and capped at ±1.3 rad, so the road always makes headway and never crosses itself; width `max(120, 190 −
-10 course)`. `at(s)` clamps s to [0, 1]; `nearest` walks the open polyline; `sOf(units)` turns table units into
+first eighth and capped at ±1.3 rad, so the road always makes headway and never crosses itself; width `max(150, 190 −
+6 course)` (was down to 120: a ribbon at Stage 4). `at(s)` clamps s to [0, 1]; `nearest` walks the open polyline; `sOf(units)` turns table units into
 progress. The grid is `GRID` (70) up the road: you at the back, rivals in pairs ahead; a chequered start line just
 behind you and a wall of bricks closing the road at s = 0 (`drive` bounces a car that backs past it). **🚦 3-2-1-GO**:
 `g.go` = `COUNT` (2.4 s) holds every car and the beats; the digits are drawn big mid-screen, then GO!. **Start slower**:
@@ -895,7 +895,8 @@ big chequered band and 🏁 flags; `finish()` pays `PLACE_PTS[place − 1] + 60 
 `done` (they count ahead of you). A rival more than 520 units behind you is out (+150) and comes back 300 ahead of you
 unless the finish is near. The bottom line and the HUD show `% to the finish` (`progress()`) and your place. ✨ The
 **mirror** now swaps you with the rival just ahead within 400 units (`mirrorSwap`: position, heading, speed, progress),
-or pays 250 when nobody's close; the 🐈 paw sweeps back down the road toward you. `camZoom()` = 2.0 / (1 + 0.25 (stage − 1)),
+or pays 250 when nobody's close; the 🐈 paw sweeps back down the road toward you. `camZoom()` = 2.0 / (1 + 0.25 (stage − 1)), but never under `ROAD_MIN` (0.46) × W / road width, so the tape always spans
+nearly half the field (test `t_rlwide`; `t_rlweap` is flaky on HEAD too, 2–3 of 5 runs),
 eased into `g.zoom`; the camera is `translate(W/2, H × CAR_Y=0.8) · scale(zoom) · rotate(camA + turn) · translate(−me)`,
 with `g.camA` eased (0.07 a frame) toward the **guide**: a blend of the directions to two spots up the road (`GUIDE`
 near 130 / far 340 table units, 45/55) and 20% of the car's heading (none while it spins, falls or is carried).

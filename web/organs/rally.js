@@ -34,7 +34,9 @@ const stage = () => host.stage?.() || 1;
 // 🏎️ a gentle start: 150 on course 1, faster by course and by stage (about 1.8× by course 5 at Stage 4)
 const topSpeed = () => VMAX * (1 + 0.15 * Math.min(6, (g?.course || 1) - 1) + 0.1 * (stage() - 1));
 // 🔍 the camera starts close in and pulls back as the stages come (on top of the shell's own zoom-out)
-const camZoom = () => 2.0 / (1 + 0.25 * (stage() - 1));
+// …but never so far out that the road shrinks to a ribbon: the tape always spans at least ROAD_MIN of the field's width
+const ROAD_MIN = 0.46;
+const camZoom = () => Math.max(2.0 / (1 + 0.25 * (stage() - 1)), ROAD_MIN * W / (g?.track?.w || 180));
 const GUIDE = { near: 130, far: 340, heading: 0.2 };   // the camera's look-ahead (table units up the tape) and how much it still follows the car's nose
 const CAR_Y = 0.8;   // the car sits low on the screen: the road ahead is what you see
 const hash = (i) => { let x = (Math.imul(i | 0, 374761393) + 668265263) | 0; x = Math.imul(x ^ (x >>> 13), 1274126177); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
@@ -74,7 +76,7 @@ function makeTrack(course, seed, secs) {
     pts.push({ x, y }); x += Math.cos(th) * 20; y += Math.sin(th) * 20;
   }
   let L = 0; const cum = [0]; for (let i = 1; i < pts.length; i++) { L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); cum.push(L); }
-  const w = Math.max(120, 190 - 10 * course);   // wide tape: 180 on course 1, down to 120
+  const w = Math.max(150, 190 - 6 * course);   // wide tape: 184 on course 1, down to 150
   // offset lines, built once: the worn racing lines and the painted edge lines (normals from the neighbours)
   const nrm = pts.map((p, i) => { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return [-(b.y - a.y) / l, (b.x - a.x) / l]; });
   // (the kerbs and the tape's rims are drawn as narrow lines along these, not as full-width strokes: far less to paint)
