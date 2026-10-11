@@ -141,7 +141,7 @@ function edgeAt(s, side) { return (g.edges || []).find((e) => e.side === Math.si
 const RESCUE = 1.3;
 function startRescue(c) {
   const p = at(c.s - 0.02);
-  c.rescue = { t: 0, x0: c.x, y0: c.y, a0: c.a, x1: p.x, y1: p.y, a1: p.a }; c.v = 0; c.spin = 0;
+  c.rescue = { t: 0, x0: c.x, y0: c.y, a0: c.a, x1: p.x, y1: p.y, a1: p.a }; c.v = 0; c.spin = 0; c.spinA = null;
   host.banner('🪂 FIG TO THE RESCUE', 'over the edge: Fig hauls the car back up'); sfx('whistle', { dur: 0.4 });
 }
 function stepRescue(c, dt) {
@@ -173,7 +173,7 @@ function buildRim(side, drawn) {   // the table's edge on one side: a point per 
   return clean.length > 8 ? clean : out;
 }
 function respawn(c, isMe) {   // back on the tape a little behind where it went over
-  const p = at(c.s - 0.02); c.x = p.x; c.y = p.y; c.a = p.a; c.v = 0; c.fall = 0; c.spin = 0; c.s = c.prevS = nearest(c.x, c.y).s;
+  const p = at(c.s - 0.02); c.x = p.x; c.y = p.y; c.a = p.a; c.v = 0; c.fall = 0; c.spin = 0; c.spinA = null; c.s = c.prevS = nearest(c.x, c.y).s;
   if (isMe) { S.combo = 0; host.cue?.('pickup', c.x, c.y); host.hurt('fell off the edge'); }
 }
 function onBeat(ev) {
@@ -229,7 +229,7 @@ function bounceAlong(c, ta, isMe, nx = 0, ny = 0) {   // a guard or the wall beh
     sparks(c.x + nx * R, c.y + ny * R, nx, ny, c.v, isMe ? 9 : 4);
     const vn = c.vx * nx + c.vy * ny; if (vn > 0) { c.vx -= (1 + 0.3) * vn * nx; c.vy -= (1 + 0.3) * vn * ny; } c.vx *= 0.9; c.vy *= 0.9;
   } else { const sp = Math.max(c.v * 0.7, 40); c.vx = Math.cos(ta) * sp; c.vy = Math.sin(ta) * sp; }
-  c.a = ta + wrapA(c.a - ta) * 0.4; c.w = 0;
+  if (!(c.spin > 0)) { c.a = ta + wrapA(c.a - ta) * 0.4; c.w = 0; }
   const fw = c.vx * Math.cos(ta) + c.vy * Math.sin(ta); if (fw < 40) { c.vx += Math.cos(ta) * (40 - fw); c.vy += Math.sin(ta) * (40 - fw); }
   setSpeed(c); c.bob = 1;
   if (isMe && !c.bumpT) { c.bumpT = 0.4; sfx('clack'); }
@@ -392,7 +392,9 @@ function drive(c, dt, steer, brake, isMe) {
   // the nose first (the steering, a spin-out, the yaw left by a knock), then the velocity measured against it
   c.w = (c.w || 0) * Math.pow(YAW_DAMP, dt); c.a += c.w * dt;
   let ca = Math.cos(c.a), sa = Math.sin(c.a), vF = c.vx * ca + c.vy * sa;
-  if (c.spin > 0) { c.spin -= dt; c.a += dt * 9; }
+  if (c.spin > 0) {   // 💫 a spin-out is one whole turn from the heading it started on, and lands back on it exactly
+    if (c.spinA == null) c.spinA = c.a; c.spin = Math.max(0, c.spin - dt); c.w = 0; c.a = c.spinA + 9 * (SPIN_T - Math.min(SPIN_T, c.spin)) * (c.spin > 0 ? 1 : 0);
+    if (c.spin <= 0) { c.a = c.spinA; c.spinA = null; } }
   else { const under = 1 - UNDER * smooth01((vF - 110) / 170); c.a += steer * TURN * (milk ? 0.25 : 1) * dt * Math.min(1, Math.max(0, vF) / 80 + 0.3) * under; }
   ca = Math.cos(c.a); sa = Math.sin(c.a); vF = c.vx * ca + c.vy * sa; let vL = -c.vx * sa + c.vy * ca;
   if (c.spin > 0) { const f = Math.pow(0.5, dt); vF *= f; vL *= f; }
@@ -423,10 +425,10 @@ function drive(c, dt, steer, brake, isMe) {
   // walls: the cereal boxes (square to the table), the same bounce
   const walls = g.items.filter((i) => i.kind === 'box').concat(g.obs.filter((o) => o.kind === 'box'));
   walls.forEach((b) => { if (Math.abs(c.x - b.x) > b.w / 2 + R || Math.abs(c.y - b.y) > b.h / 2 + R) return; const hit = contact(c, { shape: 'b', x: b.x, y: b.y, a: 0, hx: b.w / 2, hy: b.h / 2, rr: 2 }); if (!hit) return;
-    const bo = bounceOff(c, hit); sparks(c.x - hit.nx * R, c.y - hit.ny * R, -hit.nx, -hit.ny, Math.max(c.v, bo.imp), isMe ? 7 : 3); c.bob = 1;
-    if (c.v < 50) { const ta = at(nearest(c.x, c.y).s).a; c.a = ta + wrapA(c.a - ta) * 0.4; c.vx += Math.cos(ta) * 50; c.vy += Math.sin(ta) * 50; setSpeed(c); }   // never stuck against it
+    const a0 = c.a, bo = bounceOff(c, hit); sparks(c.x - hit.nx * R, c.y - hit.ny * R, -hit.nx, -hit.ny, Math.max(c.v, bo.imp), isMe ? 7 : 3); c.bob = 1;
+    if (c.v < 50) { const ta = at(nearest(c.x, c.y).s).a; if (!(c.spin > 0)) c.a = ta + wrapA(c.a - ta) * 0.4; c.vx += Math.cos(ta) * 50; c.vy += Math.sin(ta) * 50; setSpeed(c); }   // never stuck against it
     if (isMe) b.hit = true;   // 📦 dented: only a box your car has hit can be smashed by a tap
-    if (isMe && !c.bumpT) { c.bumpT = 0.5; if (c.shield > 0) { c.shield = 0; } else { c.spin = 0.3; sfx('clack'); } } });
+    if (isMe && !c.bumpT) { c.bumpT = SPIN_T + 0.9; if (c.shield > 0) { c.shield = 0; } else if (!(c.spin > 0)) { c.a = a0; c.w = 0; c.spin = SPIN_T; sfx('clack'); } } });   // 📦 one whole turn, ending the way you were facing when you hit it
   if (c.bumpT > 0) c.bumpT = Math.max(0, c.bumpT - dt);
   const n2 = nearest(c.x, c.y); c.prevS = c.s; c.s = n2.s; c.off = n2.d;
   const ta = at(n2.s).a, nx = -Math.sin(ta), ny = Math.cos(ta), lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny, side = Math.sign(lat) || 1;
@@ -467,14 +469,14 @@ function update(dt) {
     // 🛏️ under a roof: the light goes (the roof thins so you can see your car) and comes back at the far mouth
     const under = sc.roof && me.s > sc.s0 + 0.012 && me.s < sc.s1 - 0.012; g.inRoof += ((under ? 1 : 0) - g.inRoof) * Math.min(1, dt * 4); g.dimNow += ((under ? sc.dim || 0.5 : 0) - g.dimNow) * Math.min(1, dt * 2.5); }
   // 🪖 soldiers and 🕳️ the pocket, 🍞 the toaster, the pennies
-  g.obs = g.obs.filter((o) => { o.life -= dt; if (o.kind === 'soldier' && Math.hypot(o.x - me.x, o.y - me.y) < R + 10 && me.air <= 0 && !me.fall && !me.rescue) { if (me.shield > 0) { me.shield = 0; } else { me.spin = 0.8; S.combo = 0; } g.fx.push({ kind: 'text', x: o.x, y: o.y - 20, text: TH().bumpTxt, life: 0.8 }); sfx('thud'); return false; } return o.life > 0; });
+  g.obs = g.obs.filter((o) => { o.life -= dt; if (o.kind === 'soldier' && Math.hypot(o.x - me.x, o.y - me.y) < R + 10 && me.air <= 0 && !me.fall && !me.rescue) { if (me.shield > 0) { me.shield = 0; } else { me.spin = SPIN_T; S.combo = 0; } g.fx.push({ kind: 'text', x: o.x, y: o.y - 20, text: TH().bumpTxt, life: 0.8 }); sfx('thud'); return false; } return o.life > 0; });
   g.items.forEach((i) => { const d = Math.hypot(i.x - me.x, i.y - me.y);
-    if (i.kind === 'hole' && d < i.r && me.air <= 0 && !me.fall && !me.rescue) { me.spin = 0; me.v = 0; const p = at(me.s - sOf(90)); me.x = p.x; me.y = p.y; me.a = p.a; S.combo = 0; host.cue?.('near', i.x, i.y); sfx('plunk');
-      if (g.course >= 3) { if (!host.hurt('fell in the pocket')) host.banner('🕳️ THE POCKET', `${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); } else { me.spin = 0.9; host.banner('🕳️ THE POCKET', 'fished out · from course 3 it costs a life'); } }
+    if (i.kind === 'hole' && d < i.r && me.air <= 0 && !me.fall && !me.rescue) { me.spin = 0; me.spinA = null; me.v = 0; const p = at(me.s - sOf(90)); me.x = p.x; me.y = p.y; me.a = p.a; S.combo = 0; host.cue?.('near', i.x, i.y); sfx('plunk');
+      if (g.course >= 3) { if (!host.hurt('fell in the pocket')) host.banner('🕳️ THE POCKET', `${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); } else { me.spin = SPIN_T; host.banner('🕳️ THE POCKET', 'fished out · from course 3 it costs a life'); } }
     if (i.kind === 'toaster' && d < 20 && me.air <= 0 && me.v > 60) { me.air = me.airMax = 0.7; me.v = Math.max(me.v, topSpeed() * 1.2); sfx('whistle', { dur: 0.3 }); g.fx.push({ kind: 'text', x: me.x, y: me.y - 24, text: '🍞 POP!', life: 0.8 }); } });
   g.pennies = g.pennies.filter((p) => { if (Math.hypot(p.x - me.x, p.y - me.y) < R + 8) { host.add(20); host.cue?.('score', p.x, p.y); g.fx.push({ kind: 'text', x: p.x, y: p.y - 14, text: '+20', life: 0.7 }); sfx('chime', { hi: true }); return false; } return true; });   // flat: the combo is for finishes and rivals
   // 🐈 the paw sweeps back down the road toward you and swats whatever it meets
-  if (g.paw) { g.paw.t += dt; g.paw.s -= sOf(160) * dt; if (g.paw.s < 0.01) g.paw = null; else { const p = at(g.paw.s); [me, ...g.rivals].forEach((c) => { if (Math.hypot(c.x - p.x, c.y - p.y) < 34 && c.spin <= 0 && !c.fall && !c.rescue) { c.spin = 0.7; c.x += Math.cos(p.a + Math.PI / 2) * 30; c.y += Math.sin(p.a + Math.PI / 2) * 30; if (c === me) { S.combo = 0; sfx('thud'); } } }); } }
+  if (g.paw) { g.paw.t += dt; g.paw.s -= sOf(160) * dt; if (g.paw.s < 0.01) g.paw = null; else { const p = at(g.paw.s); [me, ...g.rivals].forEach((c) => { if (Math.hypot(c.x - p.x, c.y - p.y) < 34 && c.spin <= 0 && !c.fall && !c.rescue) { c.spin = SPIN_T; c.x += Math.cos(p.a + Math.PI / 2) * 30; c.y += Math.sin(p.a + Math.PI / 2) * 30; if (c === me) { S.combo = 0; sfx('thud'); } } }); } }
   // rivals: they follow the tape, rubber-banded to you; pushed far enough behind the camera they're out of the race
   const L = g.track.len;
   g.rivals.forEach((r) => { r.spin = r.spin || 0; if (r.done) return;
@@ -485,7 +487,7 @@ function update(dt) {
     if (r.s >= FINISH) { r.done = true; r.place = 1 + g.rivals.filter((x) => x.done && x !== r).length + (g.done ? 1 : 0); return; }
     if (gap < -520 && r.off < 40 && !r.fall && !r.rescue) { r.out = 4; outsN += 1; const pts = 150; host.add(pts); host.cue?.('kill', r.x, r.y); g.fx.push({ kind: 'text', x: me.x, y: me.y - 34, text: `🏁 LEFT BEHIND +${pts}`, life: 1.1, big: true }); sfx('cheer', { delay: 0.05 }); }   // flat
     // 🚗💥 bumping: a real knock, momentum shared (a hard one bounces a rival off your 🫧 bubble and pops it)
-    if (!me.rescue && !me.fall && !r.fall && !r.rescue) { const hv = carHit(me, r); if (hv > 60 && me.shield > 0) { r.spin = 0.5; me.shield = 0; } if (hv > 45 && !me.hitT) { me.hitT = 0.25; sfx('clack'); if (hv > 110 && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); } } });
+    if (!me.rescue && !me.fall && !r.fall && !r.rescue) { const hv = carHit(me, r); if (hv > 60 && me.shield > 0) { r.spin = SPIN_T; me.shield = 0; } if (hv > 45 && !me.hitT) { me.hitT = 0.25; sfx('clack'); if (hv > 110 && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); } } });
   const live = g.rivals.filter((r) => !r.done && !(r.out > 0) && !r.fall && !r.rescue);
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) carHit(live[i], live[j]);
   stepArms(dt);
@@ -1771,8 +1773,9 @@ const organ = {
   level: () => g?.course || 1,
   overText: (how) => (how === 'fell in the pocket' ? ['🕳️ POCKETED', 'Too many trips down the pocket.'] : how === 'off the table' ? ['🫳 OFF THE TABLE', 'The table is only so big.'] : how === 'fell off the edge' ? ['🪂 OVER THE EDGE', 'Mind the open edges.'] : ['RUN OVER', '']),
   endStats: () => (g ? `🏎️ ${finishN} ${finishN === 1 ? 'finish' : 'finishes'} · ${outsN} rivals left behind · 🎯 ${hitsGivenN} hits` : ''),
-  debug: () => g && ({ auto: (on) => { g.auto = on; }, autoFire: (on) => { g.autoHold = !on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, boxList: [...g.items, ...g.obs].filter((b) => b.kind === 'box').map((b) => ({ s: b.s ?? nearest(b.x, b.y).s, hit: !!b.hit })), smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); },
+  debug: () => g && ({ auto: (on) => { g.auto = on; }, autoFire: (on) => { g.autoHold = !on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, boxList: [...g.items, ...g.obs].filter((b) => b.kind === 'box').map((b) => ({ s: b.s ?? nearest(b.x, b.y).s, hit: !!b.hit, x: b.x, y: b.y, w: b.w, h: b.h })), smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); },
     sections: g.secs.map((sc) => ({ i: sc.i, icon: sc.icon, name: sc.name, kind: sc.kind, s0: sc.s0, s1: sc.s1 })), section: secAt(g.me.s).i, secShown: g.secShown, islands: g.islands.map((i) => ({ s: i.s, lh: i.lh, wi: i.wi, kind: i.kind })), lane: g.me.lane || 0, lat: g.me.lat || 0,
+    place: (x, y, a, v) => { const me = g.me; me.x = x; me.y = y; me.a = a; me.v = v; me.vx = null; me.s = me.prevS = nearest(x, y).s; me.spin = 0; me.spinA = null; me.w = 0; me.bumpT = 0; me.shield = 0; me.air = 0; syncVel(me); },
     goSection: (i) => { const sc = g.secs[Math.max(0, Math.min(g.secs.length - 1, i | 0))], sk = sc.s0 + 0.012, p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, pieces: g.pieces.length, skids: g.skids.length, skid: !!g.me.skid, sparks: g.dust.filter((p) => p.spark).length, dim: g.dimNow, inRoof: g.inRoof, map: mapRect(H()), fin: g.fin ? g.fin.t : null, zoomTarget: camZoom(),
     pocketThings: pocketThings().map((c) => ({ thing: c.thing, s: c.s, half: c.half })), pkThing: g.pkThing ? { thing: g.pkThing.thing, s: g.pkThing.s } : null, nitro: g.nitro, slowT: g.slowT || 0, toScreen: (x, y) => toScreen({ x, y }),
     obstacles: g.solids.map((o) => ({ s: o.s, lat: o.lat, r: o.cr, lext: o.lext, kind: o.kind, shape: o.shape, island: !!o.island, free: o.free, x: o.x, y: o.y })), obsHits: obsHitsN, rivalObsHits: rivalHitsN, slip: g.me.slip || 0, vel: { x: g.me.vx || 0, y: g.me.vy || 0 }, w: g.me.w || 0, shake: g.shake || 0,

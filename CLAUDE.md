@@ -1016,7 +1016,10 @@ middle of the field (held longer, it becomes a steer: `taps`, promoted in `updat
 (`fireWeapon`, shared with rivals): 🚀 rocket (`g.proj`, homes on `carAhead`, named per place in `ARMS_TH`), a slick
 (`g.slicks`: 🍌🧃🐌🖋️🧊🛢️), 💥 shockwave (210), 🌩️ stormcloud (`zapT` 2 s on `leaderBut`, 0.55×; not ⚡, a cue mark), 🫧 bubble
 shield (`shield` 6 s, one knock), 🔥 turbo (`g.nitro` / rivals' `turboT`), 🧲 magnet (`magT`, never `nearEdge`). Every knock
-is `spinOut` (`SPIN_T`, one full turn back to the same heading, speed ×0.4 along the road, ×0.12 for the mousetrap), never a
+is `spinOut` (`SPIN_T`, one full turn back to the same heading: `drive` pins it, `c.spinA` = the heading the spin
+started on, `c.a = spinA + 9·elapsed`, landing exactly on `spinA`; every spin is `SPIN_T` long, the 📦 box crash included,
+which restores the pre-bounce heading `a0` and has a `SPIN_T + 0.9` s cooldown; the unstick nudges skip a spinning car;
+`__rl().place(x, y, a, v)`, test `t_rlboxspin`), speed ×0.4 along the road, ×0.12 for the mousetrap), never a
 life; `hop` throws a car in the air (springs and hatches), the rest spin. Traps: 🪤 mousetrap, roller (🍊🎱⚪), spring (🎁💦),
 hatch (🐹🗄️🕳️), swinging arm (🪭🔔🚧) on clocks `trapClock`/`trapState`/`rollerLat`/`swingTip`, `TRAP_P` ÷ `trapSpeed()`.
 Rivals pick up (40% at course 1 / Stage 1, more later), wait `rivalHold()`, fire only when it would land (`rivalArms`), never
