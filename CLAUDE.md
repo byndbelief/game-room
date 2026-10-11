@@ -6,7 +6,7 @@ robots `admiral_bot`, `bot1`, `bot2`, `bot3` and `bot4` (033). Logins are
 `<username>@thegame.com` in Supabase Auth, made by hand in the dashboard; the site takes a bare
 username. A new account only becomes a robot once it's in `public.bots`.
 
-- **Site:** https://r4box.com (custom domain on GitHub Pages; `web/CNAME`, DNS at Cloudflare; the old https://byndbelief.github.io/game-room/ redirects there once the Pages setting names the domain) — plain HTML/JS in `web/`, no build step. Every path in the site is relative, so it serves from a root or a subpath alike.
+- **Site:** https://r4box.com (custom domain on GitHub Pages; `web/CNAME`, DNS at Porkbun (nameservers `*.ns.porkbun.com`); mail is Fastmail (MX `us1`/`us2-smtp.messagingengine.com`, SPF, DKIM `fm1-3._domainkey`); the old https://byndbelief.github.io/game-room/ redirects there once the Pages setting names the domain) — plain HTML/JS in `web/`, no build step. Every path in the site is relative, so it serves from a root or a subpath alike.
 - **Backend:** Supabase project **theGAME** (`okywhdfmdpdvrfhbkyeo`, us-west-2): Postgres with
   row-level security, `security definer` RPCs for every move, Realtime, and the `notify`
   Edge Function (Web Push, VAPID).
@@ -790,7 +790,7 @@ into Putt and checks r holds then climbs; the server check steps `_chaos_curve` 
 11 times (hold 8 → 0, then n climbs).
 
 ### 🎨 r4box: the name, the redesign, the pals and the Design Studio (073)
-The room is **r4box** (r4box.com, bought 2026-09-30 at Cloudflare; DNS: four GitHub Pages A records +
+The room is **r4box** (r4box.com, bought 2026-09-30; DNS at Porkbun, not Cloudflare; DNS: four GitHub Pages A records +
 `www` CNAME, proxy off; `web/CNAME`; the Pages custom domain is set in the repo's settings, the CNAME
 file alone does nothing on an Actions deploy). Title, manifest, wordmark (`.r4mark`, a conic box glyph
 + "r4box · r = 4") and every back link say r4box.
