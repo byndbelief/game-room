@@ -124,7 +124,7 @@ function newCourse() {
   g.edges = []; [0.25, 0.55, 0.8].slice(0, Math.min(3, g.course)).forEach((c0, i) => { const half = (0.05 + 0.012 * Math.min(3, g.course - 1)) / 2, side = hash(g.seed + 30 + i) < 0.5 ? 1 : -1, okE = (c) => [c - half - 0.02, c, c + half + 0.02].every((q) => { const k = secAt(q).kind; return k !== 'bridge' && k !== 'tunnel' && !islandNear(q, 60); });
     let c = c0 + hash(g.seed + 20 + i) * 0.05; for (let k = 1; k < 14 && !okE(c); k++) { const d = Math.ceil(k / 2) * 0.03 * (k % 2 ? 1 : -1); if (okE(c + d) && c + d > 0.1 && c + d < 0.9) { c += d; break; } }
     if (okE(c) && !g.edges.some((e) => Math.abs(e.c - c) < 0.1)) g.edges.push({ s0: c - half, s1: c + half, c, side }); });
-  for (let i = 0; i < 3 + g.course; i++) { const s = 0.08 + hash(g.seed + 10 + i) * 0.84, side = hash(g.seed + 40 + i) < 0.5 ? 1 : -1; if (edgeAt(s, side) || !clear(s, 40)) continue; put('box', s, side * (g.track.w / 2 + 16), { w: 26, h: 18 }); }
+  for (let i = 0; i < Math.min(3, Math.ceil(g.course / 2)); i++) { const s = 0.08 + hash(g.seed + 10 + i) * 0.84, side = hash(g.seed + 40 + i) < 0.5 ? 1 : -1; if (edgeAt(s, side) || !clear(s, 40)) continue; put('box', s, side * (g.track.w / 2 + 16), { w: 26, h: 18 }); }
   // 🥤 the solid things: each fork's centrepiece (the fruit bowl, the toy box, the mug…), then the obstacles on the road
   g.solids = g.islands.map((isl) => (isl.solid = makeSolid(isl.kind, isl.s, 0, isl.wi * 0.95, at(isl.s).a + Math.PI / 2, { island: true, sec: isl.sec })));
   placeObstacles(); placeArms(); renderBar();   // (the slot's name follows the place: a peel in the kitchen is a juice spill in the bedroom)
@@ -188,7 +188,7 @@ function onBeat(ev) {
   if (ev.mirror) mirrorSwap();
   if (ev.balance) { g.items = g.items.filter((i) => i.kind !== 'milk'); sfx('chime'); }
   if (ev.golden) { host.add(161); if (g.pennies.length < 8) for (let i = 0; i < 8; i++) g.pennies.push({ ...spotOn(ahead(sOf(90 + i * 36)), Math.sin(i * 0.9) * g.track.w * 0.3), t: i }); sfx('chime', { hi: true }); }
-  if (ev.hop > 0.3 && !ev.window && room(sOf(300))) { const p = spotOn(ahead(sOf(300)), (Math.random() - 0.5) * g.track.w * 0.6); g.obs.push({ kind: 'box', ...p, w: 26, h: 18, life: 12 }); }   // 📦 a cereal box drops on the road
+  if (ev.hop > 0.55 && !ev.window && room(sOf(300)) && !g.obs.some((o) => o.kind === 'box')) { const p = spotOn(ahead(sOf(300)), (Math.random() - 0.5) * g.track.w * 0.6); g.obs.push({ kind: 'box', ...p, w: 26, h: 18, life: 12 }); }   // 📦 a cereal box drops on the road
   if (ev.gift && g.me) { g.me.shield = SHIELD_T; host.banner('🛡️ BUBBLE SHIELD', 'a free one: the next knock pops it'); sfx('ping'); }
   if (ev.fib) { g.nitro = 2; sfx('cannon', { size: 0.4 }); }
   if (ev.big && !g.twist) twist();
@@ -595,9 +595,9 @@ function placeArms() {
     const s = slide(lo + h(0) * (hi - lo), (q) => roadClear(q, 80) && far(q, g.solids, 100) && far(q, g.items, 70) && pocketClear(q) && far(q, g.traps, 180)); if (s == null) continue;
     g.traps.push(makeTrap(kinds[g.traps.length % kinds.length], s, h(1) < 0.5 ? 1 : -1, h(2) * 6)); }
   // ❓ the crate rows (round the traps)
-  for (let row = 0, c0 = 0.12; c0 < 0.92; c0 += 0.12, row++) {
+  for (let row = 0, c0 = 0.14; c0 < 0.92; c0 += 0.2, row++) {
     const s = slide(c0 + (hash(g.seed + g.course * 7 + 500 + row) - 0.5) * 0.03, (q) => roadClear(q, 50, ['bridge', 'tunnel'], false) && far(q, g.solids, 90) && far(q, g.items, 70) && far(q, g.traps, 70)); if (s == null) continue;
-    const n = co >= 3 ? 4 : 3, span = w * 0.68; for (let k = 0; k < n; k++) { const lat = (k / (n - 1) - 0.5) * span, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 1, row }); } }
+    const n = co >= 3 ? 3 : 2, span = w * 0.5; for (let k = 0; k < n; k++) { const lat = (k / (n - 1) - 0.5) * span, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 1, row }); } }
   // ⏩ boost pads and 🐢 slow patches, a few a section
   g.secs.forEach((sc, i) => { const want = [...(i || co > 1 ? ['slow'] : []), 'boost', ...(co >= 3 && i % 2 ? ['boost'] : []), ...(co >= 4 && i % 2 === 0 ? ['slow'] : [])];
     want.forEach((kind, j) => { const h = (k) => hash(g.seed + g.course * 71 + i * 37 + j * 11 + k);
