@@ -1034,6 +1034,41 @@ winces). Chaos soldiers and boxes no longer drop past the finish (they piled up 
 traps, spin, hitsTaken, hitsGiven, shots, shield, padT, slipT, zapT, magT, mud, proj, slicks, rivalArms, rivalFire, rivalGive,
 placeRival, parkRivals, trap(i, d, dl), zoneAt, crateAt, twistNow, beat, stop, autoFire`. Tests (scratch): `t_rlweap` (56
 checks), `t_rlstage`; `t_rlobs`'s "a scrape keeps most of the speed" is borderline on HEAD too.
+**Rally's layouts: wide, split and loop (rally.js, page only).** The road's width varies per point (`track.ws`, read by
+`wAt(s)`; `track.w` stays the course's normal width for `camZoom`, islands and the grid): `wide` opens to `WIDE` 1.8× over
+`WRAMP`, a bridge pinches to `PINCH` 0.86×, and `VARW` sections fill the tape between `off.rib` lines instead of one stroke.
+🔀 `split` opens to `SPLIT_W` 2.15× round a long tapered median (`g.splits`, `splitNear`, `medHW`/`medianAt`; 2 × lh 450–700,
+`TAPER` 170): its sides bounce a car back into its branch, the nose turns it aside at 65–75% speed; one branch gets two boost
+pads, the other a crate row, a slow patch and from course 4 a mousetrap; `aimAt` holds a branch (`c.lane`). Drawn by
+`drawMedian` from `th.median` (`MEDIANS` for the tabletops: planter/rails/ruler/snow/neon/books/kerb; a full-size place's
+`{tile, edge, blobs}` becomes a planter on its own tile; `MEDIAN_DEF` the kerbs). 🎢 `loop` is a corkscrew (`loopHead`,
+`LOOP`, radius `loopR(w)` 210–250): swerve out 45°, straight through the crossing, 270° round, straight back over itself,
+swerve back: 2π, crossing square in the middle of both straights; the ±1.3 rad cap holds everywhere else. `cutSecs(seed,
+list, course)` gives a loop its length (60% taken back from the rest); `findLoops` finds the crossing (`x1` below, `x2` the
+overpass, deck `d0..d1`), `trackClear` checks the road meets itself nowhere else, a failing loop flips or reseeds, then
+falls back to a sweep. `nearest(x, y, hint)` searches `NEAR_WIN` points round the car's own progress first (every per-car
+call passes it); car-to-car effects also need close progress. The overpass is railed (`onDeck`, `BRIDGE_M`), the loop's
+inside is filled (`lp.hole`, `rimS` skips it), `drawDeck` draws over the cars below and under the cars on it (yours shows
+faintly through), `drawChevrons`/`drawSwirl` mark it, the map draws the overpass on top. Nothing is placed in a loop or on a
+median; `popThrough` skips past both. A section's optional `from: n` waits for course n. Races with a loop run ~25–35 s.
+`__rl()` adds `wAt, medianAt, levelOf, level, trackOK, loops, splits, laneOf, rivalLanes, atS, nearestS, camZoom(z),
+freeze(on)`; `__rlOff.deck`. Tests (scratch `merged/`): `t_layout` (courses 1–14 × seeds: clear tracks, square crossings),
+`t_auto`, `t_loop` (levels ground>lower>ground>upper>ground, no backward progress, camera ≤ 3.5°/frame), `t_split`.
+**Rally goes full size: twelve places (rally.js, page only).** Rally is a rally now, toys or not: `ORDER` alternates six
+full-size places with the six tabletops (`alpine, kitchen, coast, bedroom, canyon, garden, arctic, desk, volcano, snow,
+moon, neon`; course 1 is 🌲 the alpine forest), all from one "🌍 full-size places" block that `Object.assign`s into `SECS`,
+`TILES`, `PIECES`, `SOLID`, `ROADOBS`, `TRAPS`, `ARMS_TH`, `ROOFS`, `FXCOL`, `PLACE`, `THING_ICON` and pushes onto `THEMES`
+(`REAL`, `t.real`) and `VEHICLES`. 🌲 alpine (rally car), 🏖️ coast (dune buggy), 🏜️ canyon (trophy truck), 🐻‍❄️ arctic
+(snowmobile), 🌋 volcano (trophy truck), 🌕 moon (moon rover): `th.ride` names the place's own ride (tabletops still cycle
+the toys); `cliff` (the rock face down to the drop) and `rimFx` (surf, lava glow) stroke the edge; the floor past it is
+the drop (ravine, sea, abyss, arcticsea, magma, space); `holeK` skins the pocket (`HOLES`), `rampTxt` the jump's shout,
+`tw` renames the twists. Renderers: `GUARDK` (armco, tyres, bales, logs, blocks, poles, panels), `BOXES`, `RAMPS`, `BUMPS`,
+`TRAPLOW`/`TRAPHI` (each place's two traps reskin the old mechanics: rolling rock, beach ball, tumbleweed, lava bomb,
+blowhole, geyser, seal hole, quicksand, crevasse, low-g pad, airlock, logging gate), `AIRS` (forest, seaside, heat, aurora,
+ash, space), `DECORS`, `RIDE_DRAW` (rally, buggy, trophy, snowmo, rover); slotcar's `THINGS` has the new fork centrepieces.
+The nitro flame had been switched off by a mid-line `//` and draws again. `__rl()` adds `goPlace(key, course, seed)` and
+`places`. Tests (scratch `places/`): `t_places` (courses 1–13 in order, the autopilot finishes every new place, no hurt
+words or cue marks in any banner), `t_edges`.
 **⚔️ War (organs/war.js, page only): the card game with a verb.** The run's seventh organ, wild, after Rally in `run.html`
 (calms stay apart). The House deals face up from its pile into the lanes (`LANES()` 1/2/3/3 by stage); you hold `HAND()`
 3/4/5/5 face-up cards and tap one (it plays the lane waiting longest, `urgent()`) or drag it onto a lane (`nearestLane`).

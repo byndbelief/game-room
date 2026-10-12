@@ -57,44 +57,125 @@ const KINDS = {
   bridge: { base: 0.05, say: 'a narrow bridge' },
   tunnel: { base: 0.55, say: 'into the dark: lights on' },
   fork: { base: 0.08, say: 'the road splits: pick a side' },
+  wide: { base: 0.12, say: 'the road opens up: room to pass' },
+  split: { base: 0.1, say: 'two roads: pick one and stick to it' },
+  loop: { base: 0, say: 'a corkscrew: round and over the top' },
 };
 const BLEND = 0.02;
 const smooth01 = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
-function cutSecs(seed) { const b = [0, 0.25, 0.5, 0.75].map((v, i) => (i ? v + (hash(seed + 60 + i) - 0.5) * 0.06 : 0)); return b.map((s0, i) => ({ s0, s1: b[i + 1] ?? 1, i })); }
-function makeTrack(course, seed, secs) {
-  const c = Math.min(7, course), len = 3200 + 500 * (c - 1), n = Math.round(len / 20), rough = Math.min(1, 0.35 + 0.12 * (c - 1)), pts = [];
+// 🛣️ The road's width varies along it (track.ws, a full width per point; wAt(s) reads it): a wide section opens to WIDE ×
+// over WRAMP at each end, a bridge pinches to PINCH ×, a split opens to SPLIT_W × round its median. track.w stays the
+// course's normal width (the camera, the islands and the grid read that one).
+const WIDE = 1.8, PINCH = 0.86, SPLIT_W = 2.15, WRAMP = 0.025;
+// 🔀 a split: the road opens over SPLIT_RAMP, a long median (2 × lh, half width MEDIAN × w at its widest, tapered over
+// TAPER at both ends: a long nose that turns a car aside rather than stopping it) parts it into two branches, and it closes
+// again; SPLIT_PAD of plain road either side within the section.
+const MEDIAN = 0.2, TAPER = 170, SPLIT_RAMP = 260, SPLIT_PAD = 120;
+// 🌀 a loop (the corkscrew, seen from above): the road swerves out by LOOP.th1, runs straight through the crossing, turns
+// 2π − 2·th1 round a circle of radius R (its curvature eased in and out over LOOP.q of the turn), runs straight back
+// through the crossing over itself, and swerves back by th1: 2π in all, so it carries on the way it was going. Lengths are
+// in loop radii; with S = 1.2 the crossing sits in the middle of both straights, square (90°), so the overpass stands on
+// straight road. LEAD: straight road into and out of the loop inside its section. DECK: the overpass's half length.
+const LOOP = { th1: Math.PI / 4, pre: 1.2, S: 1.2, q: 0.15 };
+LOOP.turn = 2 * Math.PI - 2 * LOOP.th1; LOOP.Lm = LOOP.turn / (1 - LOOP.q); LOOP.len = 2 * LOOP.pre + 2 * LOOP.S + LOOP.Lm;
+const LEAD = 200, loopR = (w) => Math.max(210, 1.35 * w), baseW = (course) => Math.max(150, 190 - 6 * course);   // wide tape: 184 on course 1, down to 150
+const SI = (t) => t * t * t - t * t * t * t / 2;   // ∫ smooth01 from 0 to t
+function loopHead(l) {   // the loop's extra heading at l loop radii into it (0 before, 2π after)
+  const { th1, pre, S, q, turn, Lm } = LOOP, v = Math.max(0, Math.min(1, (l - pre - S) / Lm)), A = 1 - q;
+  const F = (v < q ? q * SI(v / q) : v <= 1 - q ? q / 2 + (v - q) : A - q * SI((1 - v) / q)) / A;   // the main turn: a trapezoid of curvature, integrated
+  return th1 * smooth01(l / pre) + turn * F + th1 * smooth01((l - pre - 2 * S - Lm) / pre);
+}
+// the sections' lengths: the course's road shared out among the ordinary sections (each ±12%), plus a loop's or a split's
+// own length on top, so a corkscrew never squeezes the rest
+function cutSecs(seed, list, course) {
+  const w = baseW(course), loops = list.filter((sc) => sc.kind === 'loop').length, base = 3200 + 500 * (Math.min(7, course) - 1) - 0.6 * loops * LOOP.len * loopR(w), plain = list.filter((sc) => sc.kind !== 'loop' && sc.kind !== 'split').length, share = base / Math.max(1, plain);   // (a loop gives back some of the road it adds)
+  const secs = list.map((sc, i) => { const o = { ...sc, i };
+    if (sc.kind === 'loop') { o.R = loopR(w); o.dir = hash(seed + 90 + i) < 0.5 ? 1 : -1; o.len = LOOP.len * o.R + 2 * LEAD; }
+    else if (sc.kind === 'split') { o.lh = 225 + 125 * hash(seed + 70 + i); o.len = Math.max(share, 2 * o.lh + 2 * SPLIT_RAMP + 2 * SPLIT_PAD); }
+    else o.len = share * (1 + (i ? (hash(seed + 60 + i) - 0.5) * 0.24 : 0));
+    return o; });
+  const len = secs.reduce((a, o) => a + o.len, 0); let acc = 0;
+  secs.forEach((o) => { o.s0 = acc / len; acc += o.len; o.s1 = acc / len; }); secs[secs.length - 1].s1 = 1;
+  return { secs, len };
+}
+function makeTrack(course, seed, secs, len) {
+  const c = Math.min(7, course), n = Math.round(len / 20), rough = Math.min(1, 0.35 + 0.12 * (c - 1)), pts = [], w = baseW(course), ws = [];
   let x = 0, y = 0;
   for (let i = 0; i <= n; i++) {
-    const u = i / n; let base = 0, dev = 0;
+    const u = i / n; let base = 0, dev = 0, loop = 0, wf = 1;
     FIB.forEach((k, j) => { base += rough * 1.1 * Math.pow(k, -0.8) * Math.sin(2 * Math.PI * k * 0.6 * (len / 3200) * u + hash(seed + j) * 6.28); });
-    secs.forEach((sc, j) => { const wk = (j ? smooth01((u - sc.s0 + BLEND) / (2 * BLEND)) : 1) * (j < secs.length - 1 ? smooth01((sc.s1 + BLEND - u) / (2 * BLEND)) : 1); if (wk <= 0) return;
-      const K = KINDS[sc.kind] || KINDS.sprint, ph = (u - sc.s0) * len; let d = base * K.base;
+    secs.forEach((sc, j) => { const wk = (j ? smooth01((u - sc.s0 + BLEND) / (2 * BLEND)) : 1) * (j < secs.length - 1 ? smooth01((sc.s1 + BLEND - u) / (2 * BLEND)) : 1);
+      const ph = (u - sc.s0) * len;
+      if (sc.kind === 'loop' && u >= sc.s0) loop += sc.dir * loopHead((ph - LEAD) / sc.R);   // (not blended: 0 before the loop, 2π after)
+      if (u >= sc.s0 && u <= sc.s1) {   // the width: eased in and out inside the section, so its ends meet the next at the normal width
+        const e = Math.min(smooth01((u - sc.s0) / WRAMP), smooth01((sc.s1 - u) / WRAMP));
+        if (sc.kind === 'wide') wf = 1 + (WIDE - 1) * e; else if (sc.kind === 'bridge') wf = 1 + (PINCH - 1) * e;
+        else if (sc.kind === 'split') { const m = (sc.s1 - sc.s0) * len / 2, d = Math.abs(ph - m) - sc.lh - 60; wf = 1 + (SPLIT_W - 1) * smooth01(1 - d / SPLIT_RAMP); } }
+      if (wk <= 0) return;
+      const K = KINDS[sc.kind] || KINDS.sprint; let d = base * K.base;
       if (sc.kind === 'weave') d += Math.min(0.62, 0.5 + 0.03 * (c - 1)) * Math.sin(2 * Math.PI * ph / K.P);
       if (sc.kind === 'sweep') d += 0.9 * Math.sin(2 * Math.PI * ph / K.P + hash(seed + 80 + j) * 6.28);
       dev += wk * d; });
     dev *= Math.min(1, u * 8);   // a straight run off the grid
-    const th = -Math.PI / 2 + Math.max(-1.3, Math.min(1.3, dev));
-    pts.push({ x, y }); x += Math.cos(th) * 20; y += Math.sin(th) * 20;
+    const th = -Math.PI / 2 + Math.max(-1.3, Math.min(1.3, dev)) + loop;   // the cap holds everywhere but round a loop's own turn
+    pts.push({ x, y }); ws.push(w * wf); x += Math.cos(th) * 20; y += Math.sin(th) * 20;
   }
   let L = 0; const cum = [0]; for (let i = 1; i < pts.length; i++) { L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); cum.push(L); }
-  const w = Math.max(150, 190 - 6 * course);   // wide tape: 184 on course 1, down to 150
-  // offset lines, built once: the worn racing lines and the painted edge lines (normals from the neighbours)
+  // offset lines, built once: the worn racing lines and the painted edge lines (normals from the neighbours), each at an
+  // offset from the local width (o(i))
   const nrm = pts.map((p, i) => { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return [-(b.y - a.y) / l, (b.x - a.x) / l]; });
   // (the kerbs and the tape's rims are drawn as narrow lines along these, not as full-width strokes: far less to paint)
-  const offAt = (o) => { const a = pts.map((p, i) => ({ x: p.x + nrm[i][0] * o, y: p.y + nrm[i][1] * o })); let l = 0; a.c = a.map((q, i) => (i ? (l += Math.hypot(q.x - a[i - 1].x, q.y - a[i - 1].y)) : 0)); return a; };
-  const pair = (o) => [offAt(-o), offAt(o)];
+  const offAt = (o) => { const a = pts.map((p, i) => ({ x: p.x + nrm[i][0] * o(i), y: p.y + nrm[i][1] * o(i) })); let l = 0; a.c = a.map((q, i) => (i ? (l += Math.hypot(q.x - a[i - 1].x, q.y - a[i - 1].y)) : 0)); return a; };
+  const pair = (f, k = 0) => [offAt((i) => -(ws[i] * f + k)), offAt((i) => ws[i] * f + k)];
   // kerb: w/2 .. +8.5 (two colours in dashes), light: its lit top (+1.5 .. +6.5), dark: the seam (0 .. +1.5), kerbEdge: its
-  // outline (+8.5 .. +10.5), tedge: the tape's own rim (−2.5 .. 0): the same rings the old full-width strokes left showing
-  const off = { wear: pair(w * 0.24), paint: pair(w / 2 - 9), kerbEdge: pair(w / 2 + 9.5), shoulder: pair(w / 2 + 8), kerb: pair(w / 2 + 4.25), light: pair(w / 2 + 4), dark: pair(w / 2 + 0.75), tedge: pair(w / 2 - 1.25) };
-  return { pts, cum, len: L, w, n: pts.length, off };
+  // outline (+8.5 .. +10.5), tedge: the tape's own rim (−2.5 .. 0): the same rings the old full-width strokes left showing;
+  // rib: the tape's own edge (a section whose width varies fills between these instead of one stroke); lanes: a wide
+  // section's lane lines
+  const off = { wear: pair(0.24), paint: pair(0.5, -9), kerbEdge: pair(0.5, 9.5), shoulder: pair(0.5, 8), kerb: pair(0.5, 4.25), light: pair(0.5, 4), dark: pair(0.5, 0.75), tedge: pair(0.5, -1.25), rib: pair(0.5), lanes: pair(0.17) };
+  return { pts, cum, len: L, w, ws, n: pts.length, off, nrm };
+}
+// 🌀 where each loop's road crosses itself: the two passes' progress there (x1 below, x2 on the overpass), the spot and the
+// angle; the deck's range on the upper pass and the stretch under it on the lower (d0..d1, u0..u1, in progress)
+function findLoops(t, secs) {
+  const out = [];
+  secs.forEach((sc) => { if (sc.kind !== 'loop') return; const i0 = Math.floor(sc.s0 * (t.n - 1)), i1 = Math.min(t.n - 2, Math.ceil(sc.s1 * (t.n - 1))); let best = null;
+    for (let i = i0; i < i1; i++) for (let j = i + 30; j < i1; j++) { const a = t.pts[i], b = t.pts[i + 1], c = t.pts[j], d = t.pts[j + 1], den = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x); if (Math.abs(den) < 1e-9) continue;
+      const p = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / den, q = ((c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)) / den;
+      if (p >= 0 && p <= 1 && q >= 0 && q <= 1 && !best) best = { x1: (t.cum[i] + p * 20) / t.len, x2: (t.cum[j] + q * 20) / t.len, x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, ang: Math.acos(Math.abs(((b.x - a.x) * (d.x - c.x) + (b.y - a.y) * (d.y - c.y)) / 400)) }; }
+    if (!best) return;
+    const D = (t.w / 2 + MARGIN + 40) / t.len; out.push({ sec: sc.i, dir: sc.dir, R: sc.R, ...best, d0: best.x2 - D, d1: best.x2 + D, u0: best.x1 - D, u1: best.x1 + D, a0: sc.s0 + LEAD / t.len, a1: sc.s1 - LEAD / t.len }); });
+  return out;
+}
+// the road never meets itself (bar each loop's own crossing): every two points far apart along it keep their guarded
+// bands apart, with room to spare
+function trackClear(t, loops) {
+  const XZ = 300;
+  for (let i = 0; i < t.n; i += 2) for (let j = i + 2; j < t.n; j += 2) { const need = (t.ws[i] + t.ws[j]) / 2 + 2 * MARGIN + 24; if (t.cum[j] - t.cum[i] < Math.max(450, need * 1.5)) continue;
+    if (loops.some((lp) => Math.abs(t.cum[i] - lp.x1 * t.len) < XZ && Math.abs(t.cum[j] - lp.x2 * t.len) < XZ)) continue;
+    const dx = t.pts[i].x - t.pts[j].x, dy = t.pts[i].y - t.pts[j].y; if (dx * dx + dy * dy < need * need) return false; }
+  return true;
 }
 const secAt = (s) => { const ss = g.secs || []; for (let i = ss.length - 1; i >= 0; i--) if (s >= ss[i].s0) return ss[i]; return ss[0]; };
 const islandNear = (s, pad = 0) => (g.islands || []).find((i) => Math.abs(s - i.s) * g.track.len < i.lh + pad) || null;
+// 🔀 a split round progress s (from where the road starts to open to where it has closed, plus pad table units)
+const splitNear = (s, pad = 0) => (g.splits || []).find((p) => Math.abs(s - p.s) * g.track.len < p.lh + SPLIT_RAMP + 60 + pad) || null;
+const loopAt = (s, pad = 0) => (g.loops || []).find((lp) => s > g.secs[lp.sec].s0 - sOf(pad) && s < g.secs[lp.sec].s1 + sOf(pad)) || null;
 const clamp01 = (s) => Math.max(0, Math.min(1, s));
-const at = (s) => { const t = g.track; s = clamp01(s); const Lr = s * t.len; let i = 0; while (i < t.n - 2 && t.cum[i + 1] < Lr) i++; const a = t.pts[i], b = t.pts[i + 1], u = (Lr - t.cum[i]) / (t.cum[i + 1] - t.cum[i] || 1); return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, a: Math.atan2(b.y - a.y, b.x - a.x) }; };
-function nearest(x, y) {   // the nearest point of the centreline: its progress s (0..1) and the distance d
-  const t = g.track; let best = { d: 1e9, s: 0 };
-  for (let i = 0; i < t.n - 1; i++) { const a = t.pts[i], b = t.pts[i + 1], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1; let u = ((x - a.x) * dx + (y - a.y) * dy) / L2; u = Math.max(0, Math.min(1, u)); const px = a.x + dx * u, py = a.y + dy * u, d = Math.hypot(x - px, y - py); if (d < best.d) best = { d, s: (t.cum[i] + u * (t.cum[i + 1] - t.cum[i])) / t.len, px, py }; }
+// the road's full width at progress s (the points are 20 units apart, so the index is s × (n − 1))
+const wAt = (s) => { const t = g.track, f = clamp01(s) * (t.n - 1), i = Math.min(t.n - 2, Math.floor(f)); return t.ws[i] + (t.ws[i + 1] - t.ws[i]) * (f - i); };
+// the median's half width at u table units from the split's middle (0 off it), and its slope (for the nose's deflection)
+const medHW = (p, u) => (Math.abs(u) > p.lh ? 0 : p.mh * smooth01((u + p.lh) / TAPER) * smooth01((p.lh - u) / TAPER));
+const medianAt = (s) => { const p = splitNear(s); return p ? medHW(p, (s - p.s) * g.track.len) : 0; };
+const at = (s) => { const t = g.track; s = clamp01(s); const Lr = s * t.len; let i = Math.max(0, Math.min(t.n - 2, Math.floor(Lr / 20) - 1)); while (i > 0 && t.cum[i] > Lr) i--; while (i < t.n - 2 && t.cum[i + 1] < Lr) i++; const a = t.pts[i], b = t.pts[i + 1], u = (Lr - t.cum[i]) / (t.cum[i + 1] - t.cum[i] || 1); return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, a: Math.atan2(b.y - a.y, b.x - a.x) }; };
+// the nearest point of the centreline: its progress s (0..1) and the distance d. With a hint (the car's own progress) it
+// looks only within NEAR_WIN points of it first, so a car at a loop's crossing stays on its own level; nothing close there
+// (a teleport) and it searches the whole road.
+const NEAR_WIN = 14;
+function nearest(x, y, hint) {
+  const t = g.track; let best = { d: 1e9, s: 0 }, lo = 0, hi = t.n - 1;
+  if (hint != null) { const k = Math.round(clamp01(hint) * (t.n - 1)); lo = Math.max(0, k - NEAR_WIN); hi = Math.min(t.n - 1, k + NEAR_WIN); }
+  for (let i = lo; i < hi; i++) { const a = t.pts[i], b = t.pts[i + 1], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1; let u = ((x - a.x) * dx + (y - a.y) * dy) / L2; u = Math.max(0, Math.min(1, u)); const px = a.x + dx * u, py = a.y + dy * u, d = Math.hypot(x - px, y - py); if (d < best.d) best = { d, s: (t.cum[i] + u * (t.cum[i + 1] - t.cum[i])) / t.len, px, py }; }
+  if (hint != null && best.d > wAt(best.s) / 2 + MARGIN + 90) return nearest(x, y);
   return best;
 }
 const spotOn = (s, off = 0) => { const p = at(s); return { x: p.x + Math.cos(p.a + Math.PI / 2) * off, y: p.y + Math.sin(p.a + Math.PI / 2) * off }; };
@@ -103,8 +184,15 @@ const sOf = (units) => units / g.track.len;   // table units along the road → 
 // ---------------------------------------------------------------- a race
 function newGame() { g = { course: 1, seed: Math.floor(Math.random() * 1e6), track: null, me: null, rivals: [], items: [], obs: [], fx: [], pennies: [], twist: null, time: 0, dir: 1, dark: 0, spin: 0, nitro: 0, air: 0, paw: null, glitch: false, glitchPal: null, dust: [], decor: [], skids: [], fin: null, solids: [], shake: 0, weapon: null }; finishN = 0; outsN = 0; obsHitsN = 0; rivalHitsN = 0; hitsTakenN = 0; hitsGivenN = 0; shotsN = 0; newCourse(); renderBar(); }
 function newCourse() {
-  { const th = TH(); g.secs = cutSecs(g.seed + g.course * 13).map((c, i) => ({ ...th.secs[i], ...c })); }
-  g.track = makeTrack(g.course, g.seed + g.course * 97, g.secs); g.obs = []; g.pennies = []; g.items = []; g.done = false; g.go = COUNT; g.goShown = 4; g.camA = null;
+  // the place's sections for this course (a section marked from: n waits for course n: course 1 stays gentle), cut to
+  // length; a loop that would meet the rest of the road turns the other way, or (last) becomes a long sweep
+  { const th = TH(), list = th.secs.filter((sc) => !(sc.from > g.course)), cut = cutSecs(g.seed + g.course * 13, list, g.course); g.secs = cut.secs;
+    for (let k = 0; ; k++) { g.track = makeTrack(g.course, g.seed + g.course * 97 + (k >> 1) * 7919, g.secs, cut.len); g.loops = findLoops(g.track, g.secs);
+      if ((g.loops.length === g.secs.filter((sc) => sc.kind === 'loop').length && trackClear(g.track, g.loops)) || k > 5) break;
+      g.secs.forEach((sc) => { if (sc.kind === 'loop') sc.dir = -sc.dir; });
+      if (k === 5) g.secs.forEach((sc) => { if (sc.kind === 'loop') { sc.kind = 'sweep'; sc.wasLoop = true; } }); } }
+  g.splits = g.secs.filter((sc) => sc.kind === 'split').map((sc) => ({ s: (sc.s0 + sc.s1) / 2, lh: sc.lh, mh: g.track.w * MEDIAN, sec: sc.i, boost: hash(g.seed + g.course * 3 + sc.i) < 0.5 ? 1 : -1 }));
+  g.obs = []; g.pennies = []; g.items = []; g.done = false; g.go = COUNT; g.goShown = 4; g.camA = null;
   g.secShown = 0; g.dimNow = 0; g.inRoof = 0; g.skids = []; g.map = null;
   // 🍎 a fork section's island: the road splits round it and joins again
   g.islands = g.secs.filter((sc) => sc.kind === 'fork').map((sc) => { const lh = 140, s = Math.min((sc.s0 + sc.s1) / 2, FINISH - (lh + 140) / g.track.len); return { s, lh, wi: g.track.w * 0.22, kind: sc.island, sec: sc.i }; });
@@ -113,19 +201,19 @@ function newCourse() {
   g.rivals = []; const n = 1 + Math.min(4, stage());
   for (let i = 0; i < n; i++) { const s = sOf(GRID + 44 * (1 + (i >> 1))), side = i % 2 ? 1 : -1, p = spotOn(s, side * g.track.w * 0.22); g.rivals.push({ x: p.x, y: p.y, a: at(s).a, v: 0, s, skill: 0.8 + Math.random() * 0.2 + 0.03 * stage(), hue: [0, 40, 200, 280, 120][i % 5], n: i + 2, out: 0, done: false, clip: (Math.random() - 0.5) * 14 }); }   // clip: how tight it shaves an obstacle (now and then too tight)
   // the hazards, placed on the tape: milk (ice), a toaster (ramp), the pocket (from course 2), boxes (walls) along the edges
-  const put = (kind, s, off, extra) => g.items.push({ kind, ...spotOn(s, off), s, ...extra });
+  const put = (kind, s, off, extra) => g.items.push({ kind, ...spotOn(s, typeof off === 'function' ? off(s) : off), s, ...extra });   // (off: a lateral offset, or one from the local width)
   // hazards keep off the bridges and clear of the islands: a spot that lands there slides along the road to a clear one
-  const clear = (s, pad = 80) => secAt(s).kind !== 'bridge' && !islandNear(s, pad), fix = (s) => { for (let k = 0; k < 14; k++) for (const d of [k * 0.03, -k * 0.03]) { const q = s + d; if (q > 0.06 && q < 0.93 && clear(q)) return q; } return s; };
+  const clear = (s, pad = 80) => secAt(s).kind !== 'bridge' && !islandNear(s, pad) && !splitNear(s, pad) && !loopAt(s, pad), fix = (s) => { for (let k = 0; k < 14; k++) for (const d of [k * 0.03, -k * 0.03]) { const q = s + d; if (q > 0.06 && q < 0.93 && clear(q)) return q; } return s; };
   put('milk', fix(0.3 + hash(g.seed + 1) * 0.1), 0, { r: 26 }); if (g.course >= 2) put('milk', fix(0.7 + hash(g.seed + 2) * 0.1), 8, { r: 22 });
   { const ts = fix(0.5 + hash(g.seed + 3) * 0.05); put('toaster', ts, 0, { a: at(ts).a }); }
-  if (g.course >= 2) put('hole', fix(0.15 + hash(g.seed + 4) * 0.1), (hash(g.seed + 5) - 0.5) * g.track.w * 0.6, { r: 14 });
-  if (g.course >= 3) put('hole', fix(0.85 + hash(g.seed + 6) * 0.08), (hash(g.seed + 7) - 0.5) * g.track.w * 0.6, { r: 14 });
+  if (g.course >= 2) put('hole', fix(0.15 + hash(g.seed + 4) * 0.1), (q) => (hash(g.seed + 5) - 0.5) * wAt(q) * 0.6, { r: 14 });
+  if (g.course >= 3) put('hole', fix(0.85 + hash(g.seed + 6) * 0.08), (q) => (hash(g.seed + 7) - 0.5) * wAt(q) * 0.6, { r: 14 });
   // 🪂 the table's edge: stretches where it comes right to the tape, no kerb, a drop to the floor (either side); never on a
   // bridge or in a tunnel, and clear of an island
-  g.edges = []; [0.25, 0.55, 0.8].slice(0, Math.min(3, g.course)).forEach((c0, i) => { const half = (0.05 + 0.012 * Math.min(3, g.course - 1)) / 2, side = hash(g.seed + 30 + i) < 0.5 ? 1 : -1, okE = (c) => [c - half - 0.02, c, c + half + 0.02].every((q) => { const k = secAt(q).kind; return k !== 'bridge' && k !== 'tunnel' && !islandNear(q, 60); });
+  g.edges = []; [0.25, 0.55, 0.8].slice(0, Math.min(3, g.course)).forEach((c0, i) => { const half = (0.05 + 0.012 * Math.min(3, g.course - 1)) / 2, side = hash(g.seed + 30 + i) < 0.5 ? 1 : -1, okE = (c) => [c - half - 0.02, c, c + half + 0.02].every((q) => { const k = secAt(q).kind; return k !== 'bridge' && k !== 'tunnel' && k !== 'loop' && k !== 'split' && !islandNear(q, 60); });
     let c = c0 + hash(g.seed + 20 + i) * 0.05; for (let k = 1; k < 14 && !okE(c); k++) { const d = Math.ceil(k / 2) * 0.03 * (k % 2 ? 1 : -1); if (okE(c + d) && c + d > 0.1 && c + d < 0.9) { c += d; break; } }
     if (okE(c) && !g.edges.some((e) => Math.abs(e.c - c) < 0.1)) g.edges.push({ s0: c - half, s1: c + half, c, side }); });
-  for (let i = 0; i < Math.min(3, Math.ceil(g.course / 2)); i++) { const s = 0.08 + hash(g.seed + 10 + i) * 0.84, side = hash(g.seed + 40 + i) < 0.5 ? 1 : -1; if (edgeAt(s, side) || !clear(s, 40)) continue; put('box', s, side * (g.track.w / 2 + 16), { w: 26, h: 18 }); }
+  for (let i = 0; i < Math.min(3, Math.ceil(g.course / 2)); i++) { const s = 0.08 + hash(g.seed + 10 + i) * 0.84, side = hash(g.seed + 40 + i) < 0.5 ? 1 : -1; if (edgeAt(s, side) || !clear(s, 40)) continue; put('box', s, side * (wAt(s) / 2 + 16), { w: 26, h: 18 }); }
   // 🥤 the solid things: each fork's centrepiece (the fruit bowl, the toy box, the mug…), then the obstacles on the road
   g.solids = g.islands.map((isl) => (isl.solid = makeSolid(isl.kind, isl.s, 0, isl.wi * 0.95, at(isl.s).a + Math.PI / 2, { island: true, sec: isl.sec })));
   placeObstacles(); placeArms(); renderBar();   // (the slot's name follows the place: a peel in the kitchen is a juice spill in the bedroom)
@@ -163,33 +251,39 @@ function marginAt(s, side) {
   let d = 1; (g.edges || []).forEach((e) => { if (e.side !== side) return; if (s >= e.s0 && s <= e.s1) d = 0; else d = Math.min(d, Math.abs(s - e.s0), Math.abs(s - e.s1)); });
   const u = Math.min(1, d / RAMP); let m = MARGIN * u * u * (3 - 2 * u);
   (g.secs || []).forEach((sc) => { if (sc.kind !== 'bridge') return; const db = s >= sc.s0 && s <= sc.s1 ? 0 : Math.min(Math.abs(s - sc.s0), Math.abs(s - sc.s1)); m = Math.min(m, BRIDGE_M + (MARGIN - BRIDGE_M) * smooth01(db / RAMP)); });
+  (g.loops || []).forEach((lp) => { const db = s >= lp.d0 && s <= lp.d1 ? 0 : Math.min(Math.abs(s - lp.d0), Math.abs(s - lp.d1)); m = Math.min(m, BRIDGE_M + (MARGIN - BRIDGE_M) * smooth01(db / RAMP)); });   // 🌀 the overpass is a railed bridge too
   return m;
 }
+// how much of the table runs on past the guards (EXTRA): none round a loop, whose inside is filled in its own shape
+// (loops[].hole) and whose outside is the drop, so the loop's table never folds over itself
+const extraAt = (s) => { let f = 1; (g.loops || []).forEach((lp) => { const sc = g.secs[lp.sec], d = s >= sc.s0 && s <= sc.s1 ? 0 : Math.min(Math.abs(s - sc.s0), Math.abs(s - sc.s1)); f = Math.min(f, smooth01(d / RAMP)); }); return f; };
+const onDeck = (s) => (g.loops || []).some((lp) => s >= lp.d0 && s <= lp.d1);
+const levelOf = (s) => (onDeck(s) ? 'upper' : (g.loops || []).some((lp) => s >= lp.u0 && s <= lp.u1) ? 'lower' : 'ground');   // 🌀 at a crossing: on the overpass, under it, or neither
 function buildRim(side, drawn) {   // the table's edge on one side: a point per road point, its outward normal and its guard ('open' on an open stretch); drawn: the table's outline beyond the guards
   const t = g.track, out = [];
-  for (let i = 0; i < t.n; i++) { const sk = t.cum[i] / t.len, a = at(sk).a, nx = -Math.sin(a) * side, ny = Math.cos(a) * side, m = marginAt(sk, side), off = t.w / 2 + m + (drawn ? EXTRA * smooth01((m - BRIDGE_M) / (MARGIN - BRIDGE_M)) : 0);
-    out.push({ s: sk, x: t.pts[i].x + nx * off, y: t.pts[i].y + ny * off, nx, ny, tx: Math.cos(a), ty: Math.sin(a), m, guard: edgeAt(sk, side) ? 'open' : secAt(sk).kind === 'bridge' ? 'rail' : GUARDS[Math.floor(hash(g.seed + 50 + Math.floor(sk * 10) + (side > 0 ? 0 : 99)) * 4)] }); }
+  for (let i = 0; i < t.n; i++) { const sk = t.cum[i] / t.len, a = at(sk).a, nx = -Math.sin(a) * side, ny = Math.cos(a) * side, m = marginAt(sk, side), off = t.ws[i] / 2 + m + (drawn ? EXTRA * smooth01((m - BRIDGE_M) / (MARGIN - BRIDGE_M)) * extraAt(sk) : 0);
+    out.push({ s: sk, i, x: t.pts[i].x + nx * off, y: t.pts[i].y + ny * off, nx, ny, tx: Math.cos(a), ty: Math.sin(a), m, guard: edgeAt(sk, side) ? 'open' : secAt(sk).kind === 'bridge' || onDeck(sk) ? 'rail' : GUARDS[Math.floor(hash(g.seed + 50 + Math.floor(sk * 10) + (side > 0 ? 0 : 99)) * 4)] }); }
   // on a tight bend the offset line loops back on itself: keep only points that move on along the road
   const clean = []; out.forEach((p) => { const l = clean[clean.length - 1]; if (!l || (p.x - l.x) * l.tx + (p.y - l.y) * l.ty > 3) clean.push(p); });
   return clean.length > 8 ? clean : out;
 }
 function respawn(c, isMe) {   // back on the tape a little behind where it went over
-  const p = at(c.s - 0.02); c.x = p.x; c.y = p.y; c.a = p.a; c.v = 0; c.fall = 0; c.spin = 0; c.spinA = null; c.s = c.prevS = nearest(c.x, c.y).s;
+  const sk = Math.max(0.001, c.s - 0.02), p = at(sk); c.x = p.x; c.y = p.y; c.a = p.a; c.v = 0; c.fall = 0; c.spin = 0; c.spinA = null; c.s = c.prevS = sk;   // (by progress, not by the nearest road: at a loop's crossing that could be the other level)
   if (isMe) { S.combo = 0; host.cue?.('pickup', c.x, c.y); host.hurt('fell off the edge'); }
 }
 function onBeat(ev) {
   if (!g || g.go > 0) return;
   const ahead = (d) => Math.min(FINISH - 0.01, g.me.s + d);
-  const room = (d) => g.me.s + d < FINISH - 0.01;   // nothing drops past the finish (they used to pile up just before the line)
-  if (ev.peak && !ev.window && room(sOf(240))) { const p = spotOn(ahead(sOf(240)), (Math.random() - 0.5) * g.track.w * 0.5); g.obs.push({ kind: 'soldier', ...p, life: 14 }); }   // 🪖 a toy soldier stands on the road
+  const room = (d) => g.me.s + d < FINISH - 0.01 && !loopAt(g.me.s + d, 60) && !splitNear(g.me.s + d, 40);   // nothing drops past the finish (they used to pile up just before the line), into a loop or onto a split's median
+  if (ev.peak && !ev.window && room(sOf(240))) { const sk = ahead(sOf(240)), p = spotOn(sk, (Math.random() - 0.5) * wAt(sk) * 0.5); g.obs.push({ kind: 'soldier', s: sk, ...p, life: 14 }); }   // 🪖 a toy soldier stands on the road
   if (ev.peak && !ev.window) { const r = g.rivals.find((x) => x.weapon && alive(x)); if (r) r.holdT = 0; else { const tr = g.traps.filter((q) => q.s > g.me.s && q.k !== 'mousetrap').sort((a, b) => a.s - b.s)[0]; if (tr) tr.t0 = g.time; } }   // 🎯 a rival lets fly, or the next trap goes off
   if (ev.gold && goldenCrate()) { host.banner('🌟 GOLDEN CRATE', 'three golden rockets up the road'); sfx('chime', { hi: true }); }
   if (ev.enteredWindow) { g.spinTable = 1; sfx('twist'); }   // 🔁 the window spins the table (the view turns a quarter each beat)
   if (ev.window) g.tableTurn = (g.tableTurn || 0) + Math.PI / 2;
   if (ev.mirror) mirrorSwap();
   if (ev.balance) { g.items = g.items.filter((i) => i.kind !== 'milk'); sfx('chime'); }
-  if (ev.golden) { host.add(161); if (g.pennies.length < 8) for (let i = 0; i < 8; i++) g.pennies.push({ ...spotOn(ahead(sOf(90 + i * 36)), Math.sin(i * 0.9) * g.track.w * 0.3), t: i }); sfx('chime', { hi: true }); }
-  if (ev.hop > 0.55 && !ev.window && room(sOf(300)) && !g.obs.some((o) => o.kind === 'box')) { const p = spotOn(ahead(sOf(300)), (Math.random() - 0.5) * g.track.w * 0.6); g.obs.push({ kind: 'box', ...p, w: 26, h: 18, life: 12 }); }   // 📦 a cereal box drops on the road
+  if (ev.golden) { host.add(161); if (g.pennies.length < 8) for (let i = 0; i < 8; i++) { const sk = ahead(sOf(90 + i * 36)); if (room(sk - g.me.s)) g.pennies.push({ ...spotOn(sk, Math.sin(i * 0.9) * wAt(sk) * 0.3), s: sk, t: i }); } sfx('chime', { hi: true }); }
+  if (ev.hop > 0.55 && !ev.window && room(sOf(300)) && !g.obs.some((o) => o.kind === 'box')) { const sk = ahead(sOf(300)), p = spotOn(sk, (Math.random() - 0.5) * wAt(sk) * 0.6); g.obs.push({ kind: 'box', ...p, s: sk, w: 26, h: 18, life: 12 }); }   // 📦 a cereal box drops on the road
   if (ev.gift && g.me) { g.me.shield = SHIELD_T; host.banner('🛡️ BUBBLE SHIELD', 'a free one: the next knock pops it'); sfx('ping'); }
   if (ev.fib) { g.nitro = 2; sfx('cannon', { size: 0.4 }); }
   if (ev.big && !g.twist) twist();
@@ -293,15 +387,15 @@ function makeSolid(kind, s, lat, r, a, extra) {
 // in a tunnel or a fork, clear of the grid, the finish, the hazards, the open edges and each other, and always to one
 // side, leaving a clear lane at least 2.5 cars wide on the other (o.free says which side that is)
 function placeObstacles() {
-  const L = g.track.len, w = g.track.w, vocab = ROADOBS[TH().key] || ROADOBS.kitchen, n = 2 + Math.min(3, g.course), lo = sOf(GRID + 320), hi = FINISH - sOf(260);
-  let relax = 1; const okS = (s) => [s - sOf(70), s, s + sOf(70)].every((q) => { const k = secAt(q).kind; return k !== 'bridge' && k !== 'tunnel' && k !== 'fork'; }) && !islandNear(s, 160)
+  const L = g.track.len, vocab = ROADOBS[TH().key] || ROADOBS.kitchen, n = 2 + Math.min(3, g.course), lo = sOf(GRID + 320), hi = FINISH - sOf(260);
+  let relax = 1; const okS = (s) => [s - sOf(70), s, s + sOf(70)].every((q) => { const k = secAt(q).kind; return k !== 'bridge' && k !== 'tunnel' && k !== 'fork' && k !== 'split' && k !== 'loop'; }) && !islandNear(s, 160) && !splitNear(s, 100) && !loopAt(s, 100)
     && !(g.edges || []).some((e) => s > e.s0 - sOf(60) && s < e.s1 + sOf(60)) && !g.items.some((i) => Math.abs(i.s - s) * L < 90 * relax) && !g.solids.some((o) => Math.abs(o.s - s) * L < 200 * relax);
   // candidates: sixteen slots along the road taken in a stride (jittered, a few passes), so the obstacles spread out along it
   for (let tries = 0, made = 0; made < n && tries < 160; tries++) {
     if (tries === 96) relax = 0.7;   // a crowded road: closer together on the last passes
     const h = (k) => hash(g.seed + g.course * 53 + 400 + tries * 7 + k), u = (((tries * 7 + Math.floor(hash(g.seed + g.course) * 16)) % 16) + h(0)) / 16, s = lo + (((u + 0.37 * Math.floor(tries / 16)) % 1)) * (hi - lo); if (!okS(s)) continue;
     const kind = vocab[(made + g.course) % vocab.length], D = SOLID[kind], r = D.r * (0.9 + 0.2 * h(1)), ra = at(s).a, a = D.lay ? ra + (h(2) - 0.5) * D.lay : h(2) * 6.28;
-    const probe = makeSolid(kind, s, 0, r, a), sd = h(3) < 0.5 ? 1 : -1, q0 = probe.lext + 10, q1 = w / 2 - probe.lext * 0.4, q = q0 <= q1 ? q0 + h(4) * (q1 - q0) : q0;
+    const w = wAt(s), probe = makeSolid(kind, s, 0, r, a), sd = h(3) < 0.5 ? 1 : -1, q0 = probe.lext + 10, q1 = w / 2 - probe.lext * 0.4, q = q0 <= q1 ? q0 + h(4) * (q1 - q0) : q0;
     if (w / 2 + q - probe.lext < 2.5 * 2 * R) continue;
     g.solids.push(makeSolid(kind, s, sd * q, r, a, { free: -sd })); made += 1;
   }
@@ -351,7 +445,7 @@ function impact(c, o, hit, b, isMe) {
 // 🚗💥🚗 two cars meet: pushed apart, and the push along the line between them is shared (equal masses, restitution 0.5),
 // so a rear-ender shoves the car ahead on and a side swipe slews both a little. Returns the closing speed.
 function carHit(a, b) {
-  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy); if (d >= R * 2 || d < 1e-6) return 0;
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy); if (d >= R * 2 || d < 1e-6 || Math.abs(a.s - b.s) * g.track.len > 150) return 0;   // (by progress too: at a loop's crossing one may be on the overpass)
   const nx = dx / d, ny = dy / d, push = (R * 2 - d) / 2; a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
   syncVel(a); syncVel(b);
   const vr = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny; if (vr >= 0) return 0;
@@ -364,28 +458,34 @@ function carHit(a, b) {
 // number), else round the next obstacle up the road (avoidLat), else the middle of the tape
 const LOOK = 260;
 function aimAt(c, ahead) {
-  const s = c.s + ahead, isl = islandNear(s, 60);
-  if (isl) { if (!c.lane) c.lane = c.lat ? Math.sign(c.lat) : (c.n || 1) % 2 ? 1 : -1; return spotOn(s, c.lane * (isl.wi + (g.track.w / 2 - isl.wi) / 2)); }
-  c.lane = 0;
+  const s = c.s + ahead, isl = islandNear(s, 60), sp = splitNear(s) || splitNear(c.s);
+  if (sp) {   // 🔀 a split: pick a branch as it comes up (your side of the road; a rival's own pick) and stay in it to the far end
+    if (!c.lane || c.laneOf !== sp) { c.laneOf = sp; c.lane = c.n ? (hash(c.n * 7 + sp.sec * 13 + g.course) < 0.5 ? 1 : -1) : Math.sign(c.lat || 0) || 1; }
+    const hw = medianAt(s), mid = c.lane * (hw + (wAt(s) / 2 - hw) / 2); return spotOn(s, avoidLat(c, mid, sp));
+  }
+  if (isl) { if (!c.lane) c.lane = c.lat ? Math.sign(c.lat) : (c.n || 1) % 2 ? 1 : -1; return spotOn(s, c.lane * (isl.wi + (wAt(s) / 2 - isl.wi) / 2)); }
+  c.lane = 0; c.laneOf = null;
   const dl = avoidLat(c); return dl ? spotOn(s, dl) : at(s);
 }
 // 🚧 round the next obstacle within LOOK up the road: the side with the lane (or the side the car is already on, if
 // there's room there), passing a car's width plus a margin off it, eased in as it comes up and held while passing.
 // A rival's margin is its own (c.clip), so now and then one shaves it.
-function avoidLat(c) {
-  const L = g.track.len, w = g.track.w; let o = null, bd = 1e9;
-  for (const q of g.solids) { if (q.island) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }
-  for (const q of g.avoid || []) { if (q.owner === c && q.arm > 0) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }   // 🐢 patches, 🍌 slicks, 🪤 traps
-  if (!o) { c.dodge = null; const b = boostAhead(c); return b ? b.z.lat * smooth01((LOOK - b.d) / (LOOK * 0.5)) : 0; }   // ⏩ nothing in the way: line up for a boost pad
-  const margin = c.n ? 7 + (c.clip || 0) : 12, line = (sd) => (sd > 0 ? o.lat + o.lext + R + margin : o.lat - o.lext - R - margin), room = (sd) => (sd > 0 ? w / 2 - 2 - (o.lat + o.lext) : (o.lat - o.lext) + w / 2 - 2);
-  if (!c.dodge || c.dodge.o !== o) { const mine = (c.lat || 0) > o.lat ? 1 : -1; c.dodge = { o, sd: room(mine) >= 2 * R + margin + 4 ? mine : (o.free || -mine) }; }
-  const lim = w / 2 - R - 2, tgt = Math.max(-lim, Math.min(lim, line(c.dodge.sd))), k = smooth01((LOOK - bd) / (LOOK * 0.5));
-  return tgt * k;
+// mid: the line to hold when nothing's in the way; sp: a split the car is in (only its own branch counts, and it stays there)
+function avoidLat(c, mid = 0, sp = null) {
+  const L = g.track.len, mine = (q) => !sp || Math.sign(q.lat) === c.lane; let o = null, bd = 1e9;
+  for (const q of g.solids) { if (q.island || !mine(q)) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }
+  for (const q of g.avoid || []) { if ((q.owner === c && q.arm > 0) || !mine(q)) continue; const d = (q.s - c.s) * L; if (d < -(q.lext + R) || d > LOOK || d >= bd) continue; bd = d; o = q; }   // 🐢 patches, 🍌 slicks, 🪤 traps
+  if (!o) { c.dodge = null; const b = boostAhead(c, sp); return b ? mid + (b.z.lat - mid) * smooth01((LOOK - b.d) / (LOOK * 0.5)) : mid; }   // ⏩ nothing in the way: line up for a boost pad
+  const w = wAt(o.s), hw = sp ? medHW(sp, (o.s - sp.s) * L) : 0, lo = sp ? (c.lane > 0 ? hw + R + 4 : -w / 2 + R + 2) : -(w / 2 - R - 2), hi = sp ? (c.lane > 0 ? w / 2 - R - 2 : -hw - R - 4) : w / 2 - R - 2;
+  const margin = c.n ? 7 + (c.clip || 0) : 12, line = (sd) => (sd > 0 ? o.lat + o.lext + R + margin : o.lat - o.lext - R - margin), room = (sd) => (sd > 0 ? hi + R - (o.lat + o.lext) : (o.lat - o.lext) - lo + R);
+  if (!c.dodge || c.dodge.o !== o) { const side = (c.lat || 0) > o.lat ? 1 : -1; c.dodge = { o, sd: room(side) >= 2 * R + margin + 4 ? side : (o.free || -side) }; }
+  const tgt = Math.max(lo, Math.min(hi, line(c.dodge.sd))), k = smooth01((LOOK - bd) / (LOOK * 0.5));
+  return mid + (tgt - mid) * k;
 }
 function drive(c, dt, steer, brake, isMe) {
   if (c.fall > 0) { c.fall -= dt; c.x += (c.vx ?? Math.cos(c.a) * c.v) * dt * 0.5; c.y += (c.vy ?? Math.sin(c.a) * c.v) * dt * 0.5; c.a += dt * 5; if (c.fall <= 0) { if (isMe) startRescue(c); else respawn(c, false); } return; }   // 🪂 tumbling off the table
   if (c.rescue) { stepRescue(c, dt); return; }
-  const n = nearest(c.x, c.y), onTape = n.d < g.track.w / 2, milk = g.items.find((i) => i.kind === 'milk' && Math.hypot(i.x - c.x, i.y - c.y) < i.r);
+  const n = nearest(c.x, c.y, c.s), onTape = n.d < wAt(n.s) / 2, milk = g.items.find((i) => i.kind === 'milk' && Math.hypot(i.x - c.x, i.y - c.y) < i.r);
   const mud = c.mud && !(c.air > 0), vmax = topSpeed() * (isMe && g.nitro > 0 ? 1.5 : 1) * (onTape ? 1 : 0.55) * (isMe ? 1 : c.skill) * (c.kerb ? 0.8 : 1)
     * (c.padT > 0 ? 1.4 : 1) * (c.turboT > 0 ? 1.5 : 1) * (c.slipT > 0 ? 1.12 : 1) * (c.zapT > 0 ? 0.55 : 1) * (mud ? 0.6 : 1) * (c.magT > 0 ? 1.15 : 1);   // ⏩ pads, 🔥 turbo, 💨 the draft, 🌩️ a cloud, 🐢 a patch, 🧲 a magnet
   syncVel(c);
@@ -427,25 +527,32 @@ function drive(c, dt, steer, brake, isMe) {
   const walls = g.items.filter((i) => i.kind === 'box').concat(g.obs.filter((o) => o.kind === 'box'));
   walls.forEach((b) => { if (Math.abs(c.x - b.x) > b.w / 2 + R || Math.abs(c.y - b.y) > b.h / 2 + R) return; const hit = contact(c, { shape: 'b', x: b.x, y: b.y, a: 0, hx: b.w / 2, hy: b.h / 2, rr: 2 }); if (!hit) return;
     const a0 = c.a, bo = bounceOff(c, hit); sparks(c.x - hit.nx * R, c.y - hit.ny * R, -hit.nx, -hit.ny, Math.max(c.v, bo.imp), isMe ? 7 : 3); c.bob = 1;
-    if (c.v < 50) { const ta = at(nearest(c.x, c.y).s).a; if (!(c.spin > 0)) c.a = ta + wrapA(c.a - ta) * 0.4; c.vx += Math.cos(ta) * 50; c.vy += Math.sin(ta) * 50; setSpeed(c); }   // never stuck against it
+    if (c.v < 50) { const ta = at(nearest(c.x, c.y, c.s).s).a; if (!(c.spin > 0)) c.a = ta + wrapA(c.a - ta) * 0.4; c.vx += Math.cos(ta) * 50; c.vy += Math.sin(ta) * 50; setSpeed(c); }   // never stuck against it
     if (isMe) b.hit = true;   // 📦 dented: only a box your car has hit can be smashed by a tap
     if (isMe && !c.bumpT) { c.bumpT = SPIN_T + 0.9; if (c.shield > 0) { c.shield = 0; } else if (!(c.spin > 0)) { c.a = a0; c.w = 0; c.spin = SPIN_T; sfx('clack'); } } });   // 📦 one whole turn, ending the way you were facing when you hit it
   if (c.bumpT > 0) c.bumpT = Math.max(0, c.bumpT - dt);
-  const n2 = nearest(c.x, c.y); c.prevS = c.s; c.s = n2.s; c.off = n2.d;
-  const ta = at(n2.s).a, nx = -Math.sin(ta), ny = Math.cos(ta), lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny, side = Math.sign(lat) || 1;
+  const n2 = nearest(c.x, c.y, c.s); c.prevS = c.s; c.s = n2.s; c.off = n2.d;
+  const ta = at(n2.s).a, nx = -Math.sin(ta), ny = Math.cos(ta); let lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny; const side = Math.sign(lat) || 1;
   // 🍎 a fork's island: a kerbed lens round the thing in the middle; driving over its kerb rumbles and slows you
   { const isl = islandNear(n2.s, 0); c.kerb = false; if (isl && c.air <= 0) { const u = (n2.s - isl.s) * L / isl.lh, half = isl.wi * Math.sqrt(Math.max(0, 1 - u * u)); if (Math.abs(lat) < half + R * 0.4) { c.kerb = true; if (c.v > 60) c.bob = Math.max(c.bob, 0.35); } } }
+  // 🔀 a split's median: its sides push a car back into its branch (the bounce of any solid thing), and its long tapered
+  // nose turns a car aside to one side or the other rather than stopping it (the surface leans along the road there)
+  { const sp = splitNear(n2.s); if (sp && c.air <= 0) { const u = (n2.s - sp.s) * L, hw = medHW(sp, u);
+    if (hw > 0) { const sd = Math.abs(lat) > 1 ? Math.sign(lat) : c.lane || sp.boost, pen = hw + R - sd * lat;
+      if (pen > 0) { const slope = (medHW(sp, u + 2) - medHW(sp, u - 2)) / 4, k = Math.hypot(1, slope), tn = -slope / k, ln = sd / k, hx = Math.cos(ta) * tn + nx * ln, hy = Math.sin(ta) * tn + ny * ln;
+        const hit = { nx: hx, ny: hy, pen: pen / k }, b = bounceOff(c, hit, sd); if (b.imp > 25 && !(c.hitT > 0)) { c.hitT = 0.22; sparks(c.x - hx * R, c.y - hy * R, -hx, -hy, Math.max(60, b.imp * 1.2), isMe ? 6 : 3, (TH().median || MEDIAN_DEF).sparks); if (isMe) { sfx('clack'); c.bob = 1; } }
+        lat = (c.x - n2.px) * nx + (c.y - n2.py) * ny; } } } }
   c.lat = lat;
   // behind the grid the road is closed by a wall
   if (n2.s <= 0.0005) { const p0 = at(0), back = (c.x - p0.x) * Math.cos(p0.a) + (c.y - p0.y) * Math.sin(p0.a); if (back < 0) { c.x -= Math.cos(p0.a) * back; c.y -= Math.sin(p0.a) * back; bounceAlong(c, p0.a, isMe); } }
   // past the tape's edge where the table ends: over you go
-  if (edgeAt(n2.s, side)) { if (c.air <= 0 && Math.abs(lat) > g.track.w / 2 + 6) { c.fall = 0.7; if (isMe) { host.cue?.('near', c.x, c.y); sfx('whistle', { dur: 0.5 }); g.fx.push({ kind: 'text', x: c.x, y: c.y - 24, text: '🪂 WHOOPS', life: 1 }); } } return; }
+  if (edgeAt(n2.s, side)) { if (c.air <= 0 && Math.abs(lat) > wAt(n2.s) / 2 + 6) { c.fall = 0.7; if (isMe) { host.cue?.('near', c.x, c.y); sfx('whistle', { dur: 0.5 }); g.fx.push({ kind: 'text', x: c.x, y: c.y - 24, text: '🪂 WHOOPS', life: 1 }); } } return; }
   // 🧱 a guard on the table's edge: glance off it and back along the road
-  const lim = g.track.w / 2 + marginAt(n2.s, side) - R;
+  const lim = wAt(n2.s) / 2 + marginAt(n2.s, side) - R;
   if (Math.abs(lat) > lim) { c.x = n2.px + nx * side * lim; c.y = n2.py + ny * side * lim; bounceAlong(c, ta, isMe, nx * side, ny * side); }
 }
 function update(dt) {
-  W = host?.W || W;
+  W = host?.W || W; if (g.freeze) return;   // (a test's still frame)
   // 🕳️ while the pocket calls, the race slows (time to tap it, no time to crash), and eases back in after you come up
   { let f = host.pocket?.offering?.() ? POCKET_SLOW : 1; if (g.slowT > 0) { g.slowT = Math.max(0, g.slowT - dt); f = Math.min(f, 1 - (1 - POCKET_SLOW) * (g.slowT / POCKET_EASE)); } dt *= f; }
   g.time += dt;
@@ -477,7 +584,7 @@ function update(dt) {
     if (i.kind === 'toaster' && d < 20 && me.air <= 0 && me.v > 60) { me.air = me.airMax = 0.7; me.v = Math.max(me.v, topSpeed() * 1.2); sfx('whistle', { dur: 0.3 }); g.fx.push({ kind: 'text', x: me.x, y: me.y - 24, text: TH().rampTxt || '🍞 POP!', life: 0.8 }); } });
   g.pennies = g.pennies.filter((p) => { if (Math.hypot(p.x - me.x, p.y - me.y) < R + 8) { host.add(20); host.cue?.('score', p.x, p.y); g.fx.push({ kind: 'text', x: p.x, y: p.y - 14, text: '+20', life: 0.7 }); sfx('chime', { hi: true }); return false; } return true; });   // flat: the combo is for finishes and rivals
   // 🐈 the paw sweeps back down the road toward you and swats whatever it meets
-  if (g.paw) { g.paw.t += dt; g.paw.s -= sOf(160) * dt; if (g.paw.s < 0.01) g.paw = null; else { const p = at(g.paw.s); [me, ...g.rivals].forEach((c) => { if (Math.hypot(c.x - p.x, c.y - p.y) < 34 && c.spin <= 0 && !c.fall && !c.rescue) { c.spin = SPIN_T; c.x += Math.cos(p.a + Math.PI / 2) * 30; c.y += Math.sin(p.a + Math.PI / 2) * 30; if (c === me) { S.combo = 0; sfx('thud'); } } }); } }
+  if (g.paw) { g.paw.t += dt; g.paw.s -= sOf(160) * dt; if (g.paw.s < 0.01) g.paw = null; else { const p = at(g.paw.s); [me, ...g.rivals].forEach((c) => { if (Math.hypot(c.x - p.x, c.y - p.y) < 34 && Math.abs(c.s - g.paw.s) * g.track.len < 120 && c.spin <= 0 && !c.fall && !c.rescue) { c.spin = SPIN_T; c.x += Math.cos(p.a + Math.PI / 2) * 30; c.y += Math.sin(p.a + Math.PI / 2) * 30; if (c === me) { S.combo = 0; sfx('thud'); } } }); } }
   // rivals: they follow the tape, rubber-banded to you; pushed far enough behind the camera they're out of the race
   const L = g.track.len;
   g.rivals.forEach((r) => { r.spin = r.spin || 0; if (r.done) return;
@@ -581,10 +688,12 @@ const allCars = () => [g.me, ...g.rivals].filter(alive);
 const wpn = (k) => { const b = WEAPONS[k], a = ARMS_TH[TH().key] || ARMS_TH.kitchen; if (k === 'slick') return { ...b, icon: a.slick[0], name: a.slick[1], short: a.slick[2] }; if (k === 'rocket') return { ...b, name: a.rocket }; return b; };
 let hitsTakenN = 0, hitsGivenN = 0, shotsN = 0, bar = null, taps = {};
 // a stretch of road clear of the islands, (unless kinds says otherwise) the bridges and the tunnels, and (with edges) the open edges
-function roadClear(s, pad, kinds = ['bridge', 'tunnel'], edges = true) { const d = sOf(pad); return [s - d, s, s + d].every((q) => !kinds.includes(secAt(q).kind)) && !islandNear(s, Math.min(pad, 60) + 40) && !(edges && (g.edges || []).some((e) => s > e.s0 - d && s < e.s1 + d)); }
+// (never in a loop or a split: a split's branches get their own, below; and only where the width holds steady, not where a
+// wide stretch or a pinch eases in or out)
+function roadClear(s, pad, kinds = ['bridge', 'tunnel'], edges = true) { const d = sOf(pad); return [s - d, s, s + d].every((q) => !kinds.includes(secAt(q).kind) && Math.abs(wAt(q) - wAt(s)) < 12) && !islandNear(s, Math.min(pad, 60) + 40) && !splitNear(s, pad) && !loopAt(s, pad) && !(edges && (g.edges || []).some((e) => s > e.s0 - d && s < e.s1 + d)); }
 const mkZone = (kind, s, lat, len, wid, free = 0) => { const p = spotOn(s, lat); return { kind, s, lat, len, wid, lext: wid / 2, free, x: p.x, y: p.y, a: at(s).a }; };
 function placeArms() {
-  const L = g.track.len, w = g.track.w, co = Math.min(7, g.course), lo = sOf(GRID + 220), hi = FINISH - sOf(170);
+  const L = g.track.len, co = Math.min(7, g.course), lo = sOf(GRID + 220), hi = FINISH - sOf(170);
   const far = (s, list, d) => !list.some((o) => o.kind !== 'box' && Math.abs(o.s - s) * L < d);   // (the cereal boxes stand off the road)
   const pocketClear = (s) => !g.items.some((i) => i.kind === 'hole' && (i.s - s) * L < 380 && (s - i.s) * L < 200);   // a spin or a hop never carries you into 🕳️ the pocket
   const slide = (s0, ok) => { for (let k = 0; k < 16; k++) for (const d of [k * 0.008, -k * 0.008]) { const q = s0 + d; if (q > lo && q < hi && ok(q)) return q; } return null; };
@@ -598,17 +707,24 @@ function placeArms() {
   // ❓ the crate rows (round the traps)
   for (let row = 0, c0 = 0.14; c0 < 0.92; c0 += 0.2, row++) {
     const s = slide(c0 + (hash(g.seed + g.course * 7 + 500 + row) - 0.5) * 0.03, (q) => roadClear(q, 50, ['bridge', 'tunnel'], false) && far(q, g.solids, 90) && far(q, g.items, 70) && far(q, g.traps, 70)); if (s == null) continue;
-    const n = co >= 3 ? 3 : 2, span = w * 0.5; for (let k = 0; k < n; k++) { const lat = (k / (n - 1) - 0.5) * span, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 1, row }); } }
+    const w = wAt(s), n = (co >= 3 ? 3 : 2) + (w > g.track.w * 1.3 ? 1 : 0), span = w * 0.5; for (let k = 0; k < n; k++) { const lat = (k / (n - 1) - 0.5) * span, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 1, row }); } }
   // ⏩ boost pads and 🐢 slow patches, a few a section
   g.secs.forEach((sc, i) => { const want = [...(i || co > 1 ? ['slow'] : []), 'boost', ...(co >= 3 && i % 2 ? ['boost'] : []), ...(co >= 4 && i % 2 === 0 ? ['slow'] : [])];
     want.forEach((kind, j) => { const h = (k) => hash(g.seed + g.course * 71 + i * 37 + j * 11 + k);
       let s = null; for (let k = 0; k < 3 && s == null; k++) s = slide(sc.s0 + 0.03 + hash(g.seed + g.course * 71 + i * 37 + j * 11 + 5 * k) * Math.max(0, sc.s1 - sc.s0 - 0.06), (q) => q > sc.s0 + 0.02 && q < sc.s1 - 0.02 && roadClear(q, 40, [], false) && pocketClear(q) && far(q, g.solids, 150) && far(q, g.crates, 70) && far(q, g.items, 80) && far(q, g.zones, 120) && far(q, g.traps, 80)); if (s == null) return;
-      if (kind === 'boost') g.zones.push(mkZone('boost', s, (h(1) - 0.5) * (w - 70), 60, 46));
-      else { const wid = w * 0.42, sd = h(1) < 0.5 ? 1 : -1; g.zones.push(mkZone('slow', s, sd * (w / 2 - wid / 2 - 2), 90 + h(2) * 40, wid, -sd)); } }); });
+      const w = wAt(s); if (kind === 'boost') g.zones.push(mkZone('boost', s, (h(1) - 0.5) * (w - 70), 60, 46));
+      else { const wid = g.track.w * 0.42, sd = h(1) < 0.5 ? 1 : -1; g.zones.push(mkZone('slow', s, sd * (w / 2 - wid / 2 - 2), 90 + h(2) * 40, wid, -sd)); } }); });
+  // 🔀 a split's two branches play differently: one is the fast line (two ⏩ pads), the other the loot line (a ❓ crate
+  // row, then a 🐢 patch by the outer edge, and from course 4 a 🪤 mousetrap)
+  g.splits.forEach((sp, k) => { const B = sp.boost, at2 = (f) => sp.s + sOf(sp.lh * f), mid = (f, sd) => { const q = at2(f), hw = medHW(sp, sp.lh * f); return { q, hw, bw: wAt(q) / 2 - hw, c: sd * (hw + (wAt(q) / 2 - hw) / 2) }; };
+    [-0.4, 0.3].forEach((f) => { const m = mid(f, B); g.zones.push(mkZone('boost', m.q, m.c, 60, 46)); });
+    { const m = mid(-0.45, -B); [0.28, 0.72].forEach((u) => { const lat = -B * (m.hw + m.bw * u), p = spotOn(m.q, lat); g.crates.push({ s: m.q, lat, x: p.x, y: p.y, t: 0, pop: 1, row: 100 + k }); }); }
+    { const m = mid(0.1, -B), wid = m.bw * 0.48; g.zones.push(mkZone('slow', m.q, -B * (m.hw + m.bw - wid / 2 - 2), 90, wid, B)); }
+    if (co >= 4) { const q = at2(0.6); g.traps.push(makeTrap({ k: 'mousetrap', icon: '🪤', name: 'MOUSETRAP' }, q, -B, 0)); } });
 
 }
 function makeTrap(look, s, sd, t0) {
-  const w = g.track.w, tr = { k: look.k, look, s, side: sd, t0, a: at(s).a, free: -sd, snapT: -99 };
+  const w = wAt(s), tr = { k: look.k, look, s, side: sd, t0, a: at(s).a, free: -sd, snapT: -99 };
   if (look.k === 'mousetrap') Object.assign(tr, { lat: sd * (w / 2 - 34), hw: 20, hl: 28 });
   else if (look.k === 'spring') Object.assign(tr, { lat: sd * (w / 2 - 36), hw: 18, hl: 18 });
   else if (look.k === 'hatch') Object.assign(tr, { lat: sd * (w / 2 - 38), hw: 26, hl: 30 });
@@ -621,7 +737,7 @@ function makeTrap(look, s, sd, t0) {
 // a trap's clock: its period P, how far into this cycle (u, in seconds) and which cycle
 function trapClock(tr) { const P = TRAP_P[tr.k] / (g.trapSpd || 1), t = g.time - tr.t0; return { P, u: ((t % P) + P) % P, cyc: Math.floor(t / P) }; }
 const ROLL_T = () => 1.5 / (g.trapSpd || 1);
-function rollerLat(tr) { const { u, cyc } = trapClock(tr), RD = ROLL_T(), w = g.track.w, dir = cyc % 2 ? -1 : 1, e = Math.min(1, u / RD); return { lat: dir * (-(w / 2 + 40) + (w + 80) * e), rolling: u < RD }; }
+function rollerLat(tr) { const { u, cyc } = trapClock(tr), RD = ROLL_T(), w = wAt(tr.s), dir = cyc % 2 ? -1 : 1, e = Math.min(1, u / RD); return { lat: dir * (-(w / 2 + 40) + (w + 80) * e), rolling: u < RD }; }
 function swingTip(tr) { const { P } = trapClock(tr), th = 1.25 * Math.sin(2 * Math.PI * (g.time - tr.t0) / P), base = tr.a - tr.side * Math.PI / 2 + th; return { x: tr.px + Math.cos(base) * tr.reach, y: tr.py + Math.sin(base) * tr.reach, th }; }
 function trapState(tr) {
   const { u } = trapClock(tr);
@@ -671,10 +787,10 @@ function fireWeapon(c, kind, gold) {
   if (kind === 'rocket') { const tg = carAhead(c, 1400); g.proj.push({ x: c.x + ca * 20, y: c.y + sa * 20, a, v: 470 + Math.max(0, c.v || 0) * 0.5, s: c.s, owner: c, target: tg, life: 3.2, age: 0, tr: [], gold });
     if (isMe || close) sfx('cannon', { size: 0.3 });
     if (tg === me && !isMe) g.fx.push({ kind: 'text', x: me.x, y: me.y - 34, text: '🚀 INCOMING', life: 1, col: '#FF8A8A' }); }
-  else if (kind === 'slick') { const x = c.x - ca * 30, y = c.y - sa * 30, n = nearest(x, y), ta = at(n.s).a, lat = (x - n.px) * -Math.sin(ta) + (y - n.py) * Math.cos(ta);
+  else if (kind === 'slick') { const x = c.x - ca * 30, y = c.y - sa * 30, n = nearest(x, y, c.s), ta = at(n.s).a, lat = (x - n.px) * -Math.sin(ta) + (y - n.py) * Math.cos(ta);
     g.slicks.push({ x, y, s: n.s, lat, a: ta, r: 17, lext: 17, free: lat > 0 ? -1 : 1, owner: c, arm: 0.6, life: 40 }); if (isMe || close) sfx('plunk'); }
   else if (kind === 'shock') { g.waves.push({ x: c.x, y: c.y, r: 20, R: 210, life: 0.5, max: 0.5, col: '#FFE36B', w: 6 }, { x: c.x, y: c.y, r: 10, R: 150, life: 0.4, max: 0.4, col: '#FF8A3D', w: 4 });
-    allCars().forEach((o) => { if (o !== c && o.air <= 0 && Math.hypot(o.x - c.x, o.y - c.y) < 210) spinOut(o, 'shock', { by: c, title: '💥 HIT BY A SHOCKWAVE', sub: 'spun out: no harm done' }); }); if (isMe || close) sfx('boom'); if (isMe && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); }
+    allCars().forEach((o) => { if (o !== c && o.air <= 0 && Math.hypot(o.x - c.x, o.y - c.y) < 210 && Math.abs(o.s - c.s) * g.track.len < 400) spinOut(o, 'shock', { by: c, title: '💥 HIT BY A SHOCKWAVE', sub: 'spun out: no harm done' }); }); if (isMe || close) sfx('boom'); if (isMe && !host.reduceMotion) g.shake = Math.max(g.shake || 0, 2.5); }
   else if (kind === 'zap') { const lead = leaderBut(c); if (lead) { lead.zapT = 2; g.bolts.push({ c: lead, life: 0.45, j: Array.from({ length: 7 }, () => Math.random() - 0.5) }); if (lead === me) { host.banner('🌩️ HIT BY A STORMCLOUD', 'rained on: slow for 2 s'); hitsTakenN += 1; } if (isMe) { hitsGivenN += 1; host.add(40); } if (isMe || lead === me || close) sfx('flash'); } }
   else if (kind === 'shield') { c.shield = SHIELD_T; if (isMe) sfx('ping'); }
   else if (kind === 'turbo') { if (isMe) g.nitro = Math.max(g.nitro || 0, 2); else c.turboT = 2; if (isMe || close) sfx('cannon', { size: 0.4 }); }
@@ -722,7 +838,7 @@ function carStuff(c, dt, isMe) {
     if (hit) { c.trapCD = 1; if (isMe) g.trapHits = (g.trapHits || 0) + 1; break; } }
   // 💨 slipstream: close behind a car for a moment, and it tows you along
   { const ca = Math.cos(c.a), sa = Math.sin(c.a); let tuck = false;
-    for (const o of allCars()) { if (o === c) continue; const dx = o.x - c.x, dy = o.y - c.y, along = dx * ca + dy * sa; if (along > 20 && along < 120 && Math.abs(-dx * sa + dy * ca) < 20) { tuck = true; break; } }
+    for (const o of allCars()) { if (o === c || Math.abs(o.s - c.s) * L > 150) continue; const dx = o.x - c.x, dy = o.y - c.y, along = dx * ca + dy * sa; if (along > 20 && along < 120 && Math.abs(-dx * sa + dy * ca) < 20) { tuck = true; break; } }
     if (tuck && c.v > 60) { c.draftT = (c.draftT || 0) + dt; if (c.draftT >= 0.8) { if (isMe && !(c.slipT > 0)) { sfx('whistle', { dur: 0.12 }); g.fx.push({ kind: 'text', x: c.x, y: c.y - 26, text: '💨 SLIPSTREAM', life: 0.8 }); } c.slipT = 0.7; } }
     else c.draftT = Math.max(0, (c.draftT || 0) - dt * 2); }
 }
@@ -735,11 +851,11 @@ function stepArms(dt) {
     if (tg && p.age > 0.12) { tx = tg.x; ty = tg.y; } else { const q = at(Math.min(1, p.s + 90 / L)); tx = q.x; ty = q.y; }
     p.a += Math.max(-6 * dt, Math.min(6 * dt, wrapA(Math.atan2(ty - p.y, tx - p.x) - p.a)));
     p.x += Math.cos(p.a) * p.v * dt; p.y += Math.sin(p.a) * p.v * dt; p.tr.push(p.x, p.y); if (p.tr.length > 24) p.tr.splice(0, 2);
-    const n = nearest(p.x, p.y); p.s = n.s;
+    const n = nearest(p.x, p.y, p.s); p.s = n.s;
     const boom = () => { g.waves.push({ x: p.x, y: p.y, r: 6, R: 34, life: 0.3, max: 0.3, col: '#FF8A3D', w: 5 }); sparks(p.x, p.y, -Math.cos(p.a), -Math.sin(p.a), 200, Math.abs(p.y - me.y) < 500 ? 8 : 0, ['#FFE36B', '#FF8A3D', '#FFFFFF']); if (Math.abs(p.y - me.y) < 500) sfx('boom'); return false; };
-    for (const c of cars) { if ((c === p.owner && p.age < 0.6) || c.air > 0 || Math.hypot(c.x - p.x, c.y - p.y) > R + 9) continue; const W0 = wpn('rocket'); spinOut(c, 'rocket', { by: p.owner, title: `🚀 HIT BY A ${W0.name}`, sub: 'spun out: no harm done' }); return boom(); }
+    for (const c of cars) { if ((c === p.owner && p.age < 0.6) || c.air > 0 || Math.hypot(c.x - p.x, c.y - p.y) > R + 9 || Math.abs(c.s - p.s) * L > 120) continue; const W0 = wpn('rocket'); spinOut(c, 'rocket', { by: p.owner, title: `🚀 HIT BY A ${W0.name}`, sub: 'spun out: no harm done' }); return boom(); }
     for (const o of g.solids) if (Math.abs(o.s - p.s) * L < 80 && Math.hypot(o.x - p.x, o.y - p.y) < o.cr + 5) return boom();
-    if (p.life <= 0 || n.d > g.track.w / 2 + MARGIN) return boom();
+    if (p.life <= 0 || n.d > wAt(n.s) / 2 + MARGIN) return boom();
     return true; });
   g.slicks = g.slicks.filter((k) => { k.arm -= dt; k.life -= dt; return k.life > 0; });
   g.crates = g.crates.filter((b) => { if (b.t > 0) b.t -= dt; else b.pop = Math.min(1, b.pop + dt); if (b.temp) { b.life -= dt; return b.life > 0 && b.t <= 0; } return true; });
@@ -748,13 +864,13 @@ function stepArms(dt) {
 }
 // the rivals and the autopilot steer round these (as round the solid things): slow patches, slicks, the traps that bite now
 function softs() { return g.zones.filter((z) => z.kind === 'slow').concat(g.slicks, g.traps.filter((t) => t.k !== 'roller' && (t.k !== 'mousetrap' || trapState(t) === 'armed'))); }
-function boostAhead(c) { const L = g.track.len; let best = null, bd = 1e9; for (const z of g.zones) { if (z.kind !== 'boost') continue; const d = (z.s - c.s) * L; if (d < -z.len / 2 || d > LOOK || d >= bd) continue; bd = d; best = z; } return best ? { z: best, d: bd } : null; }
+function boostAhead(c, sp) { const L = g.track.len; let best = null, bd = 1e9; for (const z of g.zones) { if (z.kind !== 'boost' || (sp && Math.sign(z.lat) !== c.lane)) continue; const d = (z.s - c.s) * L; if (d < -z.len / 2 || d > LOOK || d >= bd) continue; bd = d; best = z; } return best ? { z: best, d: bd } : null; }
 // ---- the big beats' twists for the arms
 function missileRain() {
-  const me = g.me, w = g.track.w; [200, 450, 700].forEach((d) => { const s = me.s + sOf(d); if (s > FINISH - 0.02) return; for (let k = 0; k < 4; k++) { const lat = (k / 3 - 0.5) * w * 0.68, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 0, temp: true, life: 9 }); } });
+  const me = g.me; [200, 450, 700].forEach((d) => { const s = me.s + sOf(d), w = wAt(s); if (s > FINISH - 0.02 || loopAt(s, 40) || splitNear(s, 40)) return; for (let k = 0; k < 4; k++) { const lat = (k / 3 - 0.5) * w * 0.68, p = spotOn(s, lat); g.crates.push({ s, lat, x: p.x, y: p.y, t: 0, pop: 0, temp: true, life: 9 }); } });
 }
 function slipperyTable() {
-  const me = g.me, w = g.track.w; for (let i = 0; i < 6; i++) { const s = me.s + sOf(160 + i * 130); if (s > FINISH - 0.02) break; const lat = (Math.random() - 0.5) * w * 0.7, p = spotOn(s, lat); g.slicks.push({ x: p.x, y: p.y, s, lat, a: at(s).a, r: 17, lext: 17, free: lat > 0 ? -1 : 1, owner: null, arm: 0, life: 25 }); }
+  const me = g.me; for (let i = 0; i < 6; i++) { const s = me.s + sOf(160 + i * 130), w = wAt(s); if (s > FINISH - 0.02) break; if (loopAt(s, 40) || splitNear(s, 40)) continue; const lat = (Math.random() - 0.5) * w * 0.7, p = spotOn(s, lat); g.slicks.push({ x: p.x, y: p.y, s, lat, a: at(s).a, r: 17, lext: 17, free: lat > 0 ? -1 : 1, owner: null, arm: 0, life: 25 }); }
 }
 function goldenCrate() {
   const me = g.me, rows = [...new Set(g.crates.filter((b) => !b.temp && b.s > me.s + sOf(150)).map((b) => b.row))].sort((a, b) => a - b); if (!rows.length) return false;
@@ -801,7 +917,7 @@ function drawArmsLow(t, me, Rv, cth) {
 function drawTrapLow(tr, t) {
   const L = tr.look, st = trapState(tr), { u, P } = trapClock(tr);
   if (tr.k === 'roller') {   // a groove across the road where it rolls, and the thing itself waiting at the side
-    const a = spotOn(tr.s, -g.track.w / 2), b = spotOn(tr.s, g.track.w / 2); ctx.strokeStyle = '#00000030'; ctx.lineWidth = 16; ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]); return; }
+    const a = spotOn(tr.s, -wAt(tr.s) / 2), b = spotOn(tr.s, wAt(tr.s) / 2); ctx.strokeStyle = '#00000030'; ctx.lineWidth = 16; ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]); return; }
   if (tr.k === 'swing') { ctx.fillStyle = '#00000040'; ctx.beginPath(); ctx.arc(tr.px + 3, tr.py + 4, 12, 0, 7); ctx.fill(); return; }
   ctx.save(); ctx.translate(tr.x, tr.y); ctx.rotate(tr.a);
   if (TRAPLOW[L.fx]) TRAPLOW[L.fx](tr, t, st, u, P);   // 🌍 a blowhole, a geyser, a seal hole, a low-g pad, quicksand, a crevasse
@@ -1003,32 +1119,43 @@ const SECS = {
   kitchen: [
     { icon: '🍽️', name: 'THE PLACEMAT', kind: 'sprint', ground: 'weave', pieces: ['plate', 'cup'], col: '#F5C542' },
     { icon: '🔪', name: 'THE CHOPPING BOARD', kind: 'weave', ground: 'board', road: 'board', kerb: ['#7BC043', '#FFFFFF'], kerbEdge: '#2F5E1E', tapeEdge: '#B8915A', centre: '#C0392B', pieces: ['carrot', 'tomato'], col: '#7BC043' },
+    { icon: '🫖', name: 'THE TEA TRAY', kind: 'wide', ground: 'board', pieces: ['cup', 'plate'], col: '#E9B877' },
+    { icon: '🍝', name: 'THE SPAGHETTI LOOP', kind: 'loop', from: 2, col: '#FFD23F' },
     { icon: '🚰', name: 'OVER THE SINK', kind: 'bridge', gap: { tile: 'sinkwater', rim: ['#D9DEE6', '#7A8394'] }, road: 'deck', col: '#7CC8F5' },
     { icon: '🍎', name: 'THE FRUIT BOWL', kind: 'fork', ground: 'gingham', island: 'fruitbowl', pieces: ['cup', 'plate'], col: '#EE2B3B' }],
   bedroom: [
     { icon: '🧶', name: 'THE RUG', kind: 'sweep', pieces: ['block', 'teddy'], col: '#C9A6FF' },
     { icon: '🧱', name: 'LEGO CITY', kind: 'weave', ground: 'baseplate', road: 'legoroad', kerb: ['#FFD23F', '#EE2B3B'], kerbEdge: '#6A1210', tapeEdge: '#5E646E', centre: '#FFFFFF', pieces: ['lego', 'tower'], col: '#22C55E' },
+    { icon: '🚂', name: 'THE TRAIN SET', kind: 'split', ground: 'foam', pieces: ['block', 'tower'], col: '#2D7FF9' },
     { icon: '🛏️', name: 'UNDER THE BED', kind: 'tunnel', ground: 'dustboards', road: 'dusty', roof: 'bed', dim: 0.6, pieces: ['sock', 'bunny'], col: '#7A5BD0' },
     { icon: '🧸', name: 'THE TOY BOX', kind: 'fork', ground: 'foam', island: 'toybox', pieces: ['block', 'lego'], col: '#FF8A3D' }],
   garden: [
     { icon: '🪨', name: 'THE STEPPING STONES', kind: 'sprint', ground: 'flagstone', pieces: ['pebbles', 'pot'], col: '#B9B5AA' },
+    { icon: '🌿', name: 'THE LAWN', kind: 'wide', pieces: ['pot', 'tulip'], col: '#56A638' },
     { icon: '🌷', name: 'THE FLOWER BEDS', kind: 'weave', ground: 'bark', pieces: ['tulip', 'pot'], col: '#FF5DA2' },
     { icon: '🌉', name: 'OVER THE POND', kind: 'bridge', gap: { tile: 'pond', rim: ['#7A8F5A', '#3E5A2A'] }, road: 'deck', col: '#3E8FD0' },
+    { icon: '🐌', name: 'THE SNAIL SHELL', kind: 'loop', col: '#C98E4A' },
     { icon: '🍄', name: 'GNOME VILLAGE', kind: 'sweep', ground: 'moss', road: 'cobble', kerb: ['#E8E4DA', '#9AA0A8'], centre: null, pieces: ['mushroom', 'gnome'], col: '#E8283C' }],
   desk: [
     { icon: '📄', name: 'THE PAPERWORK', kind: 'sweep', ground: 'lined', pieces: ['stapler', 'eraser'], col: '#8DB7EA' },
     { icon: '✏️', name: 'PENCIL ALLEY', kind: 'weave', ground: 'cork', road: 'cork', kerb: ['#F7C531', '#2B2B33'], kerbEdge: '#111118', tapeEdge: '#8A6232', centre: '#FFFFFF', pieces: ['pencilcup', 'eraser'], col: '#F7C531' },
+    { icon: '📏', name: 'THE RULER', kind: 'split', ground: 'lined', pieces: ['eraser', 'pencilcup'], col: '#F7D046' },
     { icon: '💻', name: 'UNDER THE LAPTOP', kind: 'tunnel', ground: 'darkmat', road: 'darkmat', kerb: ['#3DE0FF', '#1B1F28'], kerbEdge: '#05070C', tapeEdge: '#3A4150', centre: '#3DE0FF', roof: 'laptop', dim: 0.45, col: '#9AA3B2' },
+    { icon: '🗂️', name: 'THE BLOTTER', kind: 'wide', ground: 'cork', pieces: ['stapler', 'eraser'], col: '#2D7FF9' },
     { icon: '☕', name: 'THE MUG', kind: 'fork', ground: 'lined', island: 'mug', pieces: ['pencilcup', 'stapler'], col: '#A0663A' }],
   snow: [
     { icon: '🌨️', name: 'THE FROSTY SILL', kind: 'sweep', pieces: ['snowman', 'pine'], col: '#CFEAFB' },
+    { icon: '⛸️', name: 'THE FROZEN POND', kind: 'wide', ground: 'icerink', pieces: ['snowman', 'pine'], col: '#BFE6F7' },
     { icon: '🎄', name: 'THE PINE FOREST', kind: 'weave', ground: 'deepsnow', pieces: ['pine', 'pine'], col: '#1F8A4C' },
+    { icon: '🛷', name: 'THE BOBSLEIGH RUN', kind: 'loop', road: 'iceblocks', kerb: ['#E8283C', '#FFFFFF'], col: '#E8283C' },
     { icon: '🧊', name: 'THE ICE BRIDGE', kind: 'bridge', gap: { tile: 'night', rim: ['#FFFFFF', '#7E93AE'] }, road: 'iceblocks', col: '#7FD0F0' },
     { icon: '🔮', name: 'THE SNOW GLOBE', kind: 'fork', ground: 'icerink', road: 'icerink', kerb: ['#A855F7', '#FFFFFF'], kerbEdge: '#4A1A7A', centre: '#A855F7', island: 'snowglobe', pieces: ['pine', 'snowman'], col: '#A855F7' }],
   neon: [
     { icon: '🛣️', name: 'THE BOULEVARD', kind: 'sprint', pieces: ['sign', 'building'], col: '#FF3DF2' },
     { icon: '🔷', name: 'THE GRID', kind: 'weave', ground: 'tron', road: 'tron', kerb: ['#3DE0FF', '#0A0414'], centre: '#FF3DF2', pieces: ['building', 'sign'], col: '#3DE0FF' },
+    { icon: '🏙️', name: 'THE HIGHWAY', kind: 'split', pieces: ['building', 'sign'], col: '#B6FF7A' },
     { icon: '🚇', name: 'THE UNDERPASS', kind: 'tunnel', roof: 'overpass', dim: 0.5, pieces: ['building'], col: '#B6FF7A' },
+    { icon: '🎢', name: 'THE FLYOVER', kind: 'loop', col: '#FF8A3D' },
     { icon: '⛲', name: 'THE ROUNDABOUT', kind: 'fork', ground: 'tron', island: 'fountain', pieces: ['sign', 'building'], col: '#FFD23F' }],
 };
 // sun: where the light comes from (shadows fall that way, degrees in table space); skid: the rubber left on the road
@@ -1116,44 +1243,58 @@ let BLOB = null;   // a soft round shadow, drawn stretched under anything
 function blob() { if (BLOB) return BLOB; BLOB = document.createElement('canvas'); BLOB.width = BLOB.height = 64; const x = BLOB.getContext('2d'), gr = x.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, '#000000ff'); gr.addColorStop(0.55, '#000000aa'); gr.addColorStop(1, '#00000000'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return BLOB; }
 function softShadow(x, y, rx, ry, a) { ctx.globalAlpha = a; ctx.drawImage(blob(), x - rx * 1.3, y - ry * 1.3, rx * 2.6, ry * 2.6); ctx.globalAlpha = 1; }
 function makePieces() {
-  const out = [], L = g.track.len, w = g.track.w;
-  g.secs.forEach((sc) => { if (!sc.pieces?.length) return; let j = 0;
+  const out = [], L = g.track.len;
+  g.secs.forEach((sc) => { if (!sc.pieces?.length || sc.kind === 'loop') return; let j = 0;   // (a loop's outside is the drop: nothing to stand on)
     for (let s = sc.s0 + 0.02; s < sc.s1 - 0.015; s += 115 / L, j++) {
       const h = (k) => hash(g.seed + g.course * 31 + sc.i * 211 + j * 7 + k), side = h(1) < 0.5 ? 1 : -1, kind = sc.pieces[j % sc.pieces.length], r = (PIECES[kind]?.r || 36) * (0.85 + 0.3 * h(2));
-      if ([s - r / L, s, s + r / L].some((q) => marginAt(q, side) < MARGIN - 1)) continue;
-      const p = spotOn(s, side * (w / 2 + MARGIN + 10 + r)), nr = nearest(p.x, p.y);
-      if (nr.d < w / 2 + MARGIN + r || out.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r + r + 8)) continue;
+      if ([s - r / L, s, s + r / L].some((q) => marginAt(q, side) < MARGIN - 1 || extraAt(q) < 0.99)) continue;
+      const p = spotOn(s, side * (wAt(s) / 2 + MARGIN + 10 + r)), nr = nearest(p.x, p.y);
+      if (nr.d < wAt(nr.s) / 2 + MARGIN + r || out.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < q.r + r + 8)) continue;
       out.push({ kind, x: p.x, y: p.y, r, a: at(s).a + Math.PI / 2 + (h(3) - 0.5) * 0.9, s }); }
   });
   return out;
 }
 // the sections' shapes, built once a course as Path2D: the ground patch along the road, the gap under a bridge, a
 // tunnel's roof (its body, slats across and the two mouths) and an island's outline
-function band(s0, s1, o0, o1) {   // a strip along the road between offsets o0 and o1 (o0 < o1), from progress s0 to s1
-  const t = g.track, p = new Path2D(), i0 = Math.max(0, Math.floor(clamp01(s0) * (t.n - 1))), i1 = Math.min(t.n - 1, Math.ceil(clamp01(s1) * (t.n - 1)));
-  const nAt = (i) => { const a = t.pts[Math.max(0, i - 1)], b = t.pts[Math.min(t.n - 1, i + 1)], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return [-(b.y - a.y) / l, (b.x - a.x) / l]; };
-  for (let i = i0; i <= i1; i++) { const [nx, ny] = nAt(i); p[i > i0 ? 'lineTo' : 'moveTo'](t.pts[i].x + nx * o1, t.pts[i].y + ny * o1); }
-  for (let i = i1; i >= i0; i--) { const [nx, ny] = nAt(i); p.lineTo(t.pts[i].x + nx * o0, t.pts[i].y + ny * o0); }
+function band(s0, s1, o0, o1) {   // a strip along the road between offsets o0 and o1 (o0 < o1; numbers, or functions of the point's index), from progress s0 to s1
+  const t = g.track, p = new Path2D(), i0 = Math.max(0, Math.floor(clamp01(s0) * (t.n - 1))), i1 = Math.min(t.n - 1, Math.ceil(clamp01(s1) * (t.n - 1))), f0 = typeof o0 === 'function' ? o0 : () => o0, f1 = typeof o1 === 'function' ? o1 : () => o1;
+  for (let i = i0; i <= i1; i++) { const [nx, ny] = t.nrm[i]; p[i > i0 ? 'lineTo' : 'moveTo'](t.pts[i].x + nx * f1(i), t.pts[i].y + ny * f1(i)); }
+  for (let i = i1; i >= i0; i--) { const [nx, ny] = t.nrm[i]; p.lineTo(t.pts[i].x + nx * f0(i), t.pts[i].y + ny * f0(i)); }
   p.closePath(); return p;
 }
 function buildSecPaths() {
-  const w = g.track.w, L = g.track.len;
+  const L = g.track.len, ws = g.track.ws, hw = (k) => (i) => ws[i] / 2 + k;
   g.secs.forEach((sc) => {
-    sc.patch = sc.ground ? band(sc.s0 + 0.004, sc.s1 - 0.004, -(w / 2 + MARGIN + EXTRA * 0.55), w / 2 + MARGIN + EXTRA * 0.55) : null;
-    sc.gapP = sc.gap ? band(sc.s0 - RAMP * 1.6, sc.s1 + RAMP * 1.6, -(w / 2 + EXTRA + 90), w / 2 + EXTRA + 90) : null;
-    if (sc.roof) { const a = sc.s0 + 0.012, b = sc.s1 - 0.012, half = w / 2 + MARGIN + 26; sc.roofP = band(a, b, -half, half); sc.slats = new Path2D(); sc.mouths = new Path2D();
-      for (let s = a + 30 / L; s < b - 10 / L; s += 30 / L) { const p = spotOn(s, -half), q = spotOn(s, half); sc.slats.moveTo(p.x, p.y); sc.slats.lineTo(q.x, q.y); }
-      [a, b].forEach((s) => { const p = spotOn(s, -half), q = spotOn(s, half); sc.mouths.moveTo(p.x, p.y); sc.mouths.lineTo(q.x, q.y); }); }
+    sc.patch = sc.ground ? band(sc.s0 + 0.004, sc.s1 - 0.004, (i) => -hw(MARGIN + EXTRA * 0.55)(i), hw(MARGIN + EXTRA * 0.55)) : null;
+    sc.gapP = sc.gap ? band(sc.s0 - RAMP * 1.6, sc.s1 + RAMP * 1.6, (i) => -hw(EXTRA + 90)(i), hw(EXTRA + 90)) : null;
+    if (sc.roof) { const a = sc.s0 + 0.012, b = sc.s1 - 0.012, half = (q) => wAt(q) / 2 + MARGIN + 26; sc.roofP = band(a, b, (i) => -hw(MARGIN + 26)(i), hw(MARGIN + 26)); sc.slats = new Path2D(); sc.mouths = new Path2D();
+      for (let s = a + 30 / L; s < b - 10 / L; s += 30 / L) { const p = spotOn(s, -half(s)), q = spotOn(s, half(s)); sc.slats.moveTo(p.x, p.y); sc.slats.lineTo(q.x, q.y); }
+      [a, b].forEach((s) => { const p = spotOn(s, -half(s)), q = spotOn(s, half(s)); sc.mouths.moveTo(p.x, p.y); sc.mouths.lineTo(q.x, q.y); }); }
   });
   g.islands.forEach((isl) => { const p = new Path2D(), N = 24, pt = (k, sd) => { const u = -1 + 2 * k / N, q = spotOn(isl.s + u * isl.lh / L, sd * isl.wi * Math.sqrt(Math.max(0, 1 - u * u))); return q; };
     for (let k = 0; k <= N; k++) { const q = pt(k, 1); p[k ? 'lineTo' : 'moveTo'](q.x, q.y); } for (let k = N; k >= 0; k--) { const q = pt(k, -1); p.lineTo(q.x, q.y); } p.closePath(); isl.path = p; });
+  // 🔀 each split's median: its outline (both sides along the road, tapered to a point at each end) and its spine
+  g.splits.forEach((sp) => { const p = new Path2D(), spine = new Path2D(), N = Math.ceil(sp.lh / 10), pt = (k, sd) => { const u = -sp.lh + 2 * sp.lh * k / N; return spotOn(sp.s + u / L, sd * medHW(sp, u)); };
+    for (let k = 0; k <= N; k++) { const q = pt(k, 1); p[k ? 'lineTo' : 'moveTo'](q.x, q.y); const c = pt(k, 0); spine[k ? 'lineTo' : 'moveTo'](c.x, c.y); } for (let k = N; k >= 0; k--) { const q = pt(k, -1); p.lineTo(q.x, q.y); } p.closePath(); sp.path = p; sp.spine = spine;
+    sp.pts = []; for (let u = -sp.lh + 6; u < sp.lh - 6; u += 12) { const q = at(sp.s + u / L); sp.pts.push({ x: q.x, y: q.y, nx: Math.cos(q.a + Math.PI / 2), ny: Math.sin(q.a + Math.PI / 2), hw: medHW(sp, u) }); } });
+  // 🌀 each loop's inside: the table inside the ring is filled in its own shape (the drawn rim on the inside, from where it
+  // crosses itself by the overpass round to there again); the strokes that draw the table's edge skip that stretch, so the
+  // inside reads as one table with the loop on it, not a hole
+  (g.loops || []).forEach((lp) => { lp.deckP = band(lp.d0, lp.d1, (i) => -hw(BRIDGE_M + 5)(i), hw(BRIDGE_M + 5)); lp.joints = new Path2D(); [lp.d0, lp.d1].forEach((s) => { const h2 = wAt(s) / 2 + BRIDGE_M + 5, p = spotOn(s, -h2), q = spotOn(s, h2); lp.joints.moveTo(p.x, p.y); lp.joints.lineTo(q.x, q.y); }); });
+  (g.loops || []).forEach((lp) => { const rim = g.drims[lp.dir], near = (q, x) => Math.abs(q.s - x) * L < 420; let hit = null;
+    for (let a = 0; a < rim.length - 1 && !hit; a++) { if (!near(rim[a], lp.x1)) continue;
+      for (let b = rim.length - 2; b > a + 4; b--) { if (!near(rim[b], lp.x2)) continue; const P = rim[a], Q = rim[a + 1], U = rim[b], V = rim[b + 1], den = (Q.x - P.x) * (V.y - U.y) - (Q.y - P.y) * (V.x - U.x); if (Math.abs(den) < 1e-9) continue;
+        const e = ((U.x - P.x) * (V.y - U.y) - (U.y - P.y) * (V.x - U.x)) / den, f = ((U.x - P.x) * (Q.y - P.y) - (U.y - P.y) * (Q.x - P.x)) / den; if (e >= 0 && e <= 1 && f >= 0 && f <= 1) { hit = { a, b, x: P.x + (Q.x - P.x) * e, y: P.y + (Q.y - P.y) * e }; break; } } }
+    lp.hole = null; lp.skip = null; if (!hit) return;
+    const h = new Path2D(); let cx = 0, cy = 0, m = 0; h.moveTo(hit.x, hit.y); for (let k = hit.a + 1; k <= hit.b; k++) { h.lineTo(rim[k].x, rim[k].y); cx += rim[k].x; cy += rim[k].y; m++; } h.closePath();
+    lp.hole = h; lp.skip = { side: lp.dir, a: hit.a + 1, b: hit.b }; lp.cx = cx / m; lp.cy = cy / m; lp.cr = Math.min(...rim.slice(hit.a + 1, hit.b + 1).map((q) => Math.hypot(q.x - cx / m, q.y - cy / m))); });
 }
 
 // ---- the small things on the table, beside the tape
 function makeDecor() {
   const th = TH(), out = [], n = Math.round(g.track.len / 22);
   for (let i = 0; i < n; i++) { const s = 0.02 + hash(g.seed + 300 + i) * 0.96, side = hash(g.seed + 700 + i) < 0.5 ? 1 : -1; if (marginAt(s, side) < 40) continue;
-    const off = side * (g.track.w / 2 + 13 + hash(g.seed + 900 + i) * (MARGIN - 30)), p = spotOn(s, off);
+    const off = side * (wAt(s) / 2 + 13 + hash(g.seed + 900 + i) * (MARGIN - 30)), p = spotOn(s, off);
     out.push({ kind: th.decor[i % th.decor.length], x: p.x, y: p.y, a: hash(g.seed + 1100 + i) * 6.28, c: Math.floor(hash(g.seed + 1300 + i) * 6), sz: 0.8 + hash(g.seed + 1500 + i) * 0.5 }); }
   return out;
 }
@@ -1324,10 +1465,10 @@ function drawVehicle(vh, body, dark, light, mine, t, c) {
 // The guards on the table's edge, in this place's skins: band (books, bricks, a ruler, sticky notes, gift boxes, ice
 // blocks), rail (a railing, a picket fence, a candy cane, a neon tube), sticks (crayons, pencils, icicles laid end to
 // end) and blobs (a hedge, pebbles, a flower bed). Segments far from the car are skipped.
-function drawGuards(cx, cy, Rv) {
+function drawGuards(cx, cy, Rv, only = (s) => !onDeck(s)) {   // only: which stretch (by progress); the overpass's railings are drawn with its deck
   const th = TH(), R2 = (Rv + 40) * (Rv + 40);
   [1, -1].forEach((side) => { const rim = g.rims[side], N = rim.length;
-    for (let k = 0; k < N - 1; k++) { const a = rim[k], b = rim[k + 1]; if (a.guard === 'open' || b.guard === 'open' || a.m < 2 || Math.hypot(b.x - a.x, b.y - a.y) > 60) continue;
+    for (let k = 0; k < N - 1; k++) { const a = rim[k], b = rim[k + 1]; if (a.guard === 'open' || b.guard === 'open' || a.m < 2 || Math.hypot(b.x - a.x, b.y - a.y) > 60 || !only(a.s)) continue;
       if ((a.x - cx) * (a.x - cx) + (a.y - cy) * (a.y - cy) > R2) continue;
       const band = (d0, d1) => { ctx.beginPath(); ctx.moveTo(a.x - a.nx * d0, a.y - a.ny * d0); ctx.lineTo(b.x - b.nx * d0, b.y - b.ny * d0); ctx.lineTo(b.x - b.nx * d1, b.y - b.ny * d1); ctx.lineTo(a.x - a.nx * d1, a.y - a.ny * d1); ctx.closePath(); };
       const line = (d) => { ctx.beginPath(); ctx.moveTo(a.x - a.nx * d, a.y - a.ny * d); ctx.lineTo(b.x - b.nx * d, b.y - b.ny * d); };
@@ -1484,6 +1625,65 @@ function drawSoldier(o, t, th = TH()) {
     default: ring(11, '#3E8E2C', '#24561A'); ctx.fillStyle = '#6BCB4A'; ctx.beginPath(); ctx.ellipse(x, y, 8, 4.5, 0, 0, 7); ctx.fill(); ctx.stroke(); ctx.strokeStyle = '#24561A'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(x + 4, y - 2); ctx.lineTo(x + 13, y - 9); ctx.stroke(); ring(4.5, '#7FDB5C', '#24561A'); dot(-1.4, -1.4, 1.3, '#B9F18C');
   }
 }
+// 🔀 a split's median, skinned by the place (th.median, optional: a new place can bring its own; MEDIAN_DEF otherwise):
+// k = 'planter' (soil and leaves or flowers: cols), 'rails' (a toy train track: rail, sleeper), 'ruler' (tick), 'snow' (a
+// bank), 'neon' (glow), 'books' (a row of spines: cols) or 'kerb' (the place's kerbs round its own table top); fill and
+// rim colour it, sparks are what fly off it when a car scrapes it
+const MEDIAN_DEF = { k: 'kerb', sparks: null };
+const MEDIANS = {
+  kitchen: { k: 'planter', fill: '#5A3A1E', rim: '#3B2412', cols: ['#4FA33A', '#7BC043', '#2F7A22', '#E8283C'], sparks: ['#7BC043', '#5A3A1E'] },
+  bedroom: { k: 'rails', fill: '#E9B877', rim: '#8A5A2B', rail: '#C0C7D2', sleeper: '#A0663A', sparks: null },
+  garden: { k: 'planter', fill: '#4A2C17', rim: '#2F6B22', cols: ['#FF5DA2', '#FFD23F', '#3E8A28', '#4FA33A'], sparks: ['#3E8A28', '#FF5DA2'] },
+  desk: { k: 'ruler', fill: '#F7D046', rim: '#9A7A10', tick: '#3A2A00', sparks: ['#F7D046', '#FFFFFF'] },
+  snow: { k: 'snow', fill: '#F4FAFF', rim: '#9FC4E2', dot: '#CFEFFF', sparks: ['#FFFFFF', '#DDF2FF'] },
+  neon: { k: 'neon', fill: '#140A28', rim: '#FF3DF2', glow: '#3DE0FF', sparks: ['#FF3DF2', '#3DE0FF'] },
+};
+THEMES.forEach((t) => { if (!t.median) t.median = MEDIANS[t.key]; });
+// which kinds' widths vary along them (their tape is a filled ribbon, not one stroke)
+const VARW = { wide: true, split: true, bridge: true };
+function drawMedian(sp, th, sun, t, upright) {
+  let M = th.median || MEDIAN_DEF; const st = roadStyle(g.secs[sp.sec], th);
+  if (M.tile && !M.k) M = { k: 'planter', fill: tex(M.tile), rim: M.edge, cols: M.blobs, sparks: M.blobs };   // 🌍 a full-size place's median: its own ground (a tile), an edge and clumps on it
+  // painted arrows where the road parts: keep left, keep right
+  [-1, 1].forEach((sd) => { const s = sp.s - sOf(sp.lh + 70), p = spotOn(s, sd * wAt(s) * 0.26), a = at(s).a + sd * 0.3; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(a); ctx.fillStyle = '#FFFFFFcc'; ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-2, -10); ctx.lineTo(-2, -4.5); ctx.lineTo(-16, -4.5); ctx.lineTo(-16, 4.5); ctx.lineTo(-2, 4.5); ctx.lineTo(-2, 10); ctx.closePath(); ctx.fill(); ctx.restore(); });
+  ctx.lineJoin = 'round'; ctx.save(); ctx.translate(sun.x * 6, sun.y * 6); ctx.fillStyle = '#00000050'; ctx.fill(sp.path); ctx.restore();
+  if (M.k === 'kerb' || !M.fill) { ctx.strokeStyle = st.kerbEdge; ctx.lineWidth = 11; ctx.stroke(sp.path); ctx.strokeStyle = st.kerb[0]; ctx.lineWidth = 7; ctx.stroke(sp.path); ctx.strokeStyle = st.kerb[1]; ctx.setLineDash([9, 9]); ctx.stroke(sp.path); ctx.setLineDash([]); ctx.fillStyle = tex(th.surf); ctx.fill(sp.path); return; }
+  if (M.k === 'neon') { ctx.strokeStyle = M.glow + '40'; ctx.lineWidth = 12; ctx.stroke(sp.path); }
+  ctx.strokeStyle = M.rim; ctx.lineWidth = 5; ctx.stroke(sp.path); ctx.fillStyle = M.fill; ctx.fill(sp.path);
+  const P = sp.pts;
+  if (M.k === 'planter') P.forEach((q, k) => { if (q.hw < 7) return; const r = Math.min(9, q.hw * 0.55), o = (k % 2 ? 0.3 : -0.3) * q.hw; ctx.fillStyle = M.cols[k % M.cols.length]; ctx.beginPath(); ctx.arc(q.x + q.nx * o, q.y + q.ny * o, r, 0, 7); ctx.fill(); ctx.fillStyle = '#ffffff30'; ctx.beginPath(); ctx.arc(q.x + q.nx * o - r * 0.3, q.y + q.ny * o - r * 0.3, r * 0.35, 0, 7); ctx.fill(); });
+  else if (M.k === 'rails') { ctx.strokeStyle = M.sleeper; ctx.lineWidth = 4; ctx.beginPath(); P.forEach((q) => { const o = q.hw * 0.75; ctx.moveTo(q.x - q.nx * o, q.y - q.ny * o); ctx.lineTo(q.x + q.nx * o, q.y + q.ny * o); }); ctx.stroke();
+    ctx.strokeStyle = M.rail; ctx.lineWidth = 2.4; [-0.45, 0.45].forEach((f) => { ctx.beginPath(); P.forEach((q, k) => ctx[k ? 'lineTo' : 'moveTo'](q.x + q.nx * q.hw * f, q.y + q.ny * q.hw * f)); ctx.stroke(); }); }
+  else if (M.k === 'ruler') { ctx.strokeStyle = M.tick; ctx.lineWidth = 1; ctx.beginPath(); P.forEach((q, k) => { const l = (k % 5 ? 0.3 : 0.65) * q.hw * 2; ctx.moveTo(q.x - q.nx * q.hw, q.y - q.ny * q.hw); ctx.lineTo(q.x - q.nx * (q.hw - l), q.y - q.ny * (q.hw - l)); }); ctx.stroke(); }
+  else if (M.k === 'snow') { ctx.fillStyle = M.dot; P.forEach((q, k) => { if (k % 2) return; ctx.beginPath(); ctx.arc(q.x + q.nx * q.hw * 0.4 * Math.sin(k), q.y + q.ny * q.hw * 0.4 * Math.sin(k), 2.2, 0, 7); ctx.fill(); }); }
+  else if (M.k === 'neon') { ctx.strokeStyle = M.glow; ctx.lineWidth = 1.6; ctx.stroke(sp.spine); }
+  else if (M.k === 'books') P.forEach((q, k) => { if (q.hw < 4) return; const o = q.hw * 0.85; ctx.strokeStyle = M.cols[k % M.cols.length]; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(q.x - q.nx * o, q.y - q.ny * o); ctx.lineTo(q.x + q.nx * o, q.y + q.ny * o); ctx.stroke(); });
+}
+// 🌀 into a loop: red-and-white chevron boards along the outside of the turn, and the swirl sign either side of the way in
+function drawChevrons(lp, th, upright) {
+  const L = g.track.len, sd = -lp.dir;
+  for (let s = lp.a0 + sOf(lp.R * (LOOP.pre + LOOP.S)); s < lp.a1 - sOf(lp.R * (LOOP.pre + LOOP.S)); s += sOf(80)) { if (onDeck(s)) continue; const p = at(s), o = wAt(s) / 2 + 18, x = p.x + Math.cos(p.a + Math.PI / 2) * o * sd, y = p.y + Math.sin(p.a + Math.PI / 2) * o * sd;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(p.a); ctx.fillStyle = '#EE2B3B'; ctx.fillRect(-9, -5, 18, 10); ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(-4, -3.5); ctx.lineTo(2, 0); ctx.lineTo(-4, 3.5); ctx.moveTo(1, -3.5); ctx.lineTo(7, 0); ctx.lineTo(1, 3.5); ctx.stroke(); ctx.restore(); }
+  { const s = lp.a0, p = at(s); [1, -1].forEach((k) => { const o = wAt(s) / 2 + 30, x = p.x + Math.cos(p.a + Math.PI / 2) * o * k, y = p.y + Math.sin(p.a + Math.PI / 2) * o * k; ctx.fillStyle = '#0B0918cc'; ctx.strokeStyle = th.kerb[0]; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 13, 0, 7); ctx.fill(); ctx.stroke(); upright(x, y + 0.5, '🌀', 15); }); }
+  void L;
+}
+// 🌀 a swirl painted on the table inside the loop
+function drawSwirl(lp, th, t) {
+  const r = Math.max(10, lp.cr - 14); ctx.save(); ctx.translate(lp.cx, lp.cy); ctx.rotate(-lp.dir * t / 2400); ctx.lineCap = 'round';
+  [th.kerb[0], th.kerb[1]].forEach((col, k) => { ctx.strokeStyle = col + '66'; ctx.lineWidth = 7; ctx.beginPath(); for (let a = 0; a < 12; a += 0.25) { const rr = r * a / 12; ctx.lineTo(Math.cos(a + k * Math.PI) * rr * lp.dir, Math.sin(a + k * Math.PI) * rr); } ctx.stroke(); });
+  ctx.restore(); ctx.lineCap = 'butt';
+}
+// 🌉 the overpass: its shadow on the road below, its sides, the deck (the road's own stretch drawn again, with the table's
+// margins either side), its railings and the joints at its ends. Drawn over the cars underneath and under the cars on it.
+function drawDeck(lp, th, sun, roadPiece, Rv) {
+  const n = g.track.n, i0 = Math.max(0, Math.floor(lp.d0 * (n - 1))), i1 = Math.min(n - 1, Math.ceil(lp.d1 * (n - 1))), D = th.deck || {};
+  ctx.save(); ctx.translate(sun.x * 22, sun.y * 22); ctx.fillStyle = '#00000060'; ctx.fill(lp.deckP); ctx.restore();
+  ctx.save(); ctx.translate(sun.x * 5, sun.y * 5); ctx.fillStyle = D.side || th.side; ctx.fill(lp.deckP); ctx.restore();
+  ctx.fillStyle = tex(D.surf || th.surf); ctx.fill(lp.deckP); ctx.strokeStyle = '#00000050'; ctx.lineWidth = 2; ctx.stroke(lp.deckP);
+  roadPiece(g.secs[lp.sec], i0, i1);
+  drawGuards(g.me.x, g.me.y, Rv, (s) => s >= lp.d0 - 0.002 && s <= lp.d1 + 0.002);
+  ctx.strokeStyle = '#00000070'; ctx.lineWidth = 3; ctx.stroke(lp.joints);
+}
 // 🛏️ the roofs over the tunnels: a bed's underside (slats), a laptop (rows of keys), a concrete underpass (neon at its mouths)
 const ROOFS = {
   bed: { body: '#5B44A8', slat: '#2E2160', sw: 7, mouth: '#8A5A2B', mw: 16, trim: '#C9B8FF' },
@@ -1508,6 +1708,9 @@ function buildMap(R0, k, key) {
     const [a, b] = loc(pts[idx(sc2.s0)].x, pts[idx(sc2.s0)].y); x.fillStyle = '#FFFFFF'; x.beginPath(); x.arc(a, b, 1.3, 0, 7); x.fill();
     const [, bm] = loc(0, pts[idx((sc2.s0 + sc2.s1) / 2)].y); x.font = '9px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(sc2.icon, 7.5, bm); });
   g.islands.forEach((isl) => { const p = at(isl.s), [a, b] = loc(p.x, p.y); x.fillStyle = '#FFFFFF'; x.beginPath(); x.ellipse(a, b, 1.6, 3.2, p.a + Math.PI / 2, 0, 7); x.fill(); });
+  // 🌀 an overpass crosses over the road below (drawn again on top, with a dark edge), 🔀 a split's median is a long white dash
+  (g.loops || []).forEach((lp) => { line(idx(lp.d0 - 0.01), idx(lp.d1 + 0.01)); x.strokeStyle = '#000000'; x.lineWidth = 4.6; x.stroke(); x.strokeStyle = g.secs[lp.sec].col; x.lineWidth = 2.6; x.stroke(); });
+  g.splits.forEach((sp) => { const p = at(sp.s), [a, b] = loc(p.x, p.y); x.fillStyle = '#FFFFFF'; x.beginPath(); x.ellipse(a, b, Math.max(2.5, sp.lh * sc), 1.3, p.a, 0, 7); x.fill(); });
   { const p = at(FINISH), [a, b] = loc(p.x, p.y); for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) { x.fillStyle = (i + j) % 2 ? '#111' : '#FFF'; x.fillRect(a - 5 + i * 2.5, b - 4 - j * 2.5, 2.5, 2.5); } x.strokeStyle = '#FFFFFF'; x.lineWidth = 0.8; x.beginPath(); x.moveTo(a - 5, b + 1); x.lineTo(a - 5, b - 9); x.stroke(); }
   return { key, c, loc: (px, py) => { const [a, b] = loc(px, py); return [R0.x + a, R0.y + b]; } };
 }
@@ -1530,7 +1733,7 @@ function draw(t) {
   if (!g) return;
   const sp = Math.min(1, Math.abs(me.v || 0) / topSpeed()); const OFF = window.__rlOff || {};
   // the camera: on you, the table turning under the window; 🏎️ flat out it pulls back a touch (more on nitro)
-  const zt = camZoom() * (1 - 0.08 * sp * sp - (g.nitro > 0 ? 0.05 : 0));
+  const zt = g.zoomFix || camZoom() * (1 - 0.08 * sp * sp - (g.nitro > 0 ? 0.05 : 0));   // (zoomFix: a test's fixed camera)
   g.zoom = g.zoom ? g.zoom + (zt - g.zoom) * 0.02 : zt;
   // 🎥 the chase camera: top-down, but turned so the car always points up the screen, following it from behind (eased, so a
   // spin doesn't whirl the whole table); the window's table spin adds its own turn on top
@@ -1551,28 +1754,34 @@ function draw(t) {
   const [w0, w1] = span(g.track.pts), nP = g.track.n, idx = (s) => Math.max(0, Math.min(nP - 1, Math.round(s * (nP - 1)))), vs0 = w0 / (nP - 1), vs1 = w1 / (nP - 1);
   const vis = g.secs.filter((sc) => sc.s1 + 0.05 >= vs0 && sc.s0 - 0.05 <= vs1);
   // the table, which runs on past the guards (the scenery stands there) and ends at the open stretches and the bridges
-  const rimP = new Path2D(); { const r1 = g.drims[1], r2 = g.drims[-1], [a1, b1] = span(r1), [a2, b2] = span(r2); for (let i = a1; i <= b1; i++) rimP[i > a1 ? 'lineTo' : 'moveTo'](r1[i].x, r1[i].y); for (let i = b2; i >= a2; i--) rimP.lineTo(r2[i].x, r2[i].y); rimP.closePath(); }
+  // (rimS: the same edge for the strokes, broken where a loop's inside is filled in, so no edge is drawn round it)
+  const lps = (g.loops || []).filter((lp) => lp.hole && lp.x2 + 0.05 >= vs0 && lp.x1 - 0.05 <= vs1), skipAt = (sd, i) => lps.some((lp) => lp.skip.side === sd && i > lp.skip.a && i < lp.skip.b);
+  const rimP = new Path2D(), rimS = new Path2D(); { const r1 = g.drims[1], r2 = g.drims[-1], [a1, b1] = span(r1), [a2, b2] = span(r2); let up = true;
+    for (let i = a1; i <= b1; i++) { rimP[i > a1 ? 'lineTo' : 'moveTo'](r1[i].x, r1[i].y); if (skipAt(1, i)) up = true; else { rimS[up ? 'moveTo' : 'lineTo'](r1[i].x, r1[i].y); up = false; } }
+    up = true; for (let i = b2; i >= a2; i--) { rimP.lineTo(r2[i].x, r2[i].y); if (skipAt(-1, i)) up = true; else { rimS[up ? 'moveTo' : 'lineTo'](r2[i].x, r2[i].y); up = false; } } rimP.closePath(); }
+  const clipP = new Path2D(rimP); lps.forEach((lp) => clipP.addPath(lp.hole));   // 🌀 the table, the loops' insides included
   // the floor, a long way down: only where neither the table nor a bridge's gap covers it (even-odd), so the view isn't
   // painted twice over
-  { const fp = new Path2D(); fp.rect(gx0, gy0, Rv * 2 + 120, Rv * 2 + 120); fp.addPath(rimP); vis.forEach((sc) => { if (sc.gapP && !OFF.gap) fp.addPath(sc.gapP); }); ctx.fillStyle = tex(th.floor); ctx.fill(fp, 'evenodd'); }
+  { const fp = new Path2D(); fp.rect(gx0, gy0, Rv * 2 + 120, Rv * 2 + 120); fp.addPath(rimP); lps.forEach((lp) => fp.addPath(lp.hole)); vis.forEach((sc) => { if (sc.gapP && !OFF.gap) fp.addPath(sc.gapP); }); ctx.fillStyle = tex(th.floor); ctx.fill(fp, 'evenodd'); }
   // 🌉 the gap under a bridge: the sink, the pond, a long drop
   vis.forEach((sc) => { if (!sc.gapP || OFF.gap) return; ctx.fillStyle = tex(sc.gap.tile); ctx.fill(sc.gapP); ctx.lineJoin = 'round'; ctx.strokeStyle = sc.gap.rim[1]; ctx.lineWidth = 16; ctx.stroke(sc.gapP); ctx.strokeStyle = sc.gap.rim[0]; ctx.lineWidth = 7; ctx.stroke(sc.gapP); });
   // the table's shadow on the floor (away from the sun) and its thickness: only the strip past the edge shows (the top is
   // painted over the rest), so each is a stroke along the edge shifted half way, as wide as the shift, not a fill
   ctx.lineJoin = 'round';
-  if (th.rimFx) { ctx.strokeStyle = th.rimFx[0]; ctx.lineWidth = th.rimFx[1]; ctx.stroke(rimP); }   // 🌍 surf on the rocks, the lava's glow
-  if (!OFF.tshadow) { ctx.save(); ctx.strokeStyle = '#00000070'; ctx.lineWidth = 22; ctx.translate(sun.x * 11, sun.y * 11); ctx.stroke(rimP); ctx.restore(); }
-  if (th.cliff) { ctx.save(); ctx.strokeStyle = th.cliff[0]; ctx.lineWidth = th.cliff[1]; ctx.translate(sun.x * th.cliff[1] / 2, sun.y * th.cliff[1] / 2); ctx.stroke(rimP); ctx.restore(); }   // 🌍 a real place's rock face, down to the drop
-  ctx.save(); ctx.strokeStyle = th.side; ctx.lineWidth = 6; ctx.translate(sun.x * 3, sun.y * 3); ctx.stroke(rimP); ctx.restore();
+  if (th.rimFx) { ctx.strokeStyle = th.rimFx[0]; ctx.lineWidth = th.rimFx[1]; ctx.stroke(rimS); }   // 🌍 surf on the rocks, the lava's glow
+  if (!OFF.tshadow) { ctx.save(); ctx.strokeStyle = '#00000070'; ctx.lineWidth = 22; ctx.translate(sun.x * 11, sun.y * 11); ctx.stroke(rimS); ctx.restore(); }
+  if (th.cliff) { ctx.save(); ctx.strokeStyle = th.cliff[0]; ctx.lineWidth = th.cliff[1]; ctx.translate(sun.x * th.cliff[1] / 2, sun.y * th.cliff[1] / 2); ctx.stroke(rimS); ctx.restore(); }   // 🌍 a real place's rock face, down to the drop
+  ctx.save(); ctx.strokeStyle = th.side; ctx.lineWidth = 6; ctx.translate(sun.x * 3, sun.y * 3); ctx.stroke(rimS); ctx.restore();
   // the table top, and each section's ground on it (the placemat, the chopping board, the lego baseplate…) laid along the
   // road: the table's surface is filled round the patches (even-odd), so no pixel is painted twice
-  ctx.save(); if (!OFF.clip) ctx.clip(rimP);
+  ctx.save(); if (!OFF.clip) ctx.clip(clipP);
   { const pat = OFF.patch ? [] : vis.filter((sc) => sc.patch), tp = new Path2D(); tp.rect(gx0, gy0, Rv * 2 + 120, Rv * 2 + 120); pat.forEach((sc) => tp.addPath(sc.patch));
     ctx.fillStyle = tex(th.surf); ctx.fill(tp, 'evenodd');
     pat.forEach((sc) => { ctx.fillStyle = tex(sc.ground); ctx.fill(sc.patch); ctx.lineJoin = 'round'; ctx.strokeStyle = '#00000040'; ctx.lineWidth = 3; ctx.stroke(sc.patch); ctx.strokeStyle = '#FFFFFF30'; ctx.lineWidth = 1; ctx.stroke(sc.patch); }); }
   if (!OFF.decor) g.decor.forEach((d) => { if (Math.abs(d.x - me.x) < Rv && Math.abs(d.y - me.y) < Rv) drawDecor(d, t); });
+  lps.forEach((lp) => drawSwirl(lp, th, t));   // 🌀 painted on the table inside the loop
   ctx.restore();
-  ctx.lineJoin = 'round'; ctx.strokeStyle = th.edge[0]; ctx.lineWidth = 7; ctx.stroke(rimP); ctx.strokeStyle = th.edge[1]; ctx.lineWidth = 1.5; ctx.stroke(rimP);   // the table's edge
+  ctx.lineJoin = 'round'; ctx.strokeStyle = th.edge[0]; ctx.lineWidth = 7; ctx.stroke(rimS); ctx.strokeStyle = th.edge[1]; ctx.lineWidth = 1.5; ctx.stroke(rimS);   // the table's edge
   // 🏰 the set pieces beside the road, each with a soft shadow away from the sun
   g.pieces.forEach((p) => { if (OFF.pieces || p.island || Math.abs(p.x - me.x) > Rv + p.r || Math.abs(p.y - me.y) > Rv + p.r) return; const P = PIECES[p.kind], hgt = P.h * p.r / P.r;
     softShadow(p.x + sun.x * hgt * 0.5, p.y + sun.y * hgt * 0.5, p.r * 0.95, p.r * 0.95, 0.42);
@@ -1584,46 +1793,53 @@ function draw(t) {
   // stroke the whole width of the road
   ctx.strokeStyle = '#00000048'; ctx.lineWidth = 8; ctx.save(); ctx.translate(sun.x * 7, sun.y * 7); g.track.off.shoulder.forEach((o) => ctx.stroke(subPath(o, w0, w1))); ctx.restore();
   if (th.glow) { ctx.strokeStyle = th.kerb[0] + '30'; ctx.lineWidth = 18; g.track.off.shoulder.forEach((o) => ctx.stroke(subPath(o, w0, w1))); }   // the neon's glow past the kerbs
-  (OFF.road ? [] : vis).forEach((sc) => { const i0 = Math.max(w0, idx(sc.s0)), i1 = Math.min(w1, idx(sc.s1) + 1); if (i1 <= i0) return;
+  const roadPiece = (sc, i0, i1) => {
     const st = roadStyle(sc, th), P = subPath(g.track.pts, i0, i1), d0 = g.track.cum[i0], sk = () => ctx.stroke(P), O = g.track.off;
     // the edges are narrow lines along prebuilt offset lines (dashes phased by each line's own length), so the road is
-    // one full-width stroke (the tape) and everything else is thin
+    // one full-width stroke (the tape) and everything else is thin; 🛣️ a section whose width varies fills its tape
+    // between its two edges instead (as many pixels, and its bends are gentle, so the ribbon never folds)
     const edge = (pr, lw, col, dash, ph = 0) => { ctx.strokeStyle = col; ctx.lineWidth = lw; if (dash) ctx.setLineDash(dash); pr.forEach((o) => { if (dash) ctx.lineDashOffset = o.c[i0] + ph; ctx.stroke(subPath(o, i0, i1)); }); if (dash) { ctx.setLineDash([]); ctx.lineDashOffset = 0; } };
-    ctx.strokeStyle = tex(st.tape); ctx.lineWidth = tw; sk();
+    if (VARW[sc.kind]) { const [a, b] = O.rib, rb = new Path2D(); for (let i = i0; i <= i1; i++) rb[i > i0 ? 'lineTo' : 'moveTo'](b[i].x, b[i].y); for (let i = i1; i >= i0; i--) rb.lineTo(a[i].x, a[i].y); rb.closePath(); ctx.fillStyle = tex(st.tape); ctx.fill(rb); }
+    else { ctx.strokeStyle = tex(st.tape); ctx.lineWidth = tw; sk(); }
     if (st.sheen) { ctx.strokeStyle = st.sheen; ctx.lineWidth = tw * 0.42; sk(); }
+    if (sc.kind === 'wide' && !OFF.paint) edge(O.lanes, 2.4, st.centre || st.paint || '#FFFFFFB0', [22, 18]);   // a wide stretch's lane lines
     if (st.wear && !OFF.wear) edge(O.wear, 16, '#0000001c');   // worn racing lines
     if (st.paint && !OFF.paint) edge(O.paint, 1.6, st.paint);   // painted edge lines
     edge(O.kerb, 8.5, st.kerb[0]); edge(O.kerb, 8.5, st.kerb[1], [14, 14]);
     edge(O.light, 5, '#ffffff40', [12, 16], -1); edge(O.dark, 1.5, '#00000055'); edge(O.tedge, 2.5, st.tapeEdge); edge(O.kerbEdge, 2, st.kerbEdge);
     if (st.centre) { if (th.glow) { ctx.strokeStyle = st.centre + '30'; ctx.lineWidth = 10; sk(); } ctx.strokeStyle = st.centre; ctx.lineWidth = 3; ctx.setLineDash([16, 12]); ctx.lineDashOffset = d0; sk(); ctx.setLineDash([]); ctx.lineDashOffset = 0; }
-    if (sc.kind === 'bridge') { ctx.strokeStyle = '#00000030'; ctx.lineWidth = tw - 5; ctx.setLineDash([2, 10]); ctx.lineDashOffset = d0; sk(); ctx.setLineDash([]); ctx.lineDashOffset = 0; } });
+    if (sc.kind === 'bridge') { ctx.strokeStyle = '#00000030'; ctx.lineWidth = tw * PINCH - 5; ctx.setLineDash([2, 10]); ctx.lineDashOffset = d0; sk(); ctx.setLineDash([]); ctx.lineDashOffset = 0; } };
+  (OFF.road ? [] : vis).forEach((sc) => { const i0 = Math.max(w0, idx(sc.s0)), i1 = Math.min(w1, idx(sc.s1) + 1); if (i1 > i0) roadPiece(sc, i0, i1); });
   // 🛞 the skid marks, kept for the course
   if (!OFF.skids) { const sp2 = new Path2D(); let any = false; g.skids.forEach((s) => { if (Math.abs(s[1] - me.y) > lim) return; sp2.moveTo(s[0], s[1]); sp2.lineTo(s[2], s[3]); any = true; }); if (any) { ctx.lineCap = 'round'; ctx.strokeStyle = th.skid || '#00000055'; ctx.lineWidth = 3.2; ctx.stroke(sp2); ctx.lineCap = 'butt'; } }
-  const across = (sk, rows, sq) => { const p = at(sk), n = { x: Math.cos(p.a + Math.PI / 2), y: Math.sin(p.a + Math.PI / 2) }, cols = Math.round(g.track.w / sq), w2 = g.track.w / cols;   // a chequered band across the road
+  const across = (sk, rows, sq) => { const p = at(sk), n = { x: Math.cos(p.a + Math.PI / 2), y: Math.sin(p.a + Math.PI / 2) }, cols = Math.round(wAt(sk) / sq), w2 = wAt(sk) / cols;   // a chequered band across the road
     for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) { ctx.fillStyle = (i + j) % 2 ? '#fff' : '#111'; ctx.save(); ctx.translate(p.x + n.x * (i - cols / 2 + 0.5) * w2 + Math.cos(p.a) * (j - rows / 2 + 0.5) * sq, p.y + n.y * (i - cols / 2 + 0.5) * w2 + Math.sin(p.a) * (j - rows / 2 + 0.5) * sq); ctx.rotate(p.a); ctx.fillRect(-sq / 2, -w2 / 2, sq, w2); ctx.restore(); } };
   across(sOf(GRID - 26), 1, 10); across(FINISH, 3, 15);   // the start line behind the grid, the big finish
-  { const p = at(0), n = { x: Math.cos(p.a + Math.PI / 2), y: Math.sin(p.a + Math.PI / 2) }, half = g.track.w / 2 + MARGIN;   // the wall that closes the road behind the grid
+  { const p = at(0), n = { x: Math.cos(p.a + Math.PI / 2), y: Math.sin(p.a + Math.PI / 2) }, half = wAt(0) / 2 + MARGIN;   // the wall that closes the road behind the grid
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); for (let i = -half; i < half; i += 14) { ctx.fillStyle = ['#EE2B3B', '#FFD23F', '#2D7FF9', '#22C55E'][((i + half) / 14 | 0) % 4]; ctx.fillRect(-12, i, 12, 13); } ctx.restore(); }
   const upright = (x, y, ch, size) => { ctx.save(); ctx.translate(x, y); ctx.rotate(-(g.camA + (g.turn || 0))); ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ch, 0, 0); ctx.restore(); };
   // 🗺️ where a section starts: a stripe across the road in its colour and its sign on both sides
-  (OFF.signs ? [] : vis).forEach((sc) => { if (!sc.i || sc.s0 < vs0 - 0.02 || sc.s0 > vs1 + 0.02) return; const p = at(sc.s0), nx = Math.cos(p.a + Math.PI / 2), ny = Math.sin(p.a + Math.PI / 2), h2 = tw / 2;
+  (OFF.signs ? [] : vis).forEach((sc) => { if (!sc.i || sc.s0 < vs0 - 0.02 || sc.s0 > vs1 + 0.02) return; const p = at(sc.s0), nx = Math.cos(p.a + Math.PI / 2), ny = Math.sin(p.a + Math.PI / 2), h2 = wAt(sc.s0) / 2;
     ctx.lineCap = 'butt'; ctx.strokeStyle = '#00000060'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(p.x - nx * h2, p.y - ny * h2); ctx.lineTo(p.x + nx * h2, p.y + ny * h2); ctx.stroke(); ctx.strokeStyle = sc.col; ctx.lineWidth = 4; ctx.stroke();
     [1, -1].forEach((sd) => { const o = h2 + 30, x = p.x + nx * o * sd, y = p.y + ny * o * sd; ctx.fillStyle = '#0B0918cc'; ctx.strokeStyle = sc.col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 13, 0, 7); ctx.fill(); ctx.stroke(); upright(x, y + 0.5, sc.icon, 15); }); });
   // 🪂 the open stretches: the rim right at the tape (over the kerb), a hazard line and a warning sign
-  (g.edges || []).forEach((e) => { const N = 18, line = []; for (let q = 0; q <= N; q++) { const sk = e.s0 + (e.s1 - e.s0) * q / N, p = at(sk), nx = -Math.sin(p.a) * e.side, ny = Math.cos(p.a) * e.side; line.push([p.x + nx * g.track.w / 2, p.y + ny * g.track.w / 2, nx, ny]); }
+  (g.edges || []).forEach((e) => { const N = 18, line = []; for (let q = 0; q <= N; q++) { const sk = e.s0 + (e.s1 - e.s0) * q / N, p = at(sk), nx = -Math.sin(p.a) * e.side, ny = Math.cos(p.a) * e.side; line.push([p.x + nx * wAt(sk) / 2, p.y + ny * wAt(sk) / 2, nx, ny]); }
     const pl = (o) => { ctx.beginPath(); line.forEach(([x, y, nx, ny], q) => ctx[q ? 'lineTo' : 'moveTo'](x + nx * o, y + ny * o)); };
     ctx.lineCap = 'butt'; ctx.strokeStyle = th.edge[0]; ctx.lineWidth = 10; pl(4); ctx.stroke(); ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]); pl(0); ctx.stroke(); ctx.setLineDash([]);
     const [mx, my, nx, ny] = line[N >> 1]; upright(mx + nx * 30, my + ny * 30, '⚠️', 16); });
   // 🧱 the guards along the rest of the edge
   if (!OFF.guards) drawGuards(me.x, me.y, Rv);
-  { const p = at(FINISH), off = g.track.w / 2 + 22; [1, -1].forEach((sd) => upright(p.x + Math.cos(p.a + Math.PI / 2) * off * sd, p.y + Math.sin(p.a + Math.PI / 2) * off * sd, '🏁', 22)); }
+  { const p = at(FINISH), off = wAt(FINISH) / 2 + 22; [1, -1].forEach((sd) => upright(p.x + Math.cos(p.a + Math.PI / 2) * off * sd, p.y + Math.sin(p.a + Math.PI / 2) * off * sd, '🏁', 22)); }
   // 🍎 the islands: a kerbed lens in the road with the big thing on it, and arrows painted where the road splits
   g.islands.forEach((isl) => { if (Math.abs(isl.s - me.s) * L > Rv + isl.lh + 120) return; const st = roadStyle(g.secs[isl.sec], th);
-    [-1, 1].forEach((sd) => { const s = isl.s - (isl.lh + 50) / L, p = spotOn(s, sd * tw * 0.2), a = at(s).a + sd * 0.35; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(a); ctx.fillStyle = '#FFFFFFcc'; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-2, -9); ctx.lineTo(-2, -4); ctx.lineTo(-14, -4); ctx.lineTo(-14, 4); ctx.lineTo(-2, 4); ctx.lineTo(-2, 9); ctx.closePath(); ctx.fill(); ctx.restore(); });
+    [-1, 1].forEach((sd) => { const s = isl.s - (isl.lh + 50) / L, p = spotOn(s, sd * wAt(s) * 0.2), a = at(s).a + sd * 0.35; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(a); ctx.fillStyle = '#FFFFFFcc'; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-2, -9); ctx.lineTo(-2, -4); ctx.lineTo(-14, -4); ctx.lineTo(-14, 4); ctx.lineTo(-2, 4); ctx.lineTo(-2, 9); ctx.closePath(); ctx.fill(); ctx.restore(); });
     ctx.lineJoin = 'round'; ctx.save(); ctx.translate(sun.x * 5, sun.y * 5); ctx.fillStyle = '#00000050'; ctx.fill(isl.path); ctx.restore();
     ctx.strokeStyle = st.kerbEdge; ctx.lineWidth = 12; ctx.stroke(isl.path); ctx.strokeStyle = st.kerb[0]; ctx.lineWidth = 8; ctx.stroke(isl.path); ctx.strokeStyle = st.kerb[1]; ctx.setLineDash([9, 9]); ctx.stroke(isl.path); ctx.setLineDash([]);
     ctx.fillStyle = tex(th.surf); ctx.fill(isl.path); ctx.strokeStyle = '#00000030'; ctx.lineWidth = 3; ctx.stroke(isl.path);
     if (isl.solid) drawSolid(isl.solid, vc, sun, t); });
+  // 🔀 the splits' medians, and 🌀 the chevrons into each loop
+  g.splits.forEach((sp) => { if (Math.abs(sp.s - me.s) * L < Rv + sp.lh + 200) drawMedian(sp, th, sun, t, upright); });
+  const lpv = (g.loops || []).filter((lp) => me.s > g.secs[lp.sec].s0 - sOf(Rv + 300) && me.s < g.secs[lp.sec].s1 + sOf(Rv + 300)); lpv.forEach((lp) => drawChevrons(lp, th, upright));
   if (!OFF.arms) drawArmsLow(t, me, Rv, g.camA + (g.turn || 0));   // ⏩ pads, 🐢 patches, 🍌 slicks, 🪤 traps on the road, ❓ crates
   // hazards, each drawn as the thing it is (a label stands upright on the milk and the boxes, whichever way the table turns)
   g.items.forEach((i) => { if (i.kind === 'milk') drawMilk(i, upright, th); else if (i.kind === 'hole') drawHole(i, th, t); else if (i.kind === 'toaster') drawToaster(i, th); else if (i.kind === 'box') drawBox(i, upright, t, th); });
@@ -1655,7 +1871,12 @@ function draw(t) {
       ctx.strokeStyle = '#2A1408'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(fx - upY * 8, fy + upX * 8); ctx.lineTo(cx - upY * 10, cy + upX * 10); ctx.moveTo(fx + upY * 8, fy - upX * 8); ctx.lineTo(cx + upY * 10, cy - upX * 10); ctx.stroke();
       ctx.save(); ctx.translate(fx, fy); ctx.rotate(-cth); drawPal(g.glitch ? (g.glitchPal || 'fig') : (S.curve.mood || 'calm'), ctx, { x: 0, y: 0, s: 15, t: t / 1000, r: S.curve.r, face: 1 }); ctx.restore();
     } };
-  g.rivals.forEach((r) => { if (!(r.out > 0) && Math.abs(r.y - me.y) < lim) car(r, r.hue, false); }); car(me, 0, true);
+  // 🌀 the cars on the road (those under an overpass too), then each overpass with its shadow over them, then the cars up on it
+  const upper = (c) => onDeck(c.s) && !c.fall, drawn = g.rivals.filter((r) => !(r.out > 0) && Math.abs(r.y - me.y) < lim);
+  drawn.forEach((r) => { if (!upper(r)) car(r, r.hue, false); }); if (!upper(me)) car(me, 0, true);
+  if (!OFF.deck) lpv.forEach((lp) => drawDeck(lp, th, sun, roadPiece, Rv));
+  if (lpv.length && levelOf(me.s) === 'lower') { ctx.globalAlpha = 0.34; car(me, 0, true); }   // your own car, seen faintly through the deck while you're under it
+  drawn.forEach((r) => { if (upper(r)) car(r, r.hue, false); }); if (upper(me)) car(me, 0, true);
   if (!OFF.arms) drawArmsHigh(t, me, Rv, cth);   // 🍊 rollers, 🪭 swings, 🚀 rockets, rings, clouds, the magnet and the draft
   g.fx.forEach((f) => { if (f.kind === 'bit') { ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2)); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.fillStyle = f.col; ctx.fillRect(-f.sz / 2, -f.sz / 2, f.sz, f.sz * 0.7); ctx.restore(); return; } ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(-(g.camA + (g.turn || 0))); ctx.translate(-f.x, -f.y); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); ctx.font = f.big ? '400 18px Bungee, Impact, sans-serif' : '900 13px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#2A1A0A'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); ctx.restore(); }); ctx.globalAlpha = 1;
   // 🛏️ overhead: the tunnels' roofs (see-through while you're under one) and the finish gantry
@@ -1664,7 +1885,7 @@ function draw(t) {
     ctx.globalAlpha = a; ctx.fillStyle = R2.body; ctx.fill(sc.roofP); ctx.lineCap = 'butt'; ctx.strokeStyle = R2.slat; ctx.lineWidth = R2.sw; ctx.stroke(sc.slats);
     if (R2.glow) { ctx.strokeStyle = R2.mouth + '40'; ctx.lineWidth = R2.mw + 14; ctx.stroke(sc.mouths); }
     ctx.strokeStyle = R2.mouth; ctx.lineWidth = R2.mw; ctx.stroke(sc.mouths); ctx.strokeStyle = R2.trim; ctx.lineWidth = 1.5; ctx.stroke(sc.roofP); ctx.globalAlpha = 1; });
-  { const p = at(FINISH); if (Math.abs(p.y - me.y) < lim) { const nx = Math.cos(p.a + Math.PI / 2), ny = Math.sin(p.a + Math.PI / 2), h2 = tw / 2 + 16, sq = 8, cols = Math.ceil(h2 * 2 / sq);
+  { const p = at(FINISH); if (Math.abs(p.y - me.y) < lim) { const nx = Math.cos(p.a + Math.PI / 2), ny = Math.sin(p.a + Math.PI / 2), h2 = wAt(FINISH) / 2 + 16, sq = 8, cols = Math.ceil(h2 * 2 / sq);
     ctx.save(); ctx.translate(p.x + sun.x * 18, p.y + sun.y * 18); ctx.rotate(p.a); ctx.fillStyle = '#00000040'; ctx.fillRect(-sq, -h2, sq * 2, h2 * 2); ctx.restore();
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); for (let i = 0; i < cols; i++) for (let j = 0; j < 2; j++) { ctx.fillStyle = (i + j) % 2 ? '#111' : '#FFF'; ctx.fillRect(-sq + j * sq, -h2 + i * sq, sq, sq); } ctx.strokeStyle = '#2A1408'; ctx.lineWidth = 1.5; ctx.strokeRect(-sq, -h2, sq * 2, cols * sq); ctx.restore();
     [1, -1].forEach((sd) => { const x = p.x + nx * h2 * sd, y = p.y + ny * h2 * sd; ctx.fillStyle = '#2B2F3A'; ctx.beginPath(); ctx.arc(x, y, 6, 0, 7); ctx.fill(); ctx.fillStyle = '#C0C7D2'; ctx.beginPath(); ctx.arc(x - 1.5, y - 1.5, 2.5, 0, 7); ctx.fill(); }); } }
@@ -1745,8 +1966,10 @@ function drawSlotCar(c2, x, y, a, sc, t, o = {}) {   // Rally's own ride, for th
 }
 function popThrough() {   // out the far side of the thing you went in by, in a lane clear of anything solid, at speed along the road
   const c = g.pkThing, me = g.me; g.pkThing = null; if (!c || !me) return;
-  const L = g.track.len, isl = c.island ? g.islands.find((q) => Math.abs(q.s - c.s) < 1e-6) : null, sk = c.s + ((isl ? isl.lh : c.half) + 50) / L; if (sk <= me.s || sk >= FINISH - 0.01) return;
-  const p0 = at(sk), w = g.track.w, clear = (q) => !g.solids.some((o) => Math.hypot(o.x - q.x, o.y - q.y) < o.cr + R + 14) && !g.items.some((i) => (i.kind === 'hole' || i.kind === 'milk') && Math.hypot(i.x - q.x, i.y - q.y) < i.r + R + 6);
+  const L = g.track.len, isl = c.island ? g.islands.find((q) => Math.abs(q.s - c.s) < 1e-6) : null; let sk = c.s + ((isl ? isl.lh : c.half) + 50) / L;
+  { const lp = loopAt(sk, 40); if (lp) sk = g.secs[lp.sec].s1 + sOf(60); const sp = splitNear(sk, 20); if (sp) sk = sp.s + sOf(sp.lh + SPLIT_RAMP + 100); }   // 🌀 never out into a loop (or onto the wrong level of one), nor onto a split's median: on past it
+  if (sk <= me.s || sk >= FINISH - 0.01) return;
+  const p0 = at(sk), w = wAt(sk), clear = (q) => !g.solids.some((o) => Math.hypot(o.x - q.x, o.y - q.y) < o.cr + R + 14) && !g.items.some((i) => (i.kind === 'hole' || i.kind === 'milk') && Math.hypot(i.x - q.x, i.y - q.y) < i.r + R + 6);
   let lat = 0; for (const l of [0, -0.22, 0.22, -0.32, 0.32]) { if (clear(spotOn(sk, l * w))) { lat = l * w; break; } }
   const q = spotOn(sk, lat), v = Math.max(me.v || 0, topSpeed() * 0.6);
   Object.assign(me, { x: q.x, y: q.y, a: p0.a, s: sk, prevS: sk, lat, v, vs: v, vx: Math.cos(p0.a) * v, vy: Math.sin(p0.a) * v, spin: 0, w: 0, air: 0, fall: 0 });
@@ -1815,6 +2038,8 @@ const REAL = [
 ];
 Object.assign(SECS, {
   alpine: [
+    { icon: '🏞️', name: 'THE VALLEY FLOOR', kind: 'wide', ground: 'grass', pieces: ['boulder', 'firtree'], col: '#6FA34A' },
+    { icon: '🎿', name: 'THE SKI JUMP', kind: 'loop', from: 2, col: '#3E8FD0' },
     { icon: '🌲', name: 'THE PINE STAGE', kind: 'sweep', pieces: ['firtree', 'boulder', 'firtree'], col: '#3E7A34' },
     { icon: '🪵', name: 'THE LOGGING TRACK', kind: 'weave', ground: 'mud', road: 'dirt', kerb: ['#6B4A2A', '#5A3E22'], kerbEdge: '#3A2614', tapeEdge: '#5A3E22', centre: null, pieces: ['logpile', 'firtree'], col: '#8A5A2B' },
     { icon: '🌉', name: 'THE GORGE BRIDGE', kind: 'bridge', gap: { tile: 'river', rim: ['#8C877E', '#4A4640'] }, road: 'deck', col: '#3E8FD0' },
@@ -1822,26 +2047,34 @@ Object.assign(SECS, {
   coast: [
     { icon: '🌊', name: 'THE CLIFF TOP', kind: 'sweep', pieces: ['palm', 'searock'], col: '#3E8FD0' },
     { icon: '🌴', name: 'THE PROMENADE', kind: 'split', ground: 'wetsand', pieces: ['umbrella', 'palm'], col: '#FFD23F' },
+    { icon: '🐚', name: 'THE SHELL SPIRAL', kind: 'loop', col: '#F2A0B0' },
     { icon: '🌉', name: 'THE CAUSEWAY', kind: 'bridge', gap: { tile: 'sea', rim: ['#E8E4DA', '#8A877E'] }, road: 'deck', col: '#1E6A9A' },
     { icon: '🗼', name: 'THE LIGHTHOUSE', kind: 'fork', ground: 'wetsand', island: 'lighthouse', pieces: ['searock', 'umbrella'], col: '#EE2B3B' }],
   canyon: [
     { icon: '🏜️', name: 'THE DRY LAKE', kind: 'wide', ground: 'saltflat', pieces: ['cactus', 'skull'], col: '#F2E6CE' },
     { icon: '🐍', name: 'SNAKE GULCH', kind: 'weave', ground: 'redrock', pieces: ['mesa', 'cactus'], col: '#C2502A' },
+    { icon: '🤠', name: 'THE RODEO RING', kind: 'loop', col: '#E89A60' },
     { icon: '⛏️', name: 'THE OLD MINE', kind: 'tunnel', ground: 'abyss', road: 'hardpan', roof: 'mine', dim: 0.55, pieces: ['minecart', 'cactus'], col: '#8A5A2B' },
     { icon: '🪨', name: 'THE BUTTE', kind: 'fork', ground: 'redrock', island: 'butte', pieces: ['mesa', 'skull'], col: '#E89A60' }],
   arctic: [
     { icon: '🧊', name: 'THE SEA ICE', kind: 'sweep', pieces: ['berg', 'igloo'], col: '#BFE6F7' },
     { icon: '🐧', name: 'PENGUIN POINT', kind: 'weave', ground: 'deepsnow', pieces: ['penguins', 'berg'], col: '#2B2B33' },
+    { icon: '🐋', name: 'THE ICE FLOE', kind: 'split', pieces: ['berg', 'penguins'], col: '#7FD0F0' },
+    { icon: '🏂', name: 'THE HALF-PIPE', kind: 'loop', col: '#2D7FF9' },
     { icon: '🏔️', name: 'THE ICE CAVE', kind: 'tunnel', roof: 'icecave', dim: 0.4, pieces: ['berg'], col: '#7FD0F0' },
     { icon: '🛖', name: 'THE IGLOO', kind: 'fork', ground: 'deepsnow', island: 'igloo', pieces: ['penguins', 'berg'], col: '#FFFFFF' }],
   volcano: [
     { icon: '🌋', name: 'THE ASH FIELDS', kind: 'sweep', pieces: ['vent', 'deadtree'], col: '#8A8286' },
     { icon: '🔥', name: 'THE LAVA FLOWS', kind: 'weave', ground: 'lavacrust', pieces: ['vent', 'obsidian'], col: '#FF6A1A' },
+    { icon: '♨️', name: 'THE FORK IN THE FLOW', kind: 'split', ground: 'lavacrust', pieces: ['vent', 'obsidian'], col: '#FF8A3D' },
+    { icon: '💍', name: 'THE RING OF FIRE', kind: 'loop', col: '#FFB000' },
     { icon: '🌉', name: 'OVER THE MAGMA', kind: 'bridge', gap: { tile: 'magma', rim: ['#3A2A22', '#140A06'] }, road: 'steeldeck', col: '#FFB000' },
     { icon: '🚇', name: 'THE LAVA TUBE', kind: 'tunnel', road: 'basalt', roof: 'lavatube', dim: 0.5, pieces: ['obsidian', 'deadtree'], col: '#B33F00' }],
   moon: [
     { icon: '🌕', name: 'THE SEA OF CALM', kind: 'wide', pieces: ['moonrock', 'dish'], col: '#C9CDD4' },
     { icon: '🛰️', name: 'THE DISH FIELD', kind: 'weave', ground: 'pad', pieces: ['dish', 'dome'], col: '#3DE0FF' },
+    { icon: '🛸', name: 'THE ORBIT', kind: 'loop', col: '#B6FF7A' },
+    { icon: '🌗', name: 'THE CRATER RIM', kind: 'split', pieces: ['moonrock', 'dish'], col: '#8A8E96' },
     { icon: '🚇', name: 'THE HAB TUBE', kind: 'tunnel', road: 'moonroad', roof: 'habtube', dim: 0.45, pieces: ['dome'], col: '#E6E9EE' },
     { icon: '🚀', name: 'THE LAUNCH PAD', kind: 'fork', ground: 'pad', island: 'rocket', pieces: ['dome', 'flag'], col: '#FF8A3D' }],
 });
@@ -2259,10 +2492,15 @@ const organ = {
   level: () => g?.course || 1,
   overText: (how) => (how === 'fell in the pocket' ? ['🕳️ POCKETED', 'Too many trips down the pocket.'] : how === 'off the table' ? ['🫳 OFF THE TABLE', 'The table is only so big.'] : how === 'fell off the edge' ? ['🪂 OVER THE EDGE', 'Mind the open edges.'] : ['RUN OVER', '']),
   endStats: () => (g ? `🏎️ ${finishN} ${finishN === 1 ? 'finish' : 'finishes'} · ${outsN} rivals left behind · 🎯 ${hitsGivenN} hits` : ''),
-  debug: () => g && ({ auto: (on) => { g.auto = on; }, autoFire: (on) => { g.autoHold = !on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (g.track.w / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (g.track.w / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, boxList: [...g.items, ...g.obs].filter((b) => b.kind === 'box').map((b) => ({ s: b.s ?? nearest(b.x, b.y).s, hit: !!b.hit, x: b.x, y: b.y, w: b.w, h: b.h })), smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); }, goPlace: (key, n, seed) => { PLACE_FORCE = key || null; if (seed != null) g.seed = seed; g.course = Math.max(1, (n ?? g.course) | 0); newCourse(); }, places: ORDER.slice(),
+  debug: () => g && ({ auto: (on) => { g.auto = on; }, autoFire: (on) => { g.autoHold = !on; }, fx: g.fx.map((f) => f.text), me: { x: g.me.x, y: g.me.y, s: g.me.s, v: g.me.v, off: g.me.off }, go: g.go, progress: progress(), finishes: finishN, course: g.course, rivals: g.rivals.map((r) => ({ s: r.s, out: r.out, off: r.off, done: r.done })), items: g.items.length, obs: g.obs.length, twist: g.twist?.kind || null, held: { ...held }, W, H: H(), track: { w: g.track.w, len: Math.round(g.track.len), n: g.track.n }, zoom: g.zoom, camA: g.camA, guideA: g.guideA, heading: g.me.a, top: Math.round(topSpeed()), edges: g.edges.map((e) => ({ s0: e.s0, s1: e.s1, side: e.side })), fall: g.me.fall || 0, rescue: g.me.rescue ? g.me.rescue.t : null, guards: [...g.rims[1], ...g.rims[-1]].reduce((o, p) => { o[p.guard] = (o[p.guard] || 0) + 1; return o; }, {}), skipGo: () => { g.go = 0; }, jump: (sk) => { const p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, swap: () => mirrorSwap(), pushOut: (sk = 0.5, d = 80, side = 1) => { const p = spotOn(sk, side * (wAt(sk) / 2 + d)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, pushOff: (i = 0) => { const e = g.edges[i], p = spotOn(e.c, e.side * (wAt(e.c) / 2 + 14)); g.me.x = p.x; g.me.y = p.y; g.me.air = 0; }, hitBox: (i = 0) => { const b = [...g.items, ...g.obs].filter((x) => x.kind === 'box')[i]; if (b) b.hit = true; }, boxes: [...g.items, ...g.obs].filter((b) => b.kind === 'box').length, boxList: [...g.items, ...g.obs].filter((b) => b.kind === 'box').map((b) => ({ s: b.s ?? nearest(b.x, b.y).s, hit: !!b.hit, x: b.x, y: b.y, w: b.w, h: b.h })), smashed: smashedN, boxScreen: (i = 0) => { const bs = [...g.items, ...g.obs].filter((b) => b.kind === 'box'), b = bs[i]; if (!b) return null; const th = g.camA + (g.turn || 0), dx = (b.x - g.me.x) * g.zoom, dy = (b.y - g.me.y) * g.zoom; return { x: W / 2 + Math.cos(th) * dx - Math.sin(th) * dy, y: H() * CAR_Y + Math.sin(th) * dx + Math.cos(th) * dy }; }, tap: (p) => { organ.pointer('down', p, { pointerId: 99 }); organ.pointer('up', p, { pointerId: 99 }); }, theme: TH().key, vehicle: VH().key, dust: g.dust.length, decor: g.decor.length, goCourse: (n, seed) => { if (seed != null) g.seed = seed; g.course = Math.max(1, n | 0); newCourse(); }, goPlace: (key, n, seed) => { PLACE_FORCE = key || null; if (seed != null) g.seed = seed; g.course = Math.max(1, (n ?? g.course) | 0); newCourse(); }, places: ORDER.slice(),
     sections: g.secs.map((sc) => ({ i: sc.i, icon: sc.icon, name: sc.name, kind: sc.kind, s0: sc.s0, s1: sc.s1 })), section: secAt(g.me.s).i, secShown: g.secShown, islands: g.islands.map((i) => ({ s: i.s, lh: i.lh, wi: i.wi, kind: i.kind })), lane: g.me.lane || 0, lat: g.me.lat || 0,
     place: (x, y, a, v) => { const me = g.me; me.x = x; me.y = y; me.a = a; me.v = v; me.vx = null; me.s = me.prevS = nearest(x, y).s; me.spin = 0; me.spinA = null; me.w = 0; me.bumpT = 0; me.shield = 0; me.air = 0; syncVel(me); },
     goSection: (i) => { const sc = g.secs[Math.max(0, Math.min(g.secs.length - 1, i | 0))], sk = sc.s0 + 0.012, p = at(sk); g.me.x = p.x; g.me.y = p.y; g.me.a = p.a; g.me.s = g.me.prevS = sk; g.me.vx = null; }, pieces: g.pieces.length, skids: g.skids.length, skid: !!g.me.skid, sparks: g.dust.filter((p) => p.spark).length, dim: g.dimNow, inRoof: g.inRoof, map: mapRect(H()), fin: g.fin ? g.fin.t : null, zoomTarget: camZoom(),
+    // 🛣️ the layout: the width anywhere, the loops (crossing, deck, under), the splits (median) and the car's level
+    camZoom: (z) => { g.zoomFix = z || 0; g.zoom = z || g.zoom; }, freeze: (on) => { g.freeze = !!on; }, wAt: (sk) => wAt(sk), medianAt: (sk) => medianAt(sk), levelOf: (sk) => levelOf(sk), level: levelOf(g.me.s), trackOK: trackClear(g.track, g.loops || []),
+    loops: (g.loops || []).map((lp) => ({ sec: lp.sec, dir: lp.dir, R: lp.R, x1: lp.x1, x2: lp.x2, x: lp.x, y: lp.y, ang: lp.ang, d0: lp.d0, d1: lp.d1, u0: lp.u0, u1: lp.u1, a0: lp.a0, a1: lp.a1, hole: !!lp.hole })),
+    splits: g.splits.map((sp) => ({ s: sp.s, lh: sp.lh, mh: sp.mh, boost: sp.boost, sec: sp.sec })), laneOf: g.me.laneOf ? g.splits.indexOf(g.me.laneOf) : -1,
+    rivalLanes: g.rivals.map((r) => ({ n: r.n, s: r.s, lat: r.lat || 0, lane: r.lane || 0, level: levelOf(r.s) })), atS: (sk) => at(sk), nearestS: (x, y, hint) => nearest(x, y, hint),
     pocketThings: pocketThings().map((c) => ({ thing: c.thing, s: c.s, half: c.half })), pkThing: g.pkThing ? { thing: g.pkThing.thing, s: g.pkThing.s } : null, nitro: g.nitro, slowT: g.slowT || 0, toScreen: (x, y) => toScreen({ x, y }),
     obstacles: g.solids.map((o) => ({ s: o.s, lat: o.lat, r: o.cr, lext: o.lext, kind: o.kind, shape: o.shape, island: !!o.island, free: o.free, x: o.x, y: o.y })), obsHits: obsHitsN, rivalObsHits: rivalHitsN, slip: g.me.slip || 0, vel: { x: g.me.vx || 0, y: g.me.vy || 0 }, w: g.me.w || 0, shake: g.shake || 0,
     // 🎁 the arms
