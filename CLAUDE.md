@@ -1050,7 +1050,7 @@ overpass, deck `d0..d1`), `trackClear` checks the road meets itself nowhere else
 falls back to a sweep. `nearest(x, y, hint)` searches `NEAR_WIN` points round the car's own progress first (every per-car
 call passes it); car-to-car effects also need close progress. The overpass is railed (`onDeck`, `BRIDGE_M`), the loop's
 inside is filled (`lp.hole`, `rimS` skips it), `drawDeck` draws over the cars below and under the cars on it (yours shows
-faintly through), `drawChevrons`/`drawSwirl` mark it, the map draws the overpass on top. Nothing is placed in a loop or on a
+faintly through, via `faded(a, fn)`: the car's own drawing resets `globalAlpha` to 1, which used to paint it solid on the deck), `drawChevrons`/`drawSwirl` mark it, the map draws the overpass on top. Nothing is placed in a loop or on a
 median; `popThrough` skips past both. A section's optional `from: n` waits for course n. Races with a loop run ~25–35 s.
 `__rl()` adds `wAt, medianAt, levelOf, level, trackOK, loops, splits, laneOf, rivalLanes, atS, nearestS, camZoom(z),
 freeze(on)`; `__rlOff.deck`. Tests (scratch `merged/`): `t_layout` (courses 1–14 × seeds: clear tracks, square crossings),

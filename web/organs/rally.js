@@ -1856,6 +1856,11 @@ function draw(t) {
   // the cars
   const cth = g.camA + (g.turn || 0), upX = -Math.sin(cth), upY = -Math.cos(cth);   // screen-up, on the table
   const dk = Math.max(g.dark, g.dimNow || 0);
+  // draw fn() at a fraction of its opacity: the car's own drawing sets globalAlpha (to 1 after a shadow or a flame), which
+  // wiped a plain globalAlpha and drew the car under an overpass solid on top of the deck; here every alpha it sets is scaled
+  const faded = (a, fn) => { const d = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'globalAlpha');
+    Object.defineProperty(ctx, 'globalAlpha', { configurable: true, get() { return d.get.call(this) / a; }, set(v) { d.set.call(this, v * a); } });
+    try { ctx.globalAlpha = 1; fn(); } finally { delete ctx.globalAlpha; ctx.globalAlpha = 1; } };
   const car = (c, hue, mine) => { const re = c.rescue ? Math.min(1, c.rescue.t / RESCUE) : -1, lift = re >= 0 ? 34 * Math.sin(re * Math.PI) : 0;
     ctx.save(); ctx.translate(c.x + upX * lift, c.y + upY * lift - (c.air > 0 ? 14 * Math.sin((1 - c.air / (c.airMax || 0.7)) * Math.PI) : 0)); ctx.rotate(c.a); { const f = c.fall > 0 ? 0.25 + 0.75 * (c.fall / 0.7) : re >= 0 ? 0.25 + 0.75 * Math.min(1, re * 1.6) : 1; ctx.scale(CAR * f, CAR * f); if (c.fall > 0) ctx.globalAlpha = 0.4 + 0.6 * (c.fall / 0.7); }
     if (g.glitch && !mine) { drawPal(g.glitchPal || 'fig', ctx, { x: 0, y: 0, s: 9, t: t / 1000, r: 4, face: 1 }); ctx.restore(); ctx.globalAlpha = 1; return; }
@@ -1879,7 +1884,7 @@ function draw(t) {
   const upper = (c) => onDeck(c.s) && !c.fall, drawn = g.rivals.filter((r) => !(r.out > 0) && Math.abs(r.y - me.y) < lim);
   drawn.forEach((r) => { if (!upper(r)) car(r, r.hue, false); }); if (!upper(me)) car(me, 0, true);
   if (!OFF.deck) lpv.forEach((lp) => drawDeck(lp, th, sun, roadPiece, Rv));
-  if (lpv.length && levelOf(me.s) === 'lower') { ctx.globalAlpha = 0.34; car(me, 0, true); }   // your own car, seen faintly through the deck while you're under it
+  if (lpv.length && levelOf(me.s) === 'lower') faded(0.3, () => car(me, 0, true));   // your own car, seen faintly through the deck while you're under it
   drawn.forEach((r) => { if (upper(r)) car(r, r.hue, false); }); if (upper(me)) car(me, 0, true);
   if (!OFF.arms) drawArmsHigh(t, me, Rv, cth);   // 🍊 rollers, 🪭 swings, 🚀 rockets, rings, clouds, the magnet and the draft
   g.fx.forEach((f) => { if (f.kind === 'bit') { ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 2)); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.fillStyle = f.col; ctx.fillRect(-f.sz / 2, -f.sz / 2, f.sz, f.sz * 0.7); ctx.restore(); return; } ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(-(g.camA + (g.turn || 0))); ctx.translate(-f.x, -f.y); ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); ctx.font = f.big ? '400 18px Bungee, Impact, sans-serif' : '900 13px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#2A1A0A'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); ctx.restore(); }); ctx.globalAlpha = 1;
