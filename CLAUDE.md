@@ -1002,7 +1002,8 @@ one shave one now and then). **Handling:** cars carry a velocity (`vx`, `vy`) ap
 the sideways part toward the nose at `GRIP_RATE`, capped at `GRIP_ACC` × surface grip (milk 0.25, off the tape 0.8, in
 the air 0.35), so fast corners slide (`c.slip`, skids past 0.14 rad); understeer at speed (`UNDER`), yaw decay
 (`YAW_DAMP`). Code that sets `c.v` still works: `syncVel()` rescales the velocity. Guards reflect the car
-(`bounceAlong`); cars collide as circles sharing momentum (`carHit`). `__rl()` adds `obstacles`, `hitObstacle(i, d, v,
+(`bounceAlong`: a scrape loses speed by how square it hits, at most 25%, and turns the nose along the road a touch away
+from the rail; a flat ×0.9 a frame of contact used to pin a car steered into it at 40, test `t_rail`); cars collide as circles sharing momentum (`carHit`). `__rl()` adds `obstacles`, `hitObstacle(i, d, v,
 dl)`, `obsHits`, `rivalObsHits`, `slip`, `vel`, `w`, `shake`, `goCourse(n, seed)`. Tests (scratch): `t_rlobs`,
 `t_rlauto`, `t_rlautoc`, `t_rllock`, `t_rlplace`.
 **Rally's weapons, speed zones and traps (rally.js, page only).** `placeArms()` (from `newCourse`, after `placeObstacles`)

@@ -322,9 +322,13 @@ function bounceAlong(c, ta, isMe, nx = 0, ny = 0) {   // a guard or the wall beh
   syncVel(c);
   if (nx || ny) {   // n points out, into the guard: the part of the velocity going that way comes back, a little softer
     sparks(c.x + nx * R, c.y + ny * R, nx, ny, c.v, isMe ? 9 : 4);
-    const vn = c.vx * nx + c.vy * ny; if (vn > 0) { c.vx -= (1 + 0.3) * vn * nx; c.vy -= (1 + 0.3) * vn * ny; } c.vx *= 0.9; c.vy *= 0.9;
-  } else { const sp = Math.max(c.v * 0.7, 40); c.vx = Math.cos(ta) * sp; c.vy = Math.sin(ta) * sp; }
-  if (!(c.spin > 0)) { c.a = ta + wrapA(c.a - ta) * 0.4; c.w = 0; }
+    // a scrape costs speed by how square it hits (a glance keeps nearly all of it): a flat ×0.9 every frame of contact
+    // used to grind a car held into the rail down to a crawl and pin it there
+    const vn = c.vx * nx + c.vy * ny, v0 = Math.hypot(c.vx, c.vy) || 1; if (vn > 0) { c.vx -= (1 + 0.3) * vn * nx; c.vy -= (1 + 0.3) * vn * ny; }
+    const keep = 1 - Math.min(0.25, 0.35 * Math.max(0, vn) / v0) - 0.005; c.vx *= keep; c.vy *= keep;
+    // and the nose comes off the rail: along the road, a touch away from it (steering into it again only scrapes along)
+    if (!(c.spin > 0) && Math.cos(c.a) * nx + Math.sin(c.a) * ny > -0.12) { const tx = Math.cos(ta) - nx * 0.15, ty = Math.sin(ta) - ny * 0.15; c.a = Math.atan2(ty, tx); c.w = 0; }
+  } else { const sp = Math.max(c.v * 0.7, 40); c.vx = Math.cos(ta) * sp; c.vy = Math.sin(ta) * sp; if (!(c.spin > 0)) { c.a = ta + wrapA(c.a - ta) * 0.4; c.w = 0; } }
   const fw = c.vx * Math.cos(ta) + c.vy * Math.sin(ta); if (fw < 40) { c.vx += Math.cos(ta) * (40 - fw); c.vy += Math.sin(ta) * (40 - fw); }
   setSpeed(c); c.bob = 1;
   if (isMe && !c.bumpT) { c.bumpT = 0.4; sfx('clack'); }
