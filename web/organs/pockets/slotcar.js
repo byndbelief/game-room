@@ -23,6 +23,11 @@ const THINGS = {
   mug: { icon: '☕', name: 'Into the mug', wall: '#163F8A', inside: '#4A2814', motif: 'rings' },
   snowglobe: { icon: '🔮', name: 'Into the snow globe', wall: '#3B2412', inside: '#7FB8D8', motif: 'snow' },
   fountain: { icon: '⛲', name: 'Into the fountain', wall: '#1A1430', inside: '#1E2A58', motif: 'rings' },
+  campfire: { icon: '🔥', name: 'Round the campfire', wall: '#4A4640', inside: '#3A2416', motif: 'coils' },
+  lighthouse: { icon: '🗼', name: 'Up the lighthouse', wall: '#C21A2E', inside: '#E8E4DA', motif: 'rings' },
+  butte: { icon: '🪨', name: 'Into the butte', wall: '#7A3218', inside: '#C2683A', motif: 'planks' },
+  igloo: { icon: '🛖', name: 'Into the igloo', wall: '#9FC4DE', inside: '#DCEBF7', motif: 'snow' },
+  rocket: { icon: '🚀', name: 'Into the rocket', wall: '#3A3E46', inside: '#C9CDD4', motif: 'rings' },
 };
 let ph = null, ctx = null, s = null, bg = null;
 const rng = (seed) => { let x = (seed >>> 0) || 1; return () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; };
