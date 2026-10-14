@@ -1387,6 +1387,18 @@ curve box at the last move (`curveMood(curve)` reads the mood off `hist`/`hold`)
 the middle of every `glitch()` (`#glitchPal`, a driven `palWidget` at r = 4 with `hurt()`), and the
 shell names it in the calm banner and hurts it on a run glitch.
 
+**🟢 Fig knows it's in a game (shell.js, every solo page).** Fig talks to *you* in a bubble under its chip (`#figsay`,
+`say(kind, { force, vars })`, lines in `SAY` with `{name}`/`{score}`/`{combo}`/`{min}`/`{pokes}`): hello on start (late
+at night or first thing it notices the time), idle 8 s (and `knock()`: three raps, the field shudders, `.stage.knock`),
+idle 20 s (`peek()`: the chip climbs out and peeks round the screen's right edge), hurts (`figHurt`, three in 10 s gets a
+"want me to slow down?"), the last heart, combos 8/13/21, score milestones, every 10 minutes, a new game, a glitch, a pocket
+offer, back from another tab. Rationed: `TALK_GAP` 14 s between lines, never the same line twice running, nothing in a
+pocket or past 60% deep unless forced. **Tap Fig = pause** (`pauseMenu(why)`; Esc / P too; leaving the tab pauses and
+coming back opens it with a "you left me" line): `paused` stops `loop`'s updates, beats, clocks, offers and input; a big
+`palWidget` Fig you can poke; the run's stats; ▶️ Keep playing, ⏭️ Next game (runs: `morphTo(nextOrgan())`), 🔊 sound
+(`setMuted`), 💬/🤐 Fig chatty or quiet (localStorage `r4.figQuiet`; quiet keeps only pause and poke lines), 🔁 Start
+over and 🏠 Back to r4box (two taps each, they lose the run). `#spal` takes pointer events now. `__shell().fig` (say,
+knocks, peeks, pokes, paused, quiet). Test (scratch): `t_figtalk`.
 **🌊 Depth and the jolt** (shell.js): `S.depth` via `stepDepth(dt)` in `loop` (`held` pointers or `S.lastIn` within 2.5 s;
 `dt / 14 × (1 + 0.12·min(5, combo))` up, 0.12/s down, `host.hurt` halves it; no change during a transition); `deepF()`
 eases it from 0.2 to 0.8 into `--deep` on `#stage`, which the CSS uses to fade `.chaosm`, `.lvl`, the hearts' small line,
