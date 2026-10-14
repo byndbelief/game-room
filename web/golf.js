@@ -716,6 +716,7 @@ function renderPack() {
   document.querySelectorAll('#pack [data-loot], #packMini [data-loot]').forEach((b) => {
     const item = b.dataset.item;
     if ((item === 'magnet' && magnetOn) || (item === 'golden_tee' && !lastStroke) || (item === 'chip' && chipNext)) b.disabled = true;
+    if (ATK_ITEMS[item] && n() === 1) { b.disabled = true; b.title = 'Sneak attacks hit the other players: save it for a game with someone.'; }   // solo: nobody to hit
     b.onclick = async () => {
       b.disabled = true;
       const { error } = await useLoot(+b.dataset.loot, G.game.id);

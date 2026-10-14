@@ -769,6 +769,7 @@ field, 0.9 s beats, 20 s) with `seed.gifts` = three 🎁 and `seed.art` (the hol
 the five sneak attacks) into the backpack, once a hole (`golf_cup_bonus` table), only with a turn on that hole at par or
 better from the last 15 minutes. `window.__cup()` is the pocket's debug; `__golf()` gained `fixes`, `fixesLeft`,
 `canFix`, `fig`, `figHelp`, `cupBonus`, `flagKick`, `toScreen`, `hole`, `ball`, `strokes`. Test (scratch): `t_golfup`.
+In a solo round the five sneak-attack items are greyed out in the backpack (`renderPack`: nobody to hit; `use_loot` would refuse).
 
 ### Putt Post on phones: the whole screen, and the slingshot Putt (page only)
 The canvas is any shape now. golf.js works in the canvas's own pixels: `lw()`×`lh()` (before the sideways
