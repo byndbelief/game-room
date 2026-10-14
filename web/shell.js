@@ -83,16 +83,10 @@ const SHELL_CSS = `
   .stage.inpocket .shud .score{opacity:.3}
   .stage.inpocket .spal{opacity:.22;scale:.45}
   .stage.inpocket .oui{visibility:hidden}
-  /* 🟢 Fig is a button now (tap: pause), and talks in a bubble under its chip */
+  /* 🟢 Fig is a button now (tap: pause) */
   .stage .spal{pointer-events:auto;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-  .figsay{position:absolute;left:8px;top:142px;max-width:min(240px,64%);padding:7px 11px;border-radius:4px 14px 14px 14px;background:#FFFFFFf0;color:#1A1530;font:700 13px/1.3 var(--body,system-ui),sans-serif;box-shadow:0 6px 18px #0009;pointer-events:none;z-index:6;transform-origin:16px -6px;animation:figsay .28s cubic-bezier(.3,1.6,.5,1)}
-  .figsay::before{content:'';position:absolute;left:14px;top:-7px;border:7px solid transparent;border-top:0;border-bottom-color:#FFFFFFf0}
-  .figsay.out{opacity:0;transition:opacity .3s}
-  @keyframes figsay{from{transform:scale(.4);opacity:0}}
-  .stage.inpocket .figsay{display:none}
   .spause{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;background:rgba(8,6,20,.78);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);text-align:center}
   .spause canvas{width:132px;height:132px}
-  .spause .psay{max-width:300px;padding:9px 14px;border-radius:16px;background:#FFFFFFf0;color:#1A1530;font:700 14px/1.35 var(--body,system-ui),sans-serif;box-shadow:0 8px 22px #000a}
   .spause .pstat{font-size:12px;color:#C9B8FF;font-weight:800}
   .spause .pbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:min(320px,92%)}
   .spause .pbtns button{padding:11px 8px;border-radius:14px;border:1px solid #ffffff2a;background:#1E1940;color:#F2F4F6;font:800 14px var(--body,system-ui),sans-serif;cursor:pointer}
@@ -101,7 +95,7 @@ const SHELL_CSS = `
   .spause .pbtns button.arm{background:#5A1E2E;border-color:#FF5A4A}
   @keyframes knock{0%,100%{transform:none}20%{transform:translate(3px,1px)}40%{transform:translate(-3px,-1px)}60%{transform:translate(2px,0)}80%{transform:translate(-1px,1px)}}
   .stage.knock canvas#cv{animation:knock .22s linear}
-  @media (prefers-reduced-motion:reduce){.figsay{animation:none}.stage.knock canvas#cv{animation:none}}
+  @media (prefers-reduced-motion:reduce){.stage.knock canvas#cv{animation:none}}
   @media (prefers-reduced-motion:reduce){.sbanner{animation:none}.verb b.next{animation:none}.spocket{animation:none}}`;
 
 export function runShell({ organs, key, title, icon, intro, again = 'Play again', W: W0 = 400 }) {
@@ -120,7 +114,6 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     <div class="verb" id="verb" hidden></div>
     <div class="oui" id="oui"></div>
     <div class="sbanner" id="banner" hidden></div>
-    <div class="figsay" id="figsay" hidden></div>
     <div class="spause" id="pause" hidden></div>
     <div class="spocket" id="pocket" hidden></div>
     <div class="sover" id="over"><canvas class="boxbg" id="boxbg" aria-hidden="true"></canvas><div class="card" id="overCard"></div></div>`);
@@ -179,7 +172,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   }
   function surfaceNow() { S.depth = 0; setSfxDepth(0, true); stage.classList.add('snap'); stage.style.setProperty('--deep', '0'); setTimeout(() => stage.classList.remove('snap'), 400); }
   let live = null;   // a scratch copy of the new world, for the jolt's dive back in
-  function glitchRun() { if (S.over) return; glitchT = 1.1; if (Math.random() < 0.5) setTimeout(() => say('glitch'), 1200); wave('glitch', true); const others = organs.filter((o) => o !== active && o.theme); const th = others[Math.floor(Math.random() * others.length)]; if (th) applyTheme(th.theme); active.glitch?.(true, S.curve.mood); pal.hurt(); sfx('buzz'); banner(NEWS.glitch[0], `${PAL[S.curve.mood || 'calm'].name}'s mind flickers: nothing changed. Probably.`); }
+  function glitchRun() { if (S.over) return; glitchT = 1.1; wave('glitch', true); const others = organs.filter((o) => o !== active && o.theme); const th = others[Math.floor(Math.random() * others.length)]; if (th) applyTheme(th.theme); active.glitch?.(true, S.curve.mood); pal.hurt(); sfx('buzz'); banner(NEWS.glitch[0], `${PAL[S.curve.mood || 'calm'].name}'s mind flickers: nothing changed. Probably.`); }
   function tear() {   // slices of the frame shoved sideways, and a colour band, for the glitch's life
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (let i = 0; i < 5; i++) { const y = Math.random() * cv.height, h = (6 + Math.random() * 34) * host.dpr, dx = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 18) * host.dpr; ctx.drawImage(cv, 0, y, cv.width, h, dx, y, cv.width, h); }
@@ -220,7 +213,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     lastSnd = now; sndAt[name] = now; sfx(name, { x: S.curve.x });
   }
   function react(kind) {   // in the corner only: a swell and a tilt, bigger for the bigger twists, then back
-    if (flyT) return;
+    if (flyT || fig.out) return;
     const big = kind === 'glitch' || kind === 'stage' || kind === 'lens', sc = kind === 'near' ? 0.8 : big ? 1.9 : kind === 'kill' ? 1.5 : 1.35, rot = kind === 'mirror' ? -16 : kind === 'near' ? 6 : 10;
     const el = $('spal'); el.style.transition = 'transform .14s ease-out'; el.style.transform = `scale(${sc}) rotate(${rot}deg)`;
     clearTimeout(lungeT); lungeT = setTimeout(() => { el.style.transition = 'transform .55s cubic-bezier(.3,1.6,.5,1)'; el.style.transform = ''; }, big ? 360 : 240);
@@ -233,8 +226,8 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function drawWaves(dt) {
     if (!waves.length) return; ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     const R = Math.hypot(cv.width, cv.height) * 0.7;
-    waves = waves.filter((w) => { w.t += dt; const e = Math.min(1, w.t / w.dur), ee = 1 - (1 - e) * (1 - e), r = 8 * host.dpr + ee * R;
-      const g = ctx.createRadialGradient(w.from.x, w.from.y, Math.max(0, r - 90 * host.dpr), w.from.x, w.from.y, r); g.addColorStop(0, w.col + '00'); g.addColorStop(0.85, w.col + '66'); g.addColorStop(1, w.col + '00');
+    waves = waves.filter((w) => { w.t += dt; const e = Math.min(1, w.t / w.dur), ee = 1 - (1 - e) * (1 - e), r = 8 * host.dpr + ee * (w.small ? 60 * host.dpr : R);
+      const g = ctx.createRadialGradient(w.from.x, w.from.y, Math.max(0, r - (w.small ? 24 : 90) * host.dpr), w.from.x, w.from.y, r); g.addColorStop(0, w.col + '00'); g.addColorStop(0.85, w.col + '66'); g.addColorStop(1, w.col + '00');
       ctx.globalAlpha = 1 - e * e; ctx.fillStyle = g; ctx.fillRect(0, 0, cv.width, cv.height);
       ctx.strokeStyle = w.col; ctx.lineWidth = 6 * host.dpr; ctx.globalAlpha = (1 - e) * 0.9; ctx.beginPath(); ctx.arc(w.from.x, w.from.y, r, 0, 7); ctx.stroke();
       return e < 1; });
@@ -251,73 +244,79 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     flyT = setTimeout(() => { el.style.transition = 'transform .45s cubic-bezier(.3,1.4,.5,1)'; el.style.transform = ''; flyT = setTimeout(() => { flyT = null; }, 450); }, Math.max(300, dur * 1000 - 200));
   }
   // ---------------------------------------------------------------- 🟢 FIG KNOWS IT'S IN A GAME (the fourth wall)
-  // Fig talks to you, not to the game: a bubble under its chip when you go quiet, get hurt, chain a combo, reach your last
-  // heart, leave the tab and come back, play late, arrive somewhere new, score big, or poke it. It rations itself (a line
-  // every TALK_GAP s at most, never the same line twice in a row, nothing while you're deep unless it matters), knocks on
-  // the glass when you stop playing (the field shudders, three knocks), and after a long quiet climbs out of its corner to
-  // peek in from the screen's right edge. Tap Fig and the game pauses: its menu (pauseMenu). 🤐 in the menu quiets it.
-  const TALK_GAP = 14, SAY_MS = 2800;
-  const SAY = {
-    start: ['Hi {name}! I live in here. Let\'s go.', 'It\'s me, Fig. You\'re the one with fingers.', 'Psst: tap me any time to pause.'],
-    late: ['It\'s late, {name}. One more run?', 'Shouldn\'t you be asleep? Me neither.'],
-    morning: ['Morning, {name}! Chaos for breakfast?'],
-    idle: ['Hello? Your finger still there?', 'I can see you, you know.', 'The game is this way. 👉', 'Tap me if you need a break.', 'Knock knock. It\'s Fig. 🤜'],
-    hurt: ['Ow. Did you feel that too?', 'That one\'s on me. Probably.', 'I flinched. Did you flinch?', 'Shake it off. I\'m shaking too.'],
-    hurts: ['Want me to slow down? (I can\'t.)', 'The curve is being mean. Not me. Mostly.', 'Deep breath. Both of us.'],
-    last: ['Last heart. No pressure. Lots of pressure.', 'One heart left, {name}. I believe in you. Mostly.'],
-    combo: ['Okay, show-off.', 'Keep going, I\'m counting!', '{combo} in a row! Fibonacci would be proud.'],
-    score: ['{score} points! More than I have fingers. I have no fingers.', '{score}! Should I be writing this down?'],
-    fresh: ['Ooh, I\'ve never been in here before.', 'New place! Mind the edges.', 'Wait, where are we? I love it.'],
-    glitch: ['That wasn\'t me. (It was me.)', 'Did the screen just… yeah, sorry.'],
-    pocket: ['Psst. Tap that. Trust me.', 'There\'s a way in. Want to see?'],
-    long: ['{min} minutes in here together. I\'m not tired. Are you?'],
-    back: ['You left me in here! I counted every second.', 'Where did you go? I kept the chaos warm.', 'Oh, you\'re back! I wasn\'t worried. Much.'],
-    pause: ['Paused. I\'m holding the chaos with both hands. I have no hands.', 'Time out! Everything\'s frozen except me.', 'Shh. The curve is sleeping.', 'Need a break, {name}? I\'ll wait. I\'m good at waiting.'],
-    resume: ['Okay, go go go!', 'Unfrozen! Back to it.', 'And… chaos!'],
-    poke: ['Hey! That tickles.', 'Stop poking me! (Don\'t stop.)', 'I\'m not a button! …okay, I\'m a button.', 'Poke number {pokes}. I\'m keeping score too.'],
-  };
-  const fig = { t: -9, last: '', shown: null, hurts: [], combo: 0, score: 0, mins: 0, idleN: 0, idleAt: -1, pokes: 0, organ: null, peekT: null };
+  // Fig doesn't talk: it climbs out of its corner and does things. When you're struggling (hurt, on your last life) it flies
+  // into the field and helps (the organ's figAct('help'): swats the shell coming at you, pops the torpedo); when you're on a
+  // roll (a big combo) it makes mischief (figAct('tease'): a gust, a wiggled cup); when you go quiet it fiddles with the game
+  // to get your attention (figAct('idle')), knocks on the glass from inside (three raps, the field shudders) or, after a long
+  // quiet, peeks in round the screen's right edge. A hit cracks the glass where it lands and Fig flies over and wipes it
+  // clean. figAct(kind) → { x, y (world units), icon, act() } | null is the organ's: where to go and what to do there.
+  // Tap Fig and the game pauses (pauseMenu); 🙈 in the menu keeps Fig in its corner (localStorage r4.figQuiet).
+  const fig = { hurts: [], combo: 0, idleN: 0, pokes: 0, peekT: null, acts: 0, last: null, helpAt: -99, teaseAt: -99, out: false, cracks: [] };
   const quiet = () => { try { return localStorage.getItem('r4.figQuiet') === '1'; } catch { return false; } };
-  const who = () => String((me && names?.[me.id]) || 'friend').replace(/_/g, ' ');
-  const pick = (a) => a[Math.floor(Math.random() * a.length)];
-  function say(kind, { force = false, vars = {} } = {}) {
-    const lines = SAY[kind]; if (!lines || (quiet() && kind !== 'pause' && kind !== 'poke')) return false;
-    if (!force && (pk || S.time - fig.t < TALK_GAP || deepF() > 0.6)) return false;
-    let line = pick(lines); if (lines.length > 1) for (let k = 0; k < 4 && line === fig.last; k++) line = pick(lines);
-    fig.last = line; fig.t = S.time;
-    const v = { name: who(), score: S.score.toLocaleString(), combo: S.combo, min: Math.round(S.time / 60), pokes: fig.pokes, ...vars };
-    const el = $('figsay'); el.textContent = line.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? ''); el.classList.remove('out'); el.hidden = false;
-    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
-    clearTimeout(fig.shown); fig.shown = setTimeout(() => { el.classList.add('out'); fig.shown = setTimeout(() => { el.hidden = true; }, 320); }, SAY_MS);
+  // a world point (the organ's units) as a CSS offset from where Fig's chip sits now
+  const toPage = (x, y) => { const r = cv.getBoundingClientRect(); return { x: r.left + (host.ox + x * host.k) * r.width / cv.width, y: r.top + (host.oy + y * host.k) * r.height / cv.height }; };
+  function figTo(px, py, then, back = 0.35, pose = '') {   // the chip flies to a page point, does `then` on arrival, flies home
+    const el = $('spal'), r = el.getBoundingClientRect(), dx = px - (r.left + r.width / 2), dy = py - (r.top + r.height / 2);
+    fig.out = true; clearTimeout(lungeT); clearTimeout(fig.peekT);
+    el.style.transition = 'transform .45s cubic-bezier(.3,1.1,.4,1)'; el.style.transform = `translate(${dx}px, ${dy}px) scale(1.35)${pose}`;
+    fig.peekT = setTimeout(() => { try { then?.(); } catch (err) { console.warn(err); }
+      el.style.transition = 'transform .12s ease-out'; el.style.transform = `translate(${dx}px, ${dy}px) scale(1.7) rotate(-14deg)${pose}`;
+      fig.peekT = setTimeout(() => { el.style.transition = 'transform .5s cubic-bezier(.3,1.4,.5,1)'; el.style.transform = ''; fig.peekT = setTimeout(() => { fig.out = false; }, 500); }, back * 1000); }, 470);
+  }
+  // 🟢 Fig goes into the game to do one of the organ's things; false when there's nothing for it to do (or it's busy)
+  function figGo(kind) {
+    if (quiet() || fig.out || flyT || transition || pk || paused || !active?.figAct || reduceMotion) return false;
+    let a = null; try { a = active.figAct(kind); } catch (err) { console.warn(err); }
+    if (!a || !(a.x >= 0 && a.x <= host.W && a.y >= 0 && a.y <= host.H)) return false;
+    const p = toPage(a.x, a.y); pal.force(kind === 'tease' ? 'fig' : kind === 'help' ? 'gift' : 'kit', 1.6);
+    figTo(p.x, p.y, () => { const did = a.act?.(); fig.acts++; fig.last = { kind, icon: a.icon || '', did: typeof did === 'string' ? did : null }; sfx(kind === 'help' ? 'ping' : 'clack'); pop(a.x, a.y, kind); });
     return true;
   }
+  function pop(x, y, kind) {   // a ring where Fig touched the game, in the colour of what it did
+    const c = toPage(x, y), r = cv.getBoundingClientRect();
+    waves.push({ t: 0, dur: 0.55, col: kind === 'help' ? '#3DD6C6' : kind === 'tease' ? '#FF5FB0' : '#F5C542', from: { x: (c.x - r.left) * cv.width / r.width, y: (c.y - r.top) * cv.height / r.height }, small: true });
+  }
   function knock() {   // 🤜 Fig knocks on the glass from inside: three raps, the field shudders with each
-    if (reduceMotion) return; let n = 0;
+    if (reduceMotion || quiet()) return; let n = 0; fig.knocks = (fig.knocks || 0) + 1;
     const rap = () => { stage.classList.remove('knock'); void stage.offsetWidth; stage.classList.add('knock'); sfx('clack'); react('kill'); if (++n < 3) setTimeout(rap, 170); else setTimeout(() => stage.classList.remove('knock'), 260); };
     rap();
   }
   function peek() {   // 👀 a long quiet: Fig climbs out of its corner and peeks round the screen's right edge, then goes home
-    if (flyT || reduceMotion) return; const el = $('spal'), r = el.getBoundingClientRect(), c = cv.getBoundingClientRect();
+    if (flyT || fig.out || reduceMotion || quiet()) return; const el = $('spal'), r = el.getBoundingClientRect(), c = cv.getBoundingClientRect();
     const dx = c.right - r.right + r.width * 0.45, dy = c.top + c.height * 0.5 - (r.top + r.height / 2);
-    fig.peeks = (fig.peeks || 0) + 1; clearTimeout(lungeT); el.style.transition = 'transform .7s cubic-bezier(.3,1.2,.5,1)'; el.style.transform = `translate(${dx}px, ${dy}px) rotate(-24deg) scale(1.5)`;
-    clearTimeout(fig.peekT); fig.peekT = setTimeout(() => { el.style.transition = 'transform .6s cubic-bezier(.3,1.4,.5,1)'; el.style.transform = ''; }, 3200);
+    fig.peeks = (fig.peeks || 0) + 1; fig.out = true; clearTimeout(lungeT); el.style.transition = 'transform .7s cubic-bezier(.3,1.2,.5,1)'; el.style.transform = `translate(${dx}px, ${dy}px) rotate(-24deg) scale(1.5)`;
+    clearTimeout(fig.peekT); fig.peekT = setTimeout(() => { el.style.transition = 'transform .6s cubic-bezier(.3,1.4,.5,1)'; el.style.transform = ''; fig.peekT = setTimeout(() => { fig.out = false; }, 600); }, 3200);
+  }
+  // 💥 a hit cracks the glass (drawn over everything, canvas pixels) and Fig flies over and wipes it away
+  function crack() {
+    if (reduceMotion) return; const W = cv.width, H = cv.height, d = host.dpr || 1, x = W * (0.3 + Math.random() * 0.4), y = H * (0.35 + Math.random() * 0.3), lines = [];
+    for (let i = 0, n = 7 + Math.floor(Math.random() * 4); i < n; i++) { let a = (i / n) * 6.283 + Math.random() * 0.5, px = x, py = y; const pts = [[px, py]]; for (let j = 0, m = 3 + Math.floor(Math.random() * 3); j < m; j++) { a += (Math.random() - 0.5) * 0.7; const l = (18 + Math.random() * 46) * d; px += Math.cos(a) * l; py += Math.sin(a) * l; pts.push([px, py]); } lines.push(pts); }
+    const ck = { x, y, lines, t: 0, wipe: null }; fig.cracks.push(ck); if (fig.cracks.length > 3) fig.cracks.shift();
+    setTimeout(() => { if (!fig.cracks.includes(ck) || paused) return; if (fig.out || quiet() || reduceMotion) { ck.wipe = 0; return; } const r = cv.getBoundingClientRect(); figTo(r.left + ck.x * r.width / cv.width, r.top + ck.y * r.height / cv.height, () => { ck.wipe = 0; fig.wipes = (fig.wipes || 0) + 1; sfx('click'); }, 0.55, ' rotate(20deg)'); }, 900);
+  }
+  function drawCracks(dt) {
+    if (!fig.cracks.length) return; const d = host.dpr || 1;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    fig.cracks = fig.cracks.filter((c) => { c.t += dt; if (c.wipe != null) c.wipe += dt; const a = c.wipe != null ? Math.max(0, 1 - c.wipe / 0.45) : c.t > 6 ? Math.max(0, 1 - (c.t - 6) / 0.5) : 1; if (a <= 0) return false;
+      const grow = Math.min(1, c.t / 0.08);
+      [['#00000088', 3.2], ['#FFFFFFdd', 1.3]].forEach(([col, w]) => { ctx.strokeStyle = col; ctx.lineWidth = w * d; ctx.globalAlpha = a; ctx.beginPath(); c.lines.forEach((pts) => { const k = Math.max(2, Math.ceil(pts.length * grow)); pts.slice(0, k).forEach(([px, py], i) => ctx[i ? 'lineTo' : 'moveTo'](px, py)); }); ctx.stroke(); });
+      ctx.globalAlpha = a * 0.35; ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(c.x, c.y, 5 * d, 0, 7); ctx.fill();
+      if (c.wipe != null) { ctx.globalAlpha = Math.max(0, 0.5 - c.wipe); ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(c.x, c.y, (40 + c.wipe * 140) * d, (14 + c.wipe * 30) * d, -0.4, 0, 7); ctx.fill(); }   // the wipe: a smear
+      return true; });
+    ctx.restore();
   }
   function figTick() {   // once a frame while you play: what Fig notices on its own
     const quietFor = S.time - (S.lastIn ?? 0);
-    if (quietFor < 1) { fig.idleN = 0; fig.idleAt = -1; }
-    else if (quietFor > 8 && fig.idleN === 0 && !transition) { fig.idleN = 1; if (say('idle', { force: S.time - fig.t > 6 })) { knock(); fig.knocks = (fig.knocks || 0) + 1; } }
-    else if (quietFor > 20 && fig.idleN === 1 && !transition && !flyT) { fig.idleN = 2; peek(); say('idle', { force: true }); }
-    if (S.combo >= 8 && fig.combo < 8 || S.combo >= 13 && fig.combo < 13 || S.combo >= 21 && fig.combo < 21) say('combo');
+    if (quietFor < 1) fig.idleN = 0;
+    else if (quietFor > 8 && fig.idleN === 0 && !transition) { fig.idleN = 1; if (!figGo('idle')) knock(); }
+    else if (quietFor > 20 && fig.idleN === 1 && !transition && !flyT && !fig.out) { fig.idleN = 2; peek(); }
+    if ((S.combo >= 8 && fig.combo < 8 || S.combo >= 13 && fig.combo < 13 || S.combo >= 21 && fig.combo < 21) && S.time - fig.teaseAt > 25) { if (figGo('tease')) fig.teaseAt = S.time; }
     fig.combo = S.combo;
-    const MILES = [10000, 50000, 100000, 500000, 1e6, 5e6, 1e7]; if (MILES.some((m) => fig.score < m && S.score >= m)) say('score');
-    fig.score = S.score;
-    const mins = Math.floor(S.time / 600); if (mins > fig.mins) { fig.mins = mins; say('long'); }
-    if (active && fig.organ && active !== fig.organ && S.firstLook && Math.random() < 0.5) setTimeout(() => say('fresh'), 1600);
-    fig.organ = active;
   }
-  function figHurt() {   // an organ took a life: Fig winces with you (more if they keep coming)
-    fig.hurts = fig.hurts.filter((t) => S.time - t < 10); fig.hurts.push(S.time);
-    if (fig.hurts.length >= 3) { if (say('hurts', { force: S.time - fig.t > 5 })) fig.hurts = []; } else if (Math.random() < 0.4) say('hurt');
+  function figHurt() {   // an organ took a life: the glass cracks, and on your last legs Fig flies in to help
+    crack();
+    const low = active && (livesOf(active.key) <= 2 || S.hearts <= 1);
+    if (low && S.time - fig.helpAt > 15) setTimeout(() => { if (running && !S.over && !paused && figGo('help')) fig.helpAt = S.time; }, 650);
   }
   // ⏸️ Tap Fig: the game stops where it is (no updates, no beats, no clocks) and Fig asks what you'd like
   let paused = false, armed = null;
@@ -326,23 +325,22 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     if (!running || S.over) return;
     if (!paused) { paused = true; held = 0; sfx('click'); pal.force('gift', 1.4); }
     armed = null; const el = $('pause'), run = !!morphs && organs.length > 1, a = active;
-    const line = (why === 'back' ? pick(SAY.back) : pick(SAY.pause)).replace('{name}', who());
-    el.innerHTML = `<div class="psay">${esc(line)}</div><div class="pstat">${a ? `${a.icon} ${esc(a.name)} · ` : ''}Stage ${stageOf() + 1} · r ${S.curve.r.toFixed(2)} · ${S.score.toLocaleString()} pts · ${'❤️'.repeat(Math.max(0, S.hearts))}</div>
+    el.innerHTML = `<div class="pstat">${a ? `${a.icon} ${esc(a.name)} · ` : ''}Stage ${stageOf() + 1} · r ${S.curve.r.toFixed(2)} · ${S.score.toLocaleString()} pts · ${'❤️'.repeat(Math.max(0, S.hearts))}</div>
       <div class="pbtns"><button class="go1 wide" data-p="go">▶️ Keep playing</button>
       ${run ? '<button data-p="next">⏭️ Next game</button>' : ''}<button data-p="snd">${isMuted() ? '🔇 Sound off' : '🔊 Sound on'}</button>
-      <button data-p="quiet">${quiet() ? '🤐 Fig: quiet' : '💬 Fig: chatty'}</button><button data-p="again">🔁 Start over</button>
+      <button data-p="quiet">${quiet() ? '🙈 Fig stays put' : '🤚 Fig joins in'}</button><button data-p="again">🔁 Start over</button>
       <button data-p="home"${run ? ' class="wide"' : ''}>🏠 Back to r4box</button></div>`;
     el.prepend(pfig); el.hidden = false;
     if (!pfigW) pfigW = palWidget(pfig, { pal: 'calm', s: 40, own: true, dpr: 2 }); else pfigW.wake?.();
     pfigW.set?.({ mood: S.curve.mood || 'calm', r: S.curve.r }); pfigW.force?.(why === 'back' ? 'peak' : 'gift', 2);
   }
-  function resume() { if (!paused) return; paused = false; armed = null; $('pause').hidden = true; pfigW?.sleep?.(); last = 0; S.lastIn = S.time; say('resume', { force: true }); }
+  function resume() { if (!paused) return; paused = false; armed = null; $('pause').hidden = true; pfigW?.sleep?.(); last = 0; S.lastIn = S.time; }
   $('pause').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) { if (e.target === pfig) { fig.pokes++; pfigW?.hurt?.(); say('poke', { force: true }); } return; }
+    const b = e.target.closest('button'); if (!b) { if (e.target === pfig) { fig.pokes++; pfigW?.hurt?.(); sfx('clack'); } return; }
     const k = b.dataset.p;
     if (k === 'go') resume();
     else if (k === 'snd') { setMuted(!isMuted()); b.textContent = isMuted() ? '🔇 Sound off' : '🔊 Sound on'; if (!isMuted()) sfx('click'); }
-    else if (k === 'quiet') { try { localStorage.setItem('r4.figQuiet', quiet() ? '0' : '1'); } catch {} b.textContent = quiet() ? '🤐 Fig: quiet' : '💬 Fig: chatty'; if (!quiet()) say('poke', { force: true, vars: {} }); }
+    else if (k === 'quiet') { try { localStorage.setItem('r4.figQuiet', quiet() ? '0' : '1'); } catch {} b.textContent = quiet() ? '🙈 Fig stays put' : '🤚 Fig joins in'; pfigW?.force?.(quiet() ? 'calm' : 'big', 1.2); }
     else if (k === 'next') { resume(); if (active && !transition) morphTo(nextOrgan(), 'skip'); }
     else if (k === 'again' || k === 'home') {   // these lose the run: a second tap to be sure
       if (armed !== k) { $('pause').querySelectorAll('button.arm').forEach((x) => { x.classList.remove('arm'); x.textContent = x.dataset.label || x.textContent; }); armed = k; b.dataset.label = b.textContent; b.classList.add('arm'); b.textContent = k === 'again' ? '🔁 Tap again: start over' : '🏠 Tap again: leave'; return; }
@@ -350,7 +348,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     }
   });
   $('spal').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (!running || S.over) return; if (paused) resume(); else { fig.pokes++; pauseMenu('tap'); } });
-  // leaving the tab pauses the game; coming back, Fig has something to say about it
+  // leaving the tab pauses the game; coming back, Fig looks startled
   document.addEventListener('visibilitychange', () => { if (document.hidden) { if (running && !S.over && !paused) { pauseMenu('tap'); fig.away = true; } } else if (fig.away) { fig.away = false; if (paused) pauseMenu('back'); } });
   // ---------------------------------------------------------------- 🕳️ POCKETS: a game inside the game, one level deeper
   // Deep enough (POCKET.DEEP of the frame's fade), an organ may show a way further in on one of its own things (Putt's cup,
@@ -367,7 +365,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     offer: (sp, forced = false) => {   // an organ shows its way in; the shell decides whether it may
       if (!sp || !active?.pocket || pk || offer || S.over || transition) return false;
       if (!forced && (pkCool > 0 || deepF() < POCKET.DEEP)) return false;
-      offer = { x: sp.x, y: sp.y, r: sp.r || 18, icon: sp.icon || active.pocket.icon, t: 0, organ: active, forced }; if (Math.random() < 0.4) setTimeout(() => say('pocket'), 900); sfx('hollow', { x: Math.random() }); return true;
+      offer = { x: sp.x, y: sp.y, r: sp.r || 18, icon: sp.icon || active.pocket.icon, t: 0, organ: active, forced }; sfx('hollow', { x: Math.random() }); return true;
     },
     offering: () => !!offer && offer.organ === active, inside: () => !!pk,
   };
@@ -717,6 +715,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     }
     if (glitchT > 0) { glitchT -= dt; if (!reduceMotion) tear(); if (glitchT <= 0) { applyTheme(); active?.glitch?.(false); } }
     if (!reduceMotion) drawWaves(dt);
+    drawCracks(paused ? 0 : dt);
     if (lens?.kind === 'wire') wireframe();
     requestAnimationFrame(loop);
   }
@@ -724,7 +723,6 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   function resetOrgan() {   // the organ's lives are gone: it starts over, easy, and the run pays a heart
     const how = resetPending; resetPending = null; S.lives[active.key] = 3; S.hearts -= 1; S.how = how;
     if (S.hearts <= 0) { over(how); return; }
-    if (S.hearts === 1) setTimeout(() => say('last', { force: true }), 1500);
     S.curve = makeCurve(); S.beats = 0; tenure = 0; { const st = STAGES[0]; zoomTo = st.zoom; widenTo = st.widen; } pal.set({ r: S.curve.r, mood: 'calm' }); applyPalTheme('calm');   // its own clock starts over too
     active.start(); active.enter(null, null); applyTheme(); host.ui(''); calm = 0; if (isCalm(active.key)) openCalm();
     banner(`🔁 ${active.name.toUpperCase()} STARTS OVER · ❤️ −1`, `${how} · the run has ${S.hearts} ${S.hearts === 1 ? 'heart' : 'hearts'} left`); sfx('buzz'); navigator.vibrate?.(80);
@@ -738,9 +736,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
     $('over').hidden = true; running = true; sfx('click'); pal.wake(); pal.set({ r: S.curve.r, mood: 'calm' }); applyPalTheme('calm'); $('spal').hidden = false;
     banner(`${active.icon} ${active.name.toUpperCase()}`, morphs ? `${active.verb} · the curve will morph the world` : active.verb);
     if (isCalm(active.key)) setTimeout(() => { if (running && !S.over && active && isCalm(active.key)) openCalm(); }, 1800);
-    // 🟢 Fig says hello (late at night or first thing, it notices the time)
-    paused = false; $('pause').hidden = true; Object.assign(fig, { t: -99, hurts: [], combo: 0, score: 0, mins: 0, idleN: 0, organ: active });
-    { const h = new Date().getHours(); setTimeout(() => { if (running && !S.over) say(h >= 22 || h < 5 ? 'late' : h < 9 ? 'morning' : 'start', { force: true }); }, 2600); }
+    paused = false; $('pause').hidden = true; Object.assign(fig, { hurts: [], combo: 0, idleN: 0, helpAt: -99, teaseAt: -99, cracks: [] });
   }
   async function over(how) {
     if (S.over) return; S.over = true; S.how = how; running = false; pk = null; offer = null; pend = null; stage.classList.remove('inpocket'); $('pocket').hidden = true; S.depth = 0; setSfxDepth(0, true); stage.style.setProperty('--deep', '0'); $('verb').hidden = true; host.ui(''); pal.sleep(); clearLens();
@@ -772,7 +768,7 @@ export function runShell({ organs, key, title, icon, intro, again = 'Play again'
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => cv.addEventListener(ev, fwd('up')));
   addEventListener('keydown', (e) => { if (running && !S.over && (e.key === 'Escape' || e.key === 'p' || e.key === 'P')) { e.preventDefault(); if (paused) resume(); else pauseMenu('tap'); return; } if (paused) return; S.lastIn = S.time; if (running && !S.over) { if (pk) { if (pk.phase === 'play') pk.mod.keydown?.(e); } else active?.keydown?.(e); } });
   addEventListener('keyup', (e) => { if (running && !S.over) { if (pk) pk.mod.keyup?.(e); else active?.keyup?.(e); } });
-  window.__shell = () => ({ fig: { say: $('figsay').hidden ? null : $('figsay').textContent, knocks: fig.knocks || 0, peeks: fig.peeks || 0, pokes: fig.pokes, paused, quiet: quiet() }, organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure(), next: S.runNext }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r, top: c.curve.top || 0 }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, top: S.curve.top || 0, live: true }]] : [])), morphs: S.morphs, depth: S.depth || 0, deep: deepF(), deepest: S.deepest || 0, jolts: S.jolts || 0, jolt: transition?.jolt || 0, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
+  window.__shell = () => ({ fig: { acts: fig.acts, last: fig.last, cracks: fig.cracks.length, wipes: fig.wipes || 0, out: fig.out, go: (k) => figGo(k), crack: () => crack(), knocks: fig.knocks || 0, peeks: fig.peeks || 0, pokes: fig.pokes, paused, quiet: quiet() }, organ: active?.key, prev: prev?.key, calm, glitch: glitchT > 0, mood: S.curve.mood, stage: stageOf() + 1, zoom, widen, W: host.W, lens: lens?.kind || null, H: host.H, oy: host.oy, cw: cv.getBoundingClientRect().width, k: host.k, ox: host.ox, theme: stage.style.getPropertyValue('--bg'), score: S.score, hearts: S.hearts, combo: S.combo, beats: S.beats, allBeats: S.allBeats, run: S.run && { r: S.run.r, n: S.run.n, x: S.run.x, hold: minTenure(), next: S.runNext }, clocks: Object.fromEntries([...clocks].map(([o, c]) => [o.key, { beats: c.beats, r: c.curve.r, top: c.curve.top || 0 }]).concat(active ? [[active.key, { beats: S.beats, r: S.curve.r, top: S.curve.top || 0, live: true }]] : [])), morphs: S.morphs, depth: S.depth || 0, deep: deepF(), deepest: S.deepest || 0, jolts: S.jolts || 0, jolt: transition?.jolt || 0, r: S.curve.r, n: S.curve.n, window: S.curve.window, over: S.over, tenure, running, transition: !!transition, lives: { ...S.lives },
     pocket: { state: pk ? pk.phase : offer ? 'offer' : 'none', key: pk?.mod.key || null, left: pk?.left ?? null, cool: pkCool, count: S.pockets || 0, wins: S.pocketWins || 0, rips: S.pocketJolts || 0, last: pkLast,
       offer: offer && { x: offer.x, y: offer.y, r: offer.r, t: offer.t, forced: offer.forced, screen: (() => { const r = cv.getBoundingClientRect(); return { x: r.left + (host.ox + offer.x * host.k) * r.width / cv.width, y: r.top + (host.oy + offer.y * host.k) * r.height / cv.height }; })() } },
     jpocket: !!transition?.pocket,
