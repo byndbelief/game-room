@@ -771,6 +771,21 @@ better from the last 15 minutes. `window.__cup()` is the pocket's debug; `__golf
 `canFix`, `fig`, `figHelp`, `cupBonus`, `flagKick`, `toScreen`, `hole`, `ball`, `strokes`. Test (scratch): `t_golfup`.
 In a solo round the five sneak-attack items are greyed out in the backpack (`renderPack`: nobody to hit; `use_loot` would refuse).
 
+### Putt Post: every hole a new layout (page only, 087 in the engine's comments)
+A game with random obstacles (`seed != 0`: the lobby's default and every Chaos round) no longer plays the classic 18
+with bits sprinkled on. `holeFor(seed, hi)` → `genHole`: the hole's par stays its number's (the server's `_golf_par`
+knows only that), and `shapeOf(seed, hi, c)` deals from that par's deck in `SHAPES` (2: straight, diamond, funnel, cross,
+pinball; 3: dogleg, zigzag, island, pinball, windmill, funnel, sand, cross, gates, diamond, bowl, straight; 4: zigzag,
+island, horseshoe, creeks, castle, gates, windmill, sbend, maze), shuffled by the seed and dealt in hole order, so a
+round runs through a par's whole deck before a shape repeats. `shapeHole(shape, r)` randomises each (sizes, sides, gaps,
+counts, `mirrorHole` half the time, `sprinkle` extras) with names from `SHAPE_NAMES`; up to 16 tries must pass `reachable`,
+a clear tee and cup and 120+ apart, else `randomExtras`. The labyrinth is one par-4 card, on a long course only (it was
+every par-4 hole: 5 a round), so at most one a round. `isMaze(hi, c, seed)` and `holeName(hi, c, seed)` take the seed
+(`holeName` sets the course for the lookup); `h.shape`, `h.wi` = the place (golf-worlds `worldFor` reads `h.wi ?? h.hi`)
+turns with the seed. Seed 0 still plays the classic 18. Games running at the push changed layout from the next hole.
+Test (scratch): `t_holes` (6,480 holes over 3 course sizes: all reachable, no fallbacks, ≤ 1 maze a round, ~14.7 shapes a
+round, a contact sheet); `t_golfup` now picks a seed whose hole has 3+ hazards.
+
 ### Putt Post on phones: the whole screen, and the slingshot Putt (page only)
 The canvas is any shape now. golf.js works in the canvas's own pixels: `lw()`×`lh()` (before the sideways
 turn), `kFit` (px a course unit with the whole hole in view, zoom 1), `kNorm` (a 1-player hole on this

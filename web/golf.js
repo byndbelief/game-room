@@ -2,7 +2,7 @@
 import { sb, me, bots, signedIn, esc, nm, friendly, notify, ITEMS, compactPack, backpack, useLoot, announceChaos, backpackBarHTML, sfx, liveGame, nudge, nextUpChip, names, gauntletBar, isPhone, noteMirror, note, onHold, onTaps, rumour, shotClock, stopShotClock, chaosClock, dramaOn, face, livePresence, avatarOf, splash, jumpToNext, setGameTools, condenseTop, golfTheme, setGolfThemePref, liveCountdown, srv } from './common.js';
 import {
   BW, BH, LW, LH, COURSE, POWER, LONG, parOf, maxStrokes, setCourse, HOLES, R, CUP_R, tick, q20, q100, ATTACKS, holeWithAttack, holeWithTwists, twistsFor, CHIP_AIR, drawHole,
-  inPoly, inRect, segDist, reduceMotion, setGolfTheme, holeName, flowTo, withFixes, hazardAt,
+  inPoly, inRect, segDist, reduceMotion, setGolfTheme, holeName, flowTo, withFixes, hazardAt, holeFor,
 } from './golf-engine.js';
 import { worldFor } from './golf-worlds.js';
 import { palWidget } from './pals.js';
@@ -391,7 +391,7 @@ function renderCard() {
   // Skip ahead, only while it's your turn and nothing is rolling.
   const canJump = !over && !liveOn && curPlayer() === me.id && mode === 'aim' && curHole() < g.start + g.count - 1;
   $('jumpRow').hidden = !canJump;
-  if (canJump) { let o = ''; for (let i = curHole() + 1; i < g.start + g.count; i++) o += `<option value="${i}">Hole ${i + 1}: ${esc(holeName(i))}</option>`; $('jumpTo').innerHTML = o; }
+  if (canJump) { let o = ''; for (let i = curHole() + 1; i < g.start + g.count; i++) o += `<option value="${i}">Hole ${i + 1}: ${esc(holeName(i, COURSE, g.seed))}</option>`; $('jumpTo').innerHTML = o; }
 }
 
 // ---------------------------------------------------------------- what happens next
@@ -991,7 +991,7 @@ async function deleteGame() {
 // (golf_fix) so every page builds your hole the same way. Fig helps only on your own hole, and never in a live race with
 // other people. The cup bonus is a game of its own (organs/pockets/cup.js); a win drops one Putt Post item (golf_cup_bonus).
 const lookIs = (k) => (LOOKS[golfTheme()] ? golfTheme() : 'worlds') === k;
-const placeName = (hole) => (lookIs('worlds') ? `${worldFor({ hi: hole }).icon} ` : '') + holeName(hole);
+const placeName = (hole) => (lookIs('worlds') ? `${worldFor(holeFor(G.game.seed, hole)).icon} ` : '') + holeName(hole, COURSE, G.game.seed);
 function lookChanged() { cupArts.clear(); scene.cupArt = undefined; if (G && scene.hole) $('holeName').textContent = placeName(curHole()); }
 const marginFill = () => (lookIs('natural') ? '#3F6B2C' : lookIs('worlds') && scene.hole ? worldFor(scene.hole).bg[1] : '#1A4F32');
 const myPlay = () => G?.game.status === 'playing' && (liveOn ? !myHoleDone() : curPlayer() === me.id);

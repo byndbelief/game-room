@@ -150,10 +150,12 @@ function randomExtras(seed, hi){
 // them like the rails. A pond sits in a dead end or two, and a sand trap on the way.
 const mazeCols=(c=COURSE)=>c<1.6?0:Math.min(16,Math.floor(320*c/62));
 const MAZE_NAMES=['The Labyrinth',"Minotaur's Maze",'The Warren','Hedge Maze','The Knot'];
-const isMaze=(hi,c=COURSE)=>HOLES[hi].par===4 && mazeCols(c)>0;
-function holeName(hi,c=COURSE){
-  if(!isMaze(hi,c)) return HOLES[hi].name;
-  return MAZE_NAMES[HOLES.slice(0,hi).filter(x=>x.par===4).length%MAZE_NAMES.length];
+const isMaze=(hi,c=COURSE,seed=0)=>!!seed && shapeOf(seed,hi,c)==='maze';
+// The hole's name: the classic one, or the generated hole's own (pass the game's seed; setCourse first).
+function holeName(hi,c=COURSE,seed=0){
+  if(!seed) return HOLES[hi].name;
+  const was=COURSE; if(c!==was) setCourse(c);
+  const n=holeFor(seed,hi).name; if(c!==was) setCourse(was); return n;
 }
 function mazeHole(seed, hi, cols){
   const rows=Math.round(cols*520/320), X0=20, Y0=20, cw=320/cols, ch=520/rows, N=cols*rows;
@@ -210,17 +212,165 @@ function mazeHole(seed, hi, cols){
       if(w && x0<0) x0=x; if(!w && x0>=0){ walls.push([Math.round(X0+x0*cw),Math.round(Y0+(y+1)*ch),Math.round(X0+x*cw),Math.round(Y0+(y+1)*ch)]); x0=-1; } } }
     for(let x=0;x<cols-1;x++){ let y0=-1; for(let y=0;y<=rows;y++){ const w=y<rows && !E[at(x,y)];
       if(w && y0<0) y0=y; if(!w && y0>=0){ walls.push([Math.round(X0+(x+1)*cw),Math.round(Y0+y0*ch),Math.round(X0+(x+1)*cw),Math.round(Y0+y*ch)]); y0=-1; } } }
-    const h=buildHole({ name:holeName(hi,mazeCols()), par:4, outline:rect(X0,Y0,320,520), tee:mid(...tee), cup:mid(...cup), walls, water, sand, maze:cols }, null);
+    const h=buildHole({ name:MAZE_NAMES[(seed>>>0)%MAZE_NAMES.length], par:4, outline:rect(X0,Y0,320,520), tee:mid(...tee), cup:mid(...cup), walls, water, sand, maze:cols }, null);
     h.extra=null;
     if(reachable(h)) return h;
     fallback=fallback||h;
   }
   return fallback||buildHole(HOLES[hi], null);
 }
+// ================================================================= every hole a new layout (087)
+// A game with random obstacles (seed != 0) no longer plays the same 18 layouts with bits sprinkled on: each hole is
+// generated from the seed. Its par stays the hole number's (the server's _golf_par knows only that), and each par has
+// a deck of shapes, shuffled by the seed, dealt in order down the round, so a round runs through every shape of its par
+// before one comes back, and the next game deals a different order. Every shape is randomised (sizes, sides, gaps,
+// counts, a mirror) and vetted by reachable(). The labyrinth is one card in the par-4 deck, on a long course only.
+// Integer-only rng and rounded coordinates, so every device builds the same hole.
+const SHAPES={
+  2:['straight','diamond','funnel','cross','pinball'],
+  3:['dogleg','zigzag','island','pinball','windmill','funnel','sand','cross','gates','diamond','bowl','straight'],
+  4:['zigzag','island','horseshoe','creeks','castle','gates','windmill','sbend','maze'],
+};
+const SHAPE_NAMES={
+  straight:['The Runway','Straight Shot','The Alley','Long Lane','The Avenue'],
+  diamond:['The Diamond','The Gem','Kite Hill','The Prism'],
+  funnel:['The Funnel','Side Hill','The Tilt','Slippery Slope','The Drain'],
+  cross:['The Crossroads','Plus Sign','Four Corners','The Junction'],
+  pinball:['Pinball','Bumper Garden','The Pachinko','Popcorn','Boing Boing'],
+  dogleg:['The Dogleg','Elbow Room','The Hook','Round the Bend'],
+  zigzag:['Zigzag','The Slalom','Switchbacks','Snake Path'],
+  island:['Creek Bridge','The Moat','Island Green','The Crossing','Over the Water'],
+  windmill:['The Windmill','Spinner Alley','Whirligig','The Mill','Blades'],
+  sand:['Sand Sea','The Dunes','Beach Day','The Bunkers'],
+  gates:['The Gates','Needle Eye','Keyholes','The Turnstiles','Gap Run'],
+  bowl:['The Bowl','Round Robin','The Saucer','Hilltop Cup'],
+  horseshoe:['The Horseshoe','U-Turn','Hairpin','There and Back'],
+  creeks:['Twin Creeks','Stepping Stones','Three Rivers','The Marsh'],
+  castle:['The Castle','The Keep','Drawbridge','The Fort'],
+  sbend:['The S-Bend','Serpentine','Squiggle','The Wiggle'],
+};
+// the shape a hole gets: its par's deck shuffled by the seed, dealt in hole order
+function shapeOf(seed, hi, c=COURSE){
+  const par=HOLES[hi].par, deck=SHAPES[par].filter(s=>s!=='maze' || mazeCols(c)>0), r=rng((Math.imul(seed|0,0x2545F491)^(par*977))>>>0);
+  for(let i=deck.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [deck[i],deck[j]]=[deck[j],deck[i]]; }
+  const k=HOLES.slice(0,hi).filter(x=>x.par===par).length;
+  return deck[k%deck.length];
+}
+function mirrorHole(b){
+  const X=x=>BW-x, RX=([x,y,w,hh])=>[BW-x-w,y,w,hh];
+  return {...b, outline:b.outline.map(([x,y])=>[X(x),y]).reverse(), tee:[X(b.tee[0]),b.tee[1]], cup:[X(b.cup[0]),b.cup[1]],
+    blocks:(b.blocks||[]).map(RX), sand:(b.sand||[]).map(RX), water:(b.water||[]).map(RX), bumpers:(b.bumpers||[]).map(([x,y,r])=>[X(x),y,r]),
+    slopes:(b.slopes||[]).map(s=>({r:RX(s.r), a:[-s.a[0],s.a[1]]})), spinners:(b.spinners||[]).map(([x,y,l,n,t])=>[X(x),y,l,n,-t])};
+}
+// sprinkles n small things (bumpers, sand) on the open fairway, clear of tee, cup and what's there
+function sprinkle(b, r, n){
+  const out={bumpers:[...(b.bumpers||[])], sand:[...(b.sand||[])]};
+  const xs=b.outline.map(p=>p[0]), ys=b.outline.map(p=>p[1]), x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+  for(let i=0;i<n;i++) for(let t=0;t<20;t++){
+    const x=Math.round(x0+24+r()*(x1-x0-48)), y=Math.round(y0+24+r()*(y1-y0-48));
+    if(!inPoly(x,y,b.outline) || Math.hypot(x-b.tee[0],y-b.tee[1])<60 || Math.hypot(x-b.cup[0],y-b.cup[1])<50) continue;
+    if((b.blocks||[]).some(q=>inRect(x,y,[q[0]-26,q[1]-26,q[2]+52,q[3]+52])) || (b.water||[]).some(q=>inRect(x,y,[q[0]-22,q[1]-22,q[2]+44,q[3]+44]))) continue;
+    if(out.bumpers.some(([bx,by,br])=>Math.hypot(x-bx,y-by)<br+40) || (b.spinners||[]).some(([sx,sy,l])=>Math.hypot(x-sx,y-sy)<l+24)) continue;
+    if(r()<0.6) out.bumpers.push([x,y,9+Math.floor(r()*7)]); else out.sand.push([x-28,y-18,56,36]);
+    break;
+  }
+  return {...b, ...out};
+}
+function shapeHole(shape, r){
+  const ri=(a,b)=>a+Math.floor(r()*(b-a+1)), pick=a=>a[Math.floor(r()*a.length)];
+  const name=pick(SHAPE_NAMES[shape]||['Mystery Hole']);
+  let b=null;
+  if(shape==='straight'){
+    const w=ri(150,280), x0=Math.round((BW-w)/2), top=ri(40,120);
+    b={outline:rect(x0,top,w,520-top), tee:[180,490], cup:[ri(x0+30,x0+w-30),top+ri(40,70)]};
+    b=sprinkle(b,r,ri(1,3));
+  } else if(shape==='diamond'){
+    const n=pick([4,5,6,8]), cx=180, cy=ri(270,300), rx=ri(130,150), ry=ri(220,240), a0=n===4?-Math.PI/2:-Math.PI/2+Math.PI/n;
+    const pts=[]; for(let i=0;i<n;i++){ const a=a0+i*2*Math.PI/n; pts.push([Math.round(cx+Math.cos(a)*rx),Math.round(cy+Math.sin(a)*ry)]); }
+    b={outline:pts, tee:[180,cy+ry-45], cup:[180,cy-ry+50], bumpers:[[180,cy,ri(12,22)]]};
+    if(r()<0.5) b.bumpers.push([180-ri(50,70),cy-ri(50,90),11],[180+ri(50,70),cy-ri(50,90),11]);
+  } else if(shape==='funnel'){
+    const dir=r()<0.5?-1:1, kind=pick(['side','funnel','down']);
+    b={outline:BOX, tee:[ri(80,280),490], cup:[ri(90,270),ri(85,110)], slopes:[]};
+    if(kind==='side') b.slopes.push({r:[40,ri(150,200),280,ri(180,240)], a:[0.03*dir,0]});
+    else if(kind==='funnel') b.slopes.push({r:[40,40,140,ri(180,240)], a:[0.03,0.008]},{r:[180,40,140,ri(180,240)], a:[-0.03,0.008]});
+    else b.slopes.push({r:[40,ri(260,320),280,200], a:[0.012*dir,-0.02]});
+    b=sprinkle(b,r,ri(1,2));
+  } else if(shape==='cross'){
+    const arm=ri(100,130), cy=ri(250,320), ax=Math.round((BW-arm)/2);
+    b={outline:[[ax,40],[ax+arm,40],[ax+arm,cy-arm/2],[330,cy-arm/2],[330,cy+arm/2],[ax+arm,cy+arm/2],[ax+arm,520],[ax,520],[ax,cy+arm/2],[30,cy+arm/2],[30,cy-arm/2],[ax,cy-arm/2]].map(([x,y])=>[Math.round(x),Math.round(y)]),
+      tee:[180,490], cup:[180,ri(80,110)], bumpers:[[180,cy,ri(10,16)]]};
+    if(r()<0.5){ b.cup=[ri(60,80),cy]; b.bumpers=[[180,cy-ri(30,50),12]]; }
+  } else if(shape==='pinball'){
+    const rows=ri(3,4), cols=ri(3,4), br=ri(9,13), b0=[];
+    for(let j=0;j<rows;j++) for(let i=0;i<cols;i++){ if(r()<0.2) continue; const x=Math.round(80+(i+(j%2?0.5:0))*200/(cols-0.5)), y=Math.round(170+j*240/rows+ri(-12,12)); if(x>300) continue; b0.push([x,y,br]); }
+    b={outline:BOX, tee:[180,490], cup:[ri(110,250),ri(85,105)], bumpers:b0};
+  } else if(shape==='dogleg'){
+    const lw=ri(110,150), bend=ri(150,210), x0=40;
+    b={outline:[[x0,40],[320,40],[320,bend],[x0+lw,bend],[x0+lw,520],[x0,520]], tee:[x0+Math.round(lw/2),480], cup:[ri(240,290),Math.round((40+bend)/2)]};
+    b=sprinkle(b,r,ri(1,2));
+  } else if(shape==='zigzag' || shape==='sbend'){
+    const n=shape==='sbend'?3:ri(2,3), gap=ri(90,120), walls=[];
+    for(let i=0;i<n;i++){ const y=Math.round(140+(i+1)*(360/(n+1))), left=i%2===0; walls.push(left?[40,y,280-gap,16]:[40+gap,y,280-gap,16]); }
+    b={outline:BOX, tee:[n%2?280:80,490], cup:[n%2?ri(70,110):ri(250,290),ri(85,105)], blocks:walls};
+    if(shape==='sbend') b.tee=[80,490], b.cup=[n%2?ri(250,290):ri(70,110),90];
+    if(r()<0.6) b=sprinkle(b,r,1);
+  } else if(shape==='island' || shape==='creeks'){
+    const bands=shape==='creeks'?ri(2,3):1, water=[];
+    for(let i=0;i<bands;i++){ const y=Math.round(160+i*(300/bands)+ri(0,30)), hh=ri(32,shape==='island'?70:44), gap=ri(56,74), gx=ri(70,290-gap);
+      water.push([40,y,gx-40,hh],[gx+gap,y,320-gx-gap,hh]); }
+    b={outline:BOX, tee:[ri(110,250),495], cup:[ri(90,270),ri(80,100)], water:water.filter(w=>w[2]>4)};
+    if(r()<0.5) b.sand=[[ri(90,200),ri(110,130),ri(60,90),30]];
+  } else if(shape==='windmill'){
+    const n=ri(1,2), sp=[], bu=[];
+    for(let i=0;i<n;i++){ const y=n===1?ri(240,320):Math.round(190+i*190), l=ri(48,70); sp.push([180,y,l,ri(2,4),(r()<0.5?-1:1)*(0.02+r()*0.02)]); bu.push([180,y,ri(8,11)]); }
+    b={outline:r()<0.4?rect(70,40,220,480):BOX, tee:[180,490], cup:[180,ri(80,100)], spinners:sp, bumpers:bu};
+  } else if(shape==='sand'){
+    const s=[]; for(let i=0;i<ri(2,4);i++) s.push([ri(40,200),ri(150,380),ri(80,160),ri(50,90)]);
+    b={outline:BOX, tee:[180,490], cup:[ri(100,260),ri(85,105)], sand:s, bumpers:[[ri(120,240),ri(220,330),ri(11,15)]]};
+  } else if(shape==='gates'){
+    const n=ri(3,4), walls=[];
+    for(let i=0;i<n;i++){ const y=Math.round(150+i*(330/n)), gap=ri(48,64), gx=ri(70,290-gap); walls.push([40,y,gx-40,12],[gx+gap,y,320-gx-gap,12]); }
+    b={outline:BOX, tee:[ri(120,240),495], cup:[ri(90,270),ri(80,100)], blocks:walls.filter(w=>w[2]>4)};
+  } else if(shape==='bowl'){
+    const pts=[]; for(let i=0;i<12;i++){ const a=-Math.PI/2+i*Math.PI/6; pts.push([Math.round(180+Math.cos(a)*150),Math.round(285+Math.sin(a)*235)]); }
+    const q=ri(0,1);
+    b={outline:pts, tee:[180,480], cup:[180,ri(200,330)], slopes:[{r:[40,60,140,460],a:[0.016,0]},{r:[180,60,140,460],a:[-0.016,0]}], bumpers:q?[[180,ri(380,410),12]]:[]};
+    if(q===0) b.sand=[[150,ri(380,400),60,30]];
+  } else if(shape==='horseshoe'){
+    const wx=ri(160,180), top=ri(130,180);
+    b={outline:BOX, tee:[ri(80,110),495], cup:[ri(250,290),ri(470,495)], blocks:[[wx,top,20,520-top]]};
+    if(r()<0.6) b.bumpers=[[ri(90,130),ri(90,110),12],[ri(230,270),ri(90,110),12]];
+    if(r()<0.5) b.water=[[wx+40,ri(250,330),70,40]];
+  } else if(shape==='castle'){
+    const gx=ri(130,200);
+    b={outline:BOX, tee:[180,495], cup:[ri(120,240),85], water:[[40,140,gx-40,30],[gx+46,140,274-gx,30]].filter(w=>w[2]>4),
+      spinners:[[180,ri(290,340),ri(52,64),3,(r()<0.5?-1:1)*0.025]], bumpers:[[180,0,9],[ri(80,100),ri(220,250),12],[ri(260,280),ri(220,250),12]], blocks:[[ri(100,115),55,14,ri(50,70)],[ri(245,260),55,14,ri(50,70)]]};
+    b.bumpers[0][1]=b.spinners[0][1];
+  }
+  if(!b) return null;
+  if(r()<0.5) b=mirrorHole(b);
+  return {name, ...b};
+}
+function genHole(seed, hi){
+  const shape=shapeOf(seed, hi), par=HOLES[hi].par;
+  if(shape==='maze') return mazeHole(seed||1, hi, mazeCols());
+  for(let attempt=0; attempt<16; attempt++){
+    const r=rng((Math.imul(seed|0,0x9E3779B1) ^ (hi*104729 + attempt*7919 + 4241))>>>0), b=shapeHole(shape, r);
+    if(!b) break;
+    const h=buildHole({...b, par, shape}, null);
+    const clear=([x,y],m)=>inPoly(x,y,h.outline) && !h.segs.some(sg=>segDist(x,y,sg)<m) && ![...h.water,...h.sand,...h.blocks].some(q=>inRect(x,y,[q[0]-m,q[1]-m,q[2]+2*m,q[3]+2*m]))
+      && !h.bumpers.some(([bx,by,br])=>Math.hypot(x-bx,y-by)<br+m) && !h.spinners.some(([sx,sy,l])=>Math.hypot(x-sx,y-sy)<l+m);
+    if(clear(h.tee,14) && clear(h.cup,16) && reachable(h) && Math.hypot(h.tee[0]-h.cup[0], h.tee[1]-h.cup[1])>120) return h;
+  }
+  return randomExtras(seed, hi);
+}
 const holeCache=new Map();
+// seed 0 (no random obstacles) plays the classic 18; any other seed generates every hole (087). The place a hole is
+// drawn in (golf-worlds.js, h.wi) turns with the seed too, so the same hole number isn't always the meadow.
 function holeFor(seed, hi){
-  const mz=isMaze(hi)?mazeCols():0, key=seed+':'+hi+':'+mz;
-  if(!holeCache.has(key)){ const h=mz ? mazeHole(seed||1,hi,mz) : seed ? randomExtras(seed,hi) : buildHole(HOLES[hi], null); h.hi=hi; holeCache.set(key, h); }
+  const key=seed+':'+hi+':'+mazeCols();
+  if(!holeCache.has(key)){ const h=seed ? genHole(seed,hi) : buildHole(HOLES[hi], null); h.hi=hi; h.wi=seed ? (hi+(seed>>>0)%9)%9 : hi%9; holeCache.set(key, h); }
   return holeCache.get(key);
 }
 
@@ -695,4 +845,4 @@ function drawHole(c, h, t, scene={}){
 }
 
 
-export { withFixes, hazardAt, FIXABLE, GOPH_R, bladeSegs, THEME, BW, BH, LONG, POWER, parOf, maxStrokes, holeName, isMaze, mazeCols, flowTo, LW, LH, COURSE, setCourse, HOLES, N_HOLES, rng, inPoly, inRect, segDist, buildHole, reachable, holeFor, R, CUP_R, MAX_STROKES, tick, q20, q100, ATTACKS, holeWithAttack, holeWithTwists, twistsFor, CHIP_AIR, drawHole, setGolfTheme, COS, SIN };
+export { shapeOf, genHole, withFixes, hazardAt, FIXABLE, GOPH_R, bladeSegs, THEME, BW, BH, LONG, POWER, parOf, maxStrokes, holeName, isMaze, mazeCols, flowTo, LW, LH, COURSE, setCourse, HOLES, N_HOLES, rng, inPoly, inRect, segDist, buildHole, reachable, holeFor, R, CUP_R, MAX_STROKES, tick, q20, q100, ATTACKS, holeWithAttack, holeWithTwists, twistsFor, CHIP_AIR, drawHole, setGolfTheme, COS, SIN };

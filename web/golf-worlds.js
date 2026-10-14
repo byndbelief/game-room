@@ -129,7 +129,7 @@ const WORLDS = [
     pond: 'deep', sand: ['#EEDFAE', '#BFA56A'], bump: { c: ['#FFE082', '#FFA726', '#8D4A00'], kind: 'spikes' },
     amb: (c, ts, W, front) => { if (!front) return; c.strokeStyle = '#FFFFFFAA'; c.lineWidth = 1; bits(10, (i, ph) => { const life = ((ts * 0.18 + ph) % 1), x = ((ph * 0.43) % 1) * W + Math.sin(ts * 2 + ph * 3) * 5, y = W * (1.05 - life * 1.15); c.beginPath(); c.arc(x, y, 1.5 + (i % 3), 0, 7); c.stroke(); }); } },
 ];
-const worldFor = (h) => WORLDS[(((h && h.hi) || 0) % WORLDS.length + WORLDS.length) % WORLDS.length];
+const worldFor = (h) => WORLDS[(((h && (h.wi ?? h.hi)) || 0) % WORLDS.length + WORLDS.length) % WORLDS.length];   // h.wi: the place turns with the game's seed (087)
 
 // ---------------------------------------------------------------- geometry helpers
 const pathPts = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](x, y)); c.closePath(); };
