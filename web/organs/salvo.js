@@ -119,7 +119,8 @@ function fireArm(x, y) {
   } else if (kind === 'strike') {
     const dir = x > W / 2 ? -1 : 1; g.bombers.push({ x: dir > 0 ? -60 : W + 60, y: laneY(lane) - 30, dir, lane, drops: [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5].map((k) => x + k * CELL * 0.9 * dir) }); host.banner('✈️ AIRSTRIKE', 'bombs along the lane'); sfx('tick');
   } else if (kind === 'tsunami') {
-    { const hit = new Set(); g.waves.push({ y: b.y, y0: spread() > 0.3 ? b.y : H() + 40, dir: -1, hit }); if (spread() > 0.3) g.waves.push({ y: b.y, y0: b.y, dir: 1, hit }); }   // from the middle of the sea it rolls both ways host.banner('🌊 TSUNAMI', 'a hit on every ship at sea'); sfx('splash');
+    { const hit = new Set(); g.waves.push({ y: b.y, y0: spread() > 0.3 ? b.y : H() + 40, dir: -1, hit }); if (spread() > 0.3) g.waves.push({ y: b.y, y0: b.y, dir: 1, hit }); }   // from the middle of the sea it rolls both ways
+    host.banner('🌊 TSUNAMI', 'a hit on every ship at sea'); sfx('splash');
   }
 }
 const nearestLane = (y) => { let best = 0, bd = 1e9; for (let i = 0; i < LANES; i++) { const d = Math.abs(laneY(i) - y); if (d < bd) { bd = d; best = i; } } return best; };
@@ -149,7 +150,8 @@ function update(dt) {
   if (g.twist && g.time > g.twist.until) { g.twist = null; g.arms = []; }
   g.fog += ((g.twist?.kind === 'fog' ? 1 : 0) - g.fog) * Math.min(1, dt * 3);
   const spd = g.twist?.kind === 'storm' ? 2 : 1;
-  g.ships.forEach((s) => { s.x += s.dir * s.spd * spd * dt; if ((s.dir > 0 && s.x > W + 20) || (s.dir < 0 && s.x + s.len * CELL < -20)) { s.dir *= -1; s.lane = Math.floor(Math.random() * LANES); } });
+  g.ships.forEach((s) => { if (s.figT > 0 && (s.figT -= dt) <= 0) s.spd /= 1.5;   // 🟢 Fig's gold paint: quick for a while, then back to its pace
+    s.x += s.dir * s.spd * spd * dt; if ((s.dir > 0 && s.x > W + 20) || (s.dir < 0 && s.x + s.len * CELL < -20)) { s.dir *= -1; s.lane = Math.floor(Math.random() * LANES); } });
   if (g.reloadT > 0) { g.reloadT -= dt; if (g.reloadT <= 0) { g.reloadT = 0; g.ammo = AMMO; } }
   const whirl = g.twist?.kind === 'whirl' ? 1 : 0;
   g.shells = g.shells.filter((s) => { s.t += dt; if (s.t < 0) return true;
@@ -325,6 +327,54 @@ function draw(t) {
   // a soft vignette, so the middle of the sea reads first
   const vg = ctx.createRadialGradient(W / 2, Hh / 2, Math.min(W, Hh) * 0.35, W / 2, Hh / 2, Math.max(W, Hh) * 0.75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,5,15,0.45)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, Hh);
 }
+// ---------------------------------------------------------------- 🟢 Fig at sea (the shell flies Fig to x, y, then calls act)
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+const onSea = (q) => q.x > 8 && q.x < W - 8 && q.y > 8 && q.y < H() - 8;
+const shipMid = (sh) => ({ x: sh.x + sh.len * CELL / 2, y: laneY(sh.lane) });
+function nearestTo(list, pos, b) { let best = null, bd = Infinity; list.forEach((o) => { const p = pos(o), d = Math.hypot(p.x - b.x, p.y - b.y); if (d < bd && onSea(p)) { bd = d; best = o; } }); return best; }
+function figAct(kind) {
+  if (!g || S.over) return null;
+  const b = BOAT();
+  if (kind === 'help') {   // whatever is about to hit the gunboat first: a torpedo, a bomb; else a free hit on the nearest ship
+    const tp = nearestTo(g.torps, torpPos, b);
+    if (tp) return { ...torpPos(tp), icon: '🧨', act: () => {
+      if (!g.torps.includes(tp)) return null;
+      const q = torpPos(tp); g.torps.splice(g.torps.indexOf(tp), 1); splash(q.x, q.y, '#9CFFB0', 16); g.fx.push({ kind: 'spout', x: q.x, y: q.y, life: 0.6 }); g.fx.push({ kind: 'text', x: q.x, y: q.y - 12, text: 'FIG POPPED IT', life: 1, col: '#9CFFB0' }); sfx('pop');
+      return figDid('pop torpedo'); } };
+    const bm = nearestTo(g.bombs || [], (q) => q, b);
+    if (bm) return { x: bm.x, y: bm.y, icon: '💣', act: () => {
+      if (!g.bombs.includes(bm)) return null;
+      g.bombs.splice(g.bombs.indexOf(bm), 1); splash(bm.x, bm.y, '#9CFFB0', 14); g.fx.push({ kind: 'text', x: bm.x, y: bm.y - 12, text: 'FIG CAUGHT IT', life: 1, col: '#9CFFB0' }); sfx('clack');
+      return figDid('catch bomb'); } };
+    const sh = nearestTo(g.ships, shipMid, b);
+    if (sh) return { ...shipMid(sh), icon: '💥', act: () => {
+      if (!g.ships.includes(sh)) return null;
+      const open = sh.hits.map((h, i) => (h ? -1 : i)).filter((i) => i >= 0); if (!open.length) return null;
+      landCell(sh, open[Math.floor(open.length / 2)]); return figDid('hit ship'); } };
+    return null;
+  }
+  if (kind === 'tease') {   // 🌟 paint one ship gold: worth 500 sunk, but it puts on speed for 6 s
+    const list = g.ships.filter((sh) => !sh.gold && onSea(shipMid(sh)));
+    const sh = list[Math.floor(Math.random() * list.length)]; if (!sh) return null;
+    return { ...shipMid(sh), icon: '🎨', act: () => {
+      if (!g.ships.includes(sh) || sh.gold) return null;
+      sh.gold = true; sh.hue = 48; if (!(sh.figT > 0)) sh.spd *= 1.5; sh.figT = 6; const p = shipMid(sh);
+      splash(p.x, p.y, '#F5C542', 20); g.fx.push({ kind: 'text', x: p.x, y: p.y - 14, text: '🌟 GOLD PAINT', life: 1.2, col: '#F5C542' }); sfx('chime');
+      return figDid('gold ship'); } };
+  }
+  if (kind === 'idle') {   // knock on a hull (it turns about in a huff), or a splash fight beside the gunboat
+    const sh = nearestTo(g.ships, shipMid, b);
+    if (sh) return { ...shipMid(sh), icon: '✊', act: () => {
+      if (!g.ships.includes(sh)) return null;
+      const p = shipMid(sh); sh.dir *= -1; splash(p.x, p.y, '#BFE9FF', 10); g.fx.push({ kind: 'text', x: p.x, y: p.y - 14, text: 'KNOCK KNOCK', life: 1 }); sfx('clack'); sfx('clack', { delay: 0.14 });
+      return figDid('knock ship'); } };
+    const p = { x: Math.max(30, Math.min(W - 30, b.x + 60)), y: b.y - 20 };
+    return { ...p, icon: '💦', act: () => { splash(p.x, p.y, '#BFE9FF', 18); g.fx.push({ kind: 'spout', x: p.x, y: p.y, life: 0.6 }); sfx('splash'); return figDid('splash'); } };
+  }
+  return null;
+}
+
 const organ = {
   key: 'salvo', name: 'Salvo', icon: '⚓', verb: 'tap the sea to fire · tap torpedoes', beat: 0.9,
   theme: { bg: '#0A1626', gold: '#F5C542', bannerc: '#BFE9FF' },
@@ -338,6 +388,7 @@ const organ = {
   hudLine: () => (g ? `⚓ ${sunkN} sunk · ${g.ships.length} at sea` : ''),
   // 🕳️ the pocket: a wreck under the waves (the last ship you sank, else an old one between the lanes), and what comes up
   pocket: wreckPocket,
+  figAct,
   pocketSpot() {
     if (!g) return null;
     const b = BOAT();
@@ -360,6 +411,8 @@ const organ = {
   level: () => 1 + Math.floor(sunkN / 5),
   overText: (how) => (how === 'torpedoed' ? ['💥 GUNBOAT DOWN', 'Too many torpedoes got through.'] : ['RUN OVER', '']),
   endStats: () => (g ? `⚓ ${sunkN} sunk from ${shotsN} shells` : ''),
-  debug: () => g && ({ spread: g.spread, boat: BOAT(), lanes: [laneY(0), laneY(LANES - 1)], planes: g.planes?.length || 0, bombs: g.bombs?.length || 0, subs: g.subs?.length || 0, ships: g.ships.map((s) => ({ x: s.x, y: laneY(s.lane), len: s.len, hits: s.hits.filter(Boolean).length })), torps: g.torps.map(torpPos), ammo: g.ammo, sunk: sunkN, arm: g.arm, crates: g.crates.map((c) => ({ x: c.x, y: laneY(c.lane), kind: c.kind })), kinds: Object.keys(ARMS), give: (k) => { g.arm = { kind: k, n: ARMS[k].n }; renderBar(); }, crate: () => crate(), fire, wreck: g.wreck, hurtMe: () => host.hurt('torpedoed'), sinking: g.sinking.length, beams: g.beams.length, bombers: g.bombers.length, waves: g.waves.length, twist: g.twist?.kind || null, arms: g.arms.length, W, H: H() }),
+  debug: () => g && ({ spread: g.spread, boat: BOAT(), lanes: [laneY(0), laneY(LANES - 1)], planes: g.planes?.length || 0, bombs: g.bombs?.length || 0, subs: g.subs?.length || 0, ships: g.ships.map((s) => ({ x: s.x, y: laneY(s.lane), len: s.len, hits: s.hits.filter(Boolean).length })), torps: g.torps.map(torpPos), ammo: g.ammo, sunk: sunkN, arm: g.arm, crates: g.crates.map((c) => ({ x: c.x, y: laneY(c.lane), kind: c.kind })), kinds: Object.keys(ARMS), give: (k) => { g.arm = { kind: k, n: ARMS[k].n }; renderBar(); }, crate: () => crate(), fire, wreck: g.wreck, hurtMe: () => host.hurt('torpedoed'), sinking: g.sinking.length, beams: g.beams.length, bombers: g.bombers.length, waves: g.waves.length, twist: g.twist?.kind || null, arms: g.arms.length, W, H: H(),
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; },
+    torp: () => { const bt = BOAT(); g.torps.push({ x0: W / 2, y0: laneY(0), x1: bt.x, y1: bt.y - 8, t: 0, tf: 3 }); }, ship: () => { g.ships.push({ lane: 1, x: W / 2 - CELL, dir: 1, len: 2, spd: 20, hits: [false, false], gold: false, hue: 200 }); }, golds: g.ships.filter((s) => s.gold).length, dirs: g.ships.map((s) => s.dir) }),
 };
 export default organ;

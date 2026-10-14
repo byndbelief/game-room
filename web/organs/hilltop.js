@@ -584,6 +584,52 @@ function draw(t) {
     else if (f.kind === 'text') { ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); ctx.font = f.big ? '400 20px Bungee, Impact, sans-serif' : '900 14px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#1B1030'; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); } });
   ctx.globalAlpha = 1;
 }
+// ---------------------------------------------------------------- 🟢 Fig on the hill (the shell flies Fig to x, y, then calls act)
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+const onHill = (q) => q.x > 8 && q.x < W - 8 && q.y > 8 && q.y < H() - 8;
+function figPop(x, y, text, col = '#9CFFB0') {
+  g.fx.push({ kind: 'text', x, y: y - 20, text, life: 1.1, col }); g.fx.push({ kind: 'ring', x, y, r: 4, R: 30, life: 0.4, col: '#9CFFB0' });
+  for (let i = 0; i < 12; i++) { const a = Math.random() * 6.28, v = 40 + Math.random() * 120; g.fx.push({ kind: 'dot', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, c: ['#9CFFB0', '#FFFFFF', '#FFE08A'][i % 3], life: 0.6, r: 1.5 + Math.random() * 1.5 }); }
+}
+function figAct(kind) {
+  if (!g || S.over) return null;
+  const me = { x: g.me.x, y: hAt(g.me.x) - 10 }, dist = (p) => Math.hypot(p.x - me.x, p.y - me.y);
+  if (kind === 'help') {   // the enemy shell (or meteor) closest to your tank, popped in the air; else the nearest tank knocked out
+    const inc = [...g.shells.filter((q) => !q.mine).map((q) => ['shells', q]), ...g.meteors.map((q) => ['meteors', q])].filter(([, q]) => onHill(q)).sort((a, b) => dist(a[1]) - dist(b[1]))[0];
+    if (inc) { const [list, q] = inc; return { x: q.x, y: q.y, icon: list === 'meteors' ? '☄️' : '🧤', act: () => {
+      if (!g[list].includes(q)) return null;
+      g[list].splice(g[list].indexOf(q), 1); figPop(q.x, q.y, 'FIG CAUGHT IT'); sfx('pop'); g.fx.push({ kind: 'flash', x: q.x, y: q.y, r: 30, life: 0.12, max: 0.12 });
+      return figDid(`catch ${list === 'meteors' ? 'meteor' : 'shell'}`); } }; }
+    const t = g.tanks.slice().sort((a, b) => Math.abs(a.x - me.x) - Math.abs(b.x - me.x)).find((q) => onHill({ x: q.x, y: hAt(q.x) - 10 }));
+    if (t) return { x: t.x, y: hAt(t.x) - 10, icon: '💥', act: () => {
+      if (!g.tanks.includes(t)) return null;
+      boom(t.x, hAt(t.x) - 6, 16, true); hitTank(t, t.hp);   // as your own blast: it can only hurt enemies
+      figPop(t.x, hAt(t.x) - 20, 'FIG BONK');
+      return figDid('ko tank'); } };
+    if (g.me.armor < ARMOR) return { ...me, icon: '🔧', act: () => { g.me.armor = Math.min(ARMOR, g.me.armor + 40); figPop(g.me.x, hAt(g.me.x) - 20, '🔧 +40 🛡'); sfx('clack'); return figDid('repair'); } };
+    return null;
+  }
+  if (kind === 'tease') {   // 💨 Fig blows a gust: the wind swings round (shots drift the other way for a while)
+    const p = { x: g.me.x < W / 2 ? W * 0.68 : W * 0.32, y: H() * 0.25 };
+    return { ...p, icon: '💨', act: () => {
+      const dir = g.wind > 0 ? -1 : g.wind < 0 ? 1 : (Math.random() < 0.5 ? -1 : 1); g.wind = dir * (35 + Math.random() * 25);
+      for (let i = 0; i < 6; i++) { const l = 0.9 + Math.random() * 0.5; g.fx.push({ kind: 'smoke', x: p.x, y: p.y + (Math.random() - 0.5) * 20, vx: dir * (90 + Math.random() * 60), vy: (Math.random() - 0.5) * 12, r: 6 + Math.random() * 6, dr: 10, life: l, max: l, a: 0.4, c: '#E8EEFF' }); }
+      g.fx.push({ kind: 'text', x: p.x, y: p.y - 18, text: `💨 GUST ${dir > 0 ? '→' : '←'}`, life: 1.2, col: '#C9FFF8' }); sfx('whistle', { dur: 0.6 });
+      return figDid('gust'); } };
+  }
+  if (kind === 'idle') {   // knock on an enemy tank's hatch (it flashes), or kick a clod off the hill by your tank
+    const t = g.tanks.slice().sort((a, b) => Math.abs(a.x - me.x) - Math.abs(b.x - me.x)).find((q) => onHill({ x: q.x, y: hAt(q.x) - 14 }));
+    if (t) return { x: t.x, y: hAt(t.x) - 14, icon: '✊', act: () => {
+      if (!g.tanks.includes(t)) return null;
+      t.flash = 0.4; g.fx.push({ kind: 'text', x: t.x, y: hAt(t.x) - 34, text: 'KNOCK KNOCK', life: 1 }); sfx('clack'); sfx('clack', { delay: 0.14 });
+      return figDid('knock tank'); } };
+    const x = Math.max(20, Math.min(W - 20, g.me.x + 40)), y = hAt(x) - 4;
+    return { x, y, icon: '🦶', act: () => { for (let i = 0; i < 6; i++) g.fx.push({ kind: 'clod', x, y: hAt(x) - 3, vx: (Math.random() - 0.3) * 160, vy: -120 - Math.random() * 120, s: 1.4 + Math.random() * 1.6, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 18, c: ['#5B3820', '#7A5232', '#2C7A4B'][i % 3], life: 1.1 }); sfx('thud'); return figDid('kick clod'); } };
+  }
+  return null;
+}
+
 const organ = {
   key: 'hilltop', name: 'Hilltop', icon: '💥', verb: 'drag to aim · let go to fire', beat: 1.1,
   theme: { bg: '#1B1646', gold: '#F5C542', bannerc: '#FFE08A' },
@@ -597,6 +643,7 @@ const organ = {
   hudLine: () => (g ? `💥 ${killsN} K.O. · ${g.tanks.length} dug in` : ''),
   // 🕳️ the pocket: a burrow by your tank (your deepest crater within reach, else a fresh one), and what comes up out of it
   pocket: burrowPocket,
+  figAct,
   pocketSpot() {
     if (!g) return null;
     if (!g.burrow || g.time - g.burrow.at > 1) { let best = null; for (let x = Math.max(24, g.me.x - 120); x <= Math.min(W - 24, g.me.x + 120); x += 4) { if (Math.abs(x - g.me.x) < 36 || inLake(x)) continue; const d = dugAt(x); if (d > 7 && (!best || d > best.d)) best = { x, d }; }
@@ -614,7 +661,8 @@ const organ = {
   level: () => 1 + Math.floor(killsN / 5),
   overText: (how) => (how === 'shelled' ? ['💥 KNOCKED OUT', 'Too many direct hits.'] : ['RUN OVER', '']),
   endStats: () => (g ? `💥 ${killsN} K.O. from ${shotsN} shells` : ''),
-  debug: () => g && ({ ...(() => ({ me: g.me.x, armor: g.me.armor, shield: g.shield, burrow: g.burrow, hitMe: (x, r = 20) => boom(x, hAt(x) - 4, r, false), tanks: g.tanks.length, moles: g.moles.length, lakes: g.lakes.length, balloons: g.balloons.length, worms: g.worms.length, wormsAt: g.worms.map((w) => ({ ...wormHead(w), phase: w.phase, t: w.t })), arty: g.arty, beams: g.beams.length, holes: g.holes.length, jets: g.jets.length, bolts: g.bolts.length, give: (k) => { g.arty = { kind: k, n: ARTY[k].n }; renderBar(); }, fire, tesla, tankXs: g.tanks.map((t) => [t.x, hAt(t.x)]), eshells: g.shells.filter((s) => !s.mine).map((s) => [Math.round(s.x), Math.round(s.vx)]), kinds: Object.keys(ARTY), drones: g.drones.length, drops: g.drops.map((c) => ({ x: c.x, y: c.y, kind: c.kind, down: c.down })), tap, stage: stage(), twist: (kind) => { g.twist = { kind, until: g.time + 6 }; } }))() }),
+  debug: () => g && ({ ...(() => ({ me: g.me.x, armor: g.me.armor, shield: g.shield, burrow: g.burrow, hitMe: (x, r = 20) => boom(x, hAt(x) - 4, r, false), tanks: g.tanks.length, moles: g.moles.length, lakes: g.lakes.length, balloons: g.balloons.length, worms: g.worms.length, wormsAt: g.worms.map((w) => ({ ...wormHead(w), phase: w.phase, t: w.t })), arty: g.arty, beams: g.beams.length, holes: g.holes.length, jets: g.jets.length, bolts: g.bolts.length, give: (k) => { g.arty = { kind: k, n: ARTY[k].n }; renderBar(); }, fire, tesla, tankXs: g.tanks.map((t) => [t.x, hAt(t.x)]), eshells: g.shells.filter((s) => !s.mine).map((s) => [Math.round(s.x), Math.round(s.vx)]), kinds: Object.keys(ARTY), drones: g.drones.length, drops: g.drops.map((c) => ({ x: c.x, y: c.y, kind: c.kind, down: c.down })), tap, stage: stage(), twist: (kind) => { g.twist = { kind, until: g.time + 6 }; },
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; }, wind: g.wind, meteor: (x) => meteor(x), enemyShell: (x, y) => enemyShell(x, y, g.me.x), dent: (n) => { g.me.armor = Math.max(1, g.me.armor - n); } }))() }),
   shellsN: () => g?.shells.filter((s) => s.mine).length, debug0: () => g && ({ tanks: g.tanks.map((t) => ({ x: t.x, y: hAt(t.x), gold: t.gold, quiet: t.quiet })), me: { x: g.me.x, y: hAt(g.me.x) }, shells: g.shells.length, kills: killsN, wind: g.wind, twist: g.twist?.kind || null, W, H: H(), fire }),
 };
 export default organ;

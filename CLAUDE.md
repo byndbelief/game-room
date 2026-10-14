@@ -1387,18 +1387,25 @@ curve box at the last move (`curveMood(curve)` reads the mood off `hist`/`hold`)
 the middle of every `glitch()` (`#glitchPal`, a driven `palWidget` at r = 4 with `hurt()`), and the
 shell names it in the calm banner and hurts it on a run glitch.
 
-**🟢 Fig knows it's in a game (shell.js, every solo page).** Fig talks to *you* in a bubble under its chip (`#figsay`,
-`say(kind, { force, vars })`, lines in `SAY` with `{name}`/`{score}`/`{combo}`/`{min}`/`{pokes}`): hello on start (late
-at night or first thing it notices the time), idle 8 s (and `knock()`: three raps, the field shudders, `.stage.knock`),
-idle 20 s (`peek()`: the chip climbs out and peeks round the screen's right edge), hurts (`figHurt`, three in 10 s gets a
-"want me to slow down?"), the last heart, combos 8/13/21, score milestones, every 10 minutes, a new game, a glitch, a pocket
-offer, back from another tab. Rationed: `TALK_GAP` 14 s between lines, never the same line twice running, nothing in a
-pocket or past 60% deep unless forced. **Tap Fig = pause** (`pauseMenu(why)`; Esc / P too; leaving the tab pauses and
-coming back opens it with a "you left me" line): `paused` stops `loop`'s updates, beats, clocks, offers and input; a big
-`palWidget` Fig you can poke; the run's stats; ▶️ Keep playing, ⏭️ Next game (runs: `morphTo(nextOrgan())`), 🔊 sound
-(`setMuted`), 💬/🤐 Fig chatty or quiet (localStorage `r4.figQuiet`; quiet keeps only pause and poke lines), 🔁 Start
-over and 🏠 Back to r4box (two taps each, they lose the run). `#spal` takes pointer events now. `__shell().fig` (say,
-knocks, peeks, pokes, paused, quiet). Test (scratch): `t_figtalk`.
+**🟢 Fig knows it's in a game (shell.js, every solo page): no talking, it acts.** `figGo(kind)` asks the live organ's
+`figAct(kind)` → `{ x, y (field units), icon, act() }` | null and flies the `#spal` chip there (`figTo`, `toPage`), calls
+`act()` on arrival with a ring (`pop`) and flies home; `fig.out` keeps `react` from yanking it back. **help** after a hurt
+when the organ is on its last lives or the run on its last heart (15 s apart): Squirrel swats the nearest acorn / pins a
+squirrel, Fractal clears the next spike/drone/chasm, Salvo pops a torpedo or bomb / lands a hit, Putt shoos the gopher /
+removes the nearest hazard / nudges the still ball 45 along the fairway, Hilltop catches the nearest enemy shell or meteor /
+knocks out a tank / +40 armour, Rally pops a homing rocket / mops a slick / a 1.5 s nitro, War refills the urgent fuse /
+spins your lowest card to 10–A, Pinball bumps the lowest ball up / a 5 s ball save. **tease** at combos 8/13/21 (25 s
+apart): a tickled squirrel runs 1.9×, a high shard arc, a gold ship (500, 1.5× fast), the cup shifts (still reachable), a
+gust, a slick to one side ahead, a House card face down 1.3 s, a free nudge. **idle** at 8 s quiet: pokes a squirrel / dings
+a shard / turns a ship / kicks the flag / knocks a tank / honks a rival / wiggles the House pile / taps the plunger; with
+nothing to do, `knock()` (three raps, `.stage.knock`); 20 s: `peek()` round the right edge. Every hit `crack()`s the glass
+(jagged lines over everything, `drawCracks`) and Fig flies over and wipes it (0.9 s). Each organ's debug has `figActs`,
+`lastFig`, `figAct(k)`. **Tap Fig = pause** (`pauseMenu(why)`; Esc / P; leaving the tab pauses): `paused` stops `loop`'s
+updates, beats, clocks, offers and input; a big poke-able Fig, the run's stats; ▶️ Keep playing, ⏭️ Next game (runs),
+🔊 sound (`setMuted`), 🤚/🙈 Fig joins in or stays put (localStorage `r4.figQuiet`: no acts, knocks, peeks or wipes), 🔁 Start
+over and 🏠 Back to r4box (two taps each). `#spal` takes pointer events. `__shell().fig` (acts, last, cracks, wipes, out,
+knocks, peeks, `go(k)`, `crack()`). **Physics tests must set `r4.figQuiet` = '1'** (Fig's knocks and acts move things:
+`t_pinball_q` is `t_pinball` that way). Tests (scratch): `t_figplay`, `t_figacts` (every organ, every kind).
 **🌊 Depth and the jolt** (shell.js): `S.depth` via `stepDepth(dt)` in `loop` (`held` pointers or `S.lastIn` within 2.5 s;
 `dt / 14 × (1 + 0.12·min(5, combo))` up, 0.12/s down, `host.hurt` halves it; no change during a transition); `deepF()`
 eases it from 0.2 to 0.8 into `--deep` on `#stage`, which the CSS uses to fade `.chaosm`, `.lvl`, the hearts' small line,

@@ -203,7 +203,7 @@ function slam(x, y, t) { g.fx.push({ kind: 'slam', x, y, text: t, life: 1.1, max
 // ---------------------------------------------------------------- update
 function update(dt) {
   W = host?.W || W; if (!g) return;
-  g.time += dt; if (g.hurtT > 0) g.hurtT -= dt; if (g.outT > 0) g.outT -= dt; g.shake *= Math.exp(-dt * 7); if (g.foeIn > 0) g.foeIn = Math.max(0, g.foeIn - dt * 2.2);
+  g.time += dt; if (g.hurtT > 0) g.hurtT -= dt; if (g.poke > 0) g.poke = Math.max(0, g.poke - dt); if (g.outT > 0) g.outT -= dt; g.shake *= Math.exp(-dt * 7); if (g.foeIn > 0) g.foeIn = Math.max(0, g.foeIn - dt * 2.2);
   ensureLanes();
   if (g.twist && g.time > g.twist.until) { if (g.twist.kind === 'reverse') text(W / 2, midY(), 'HIGH WINS AGAIN', TEAL); g.twist = null; }
   g.lanes.forEach((l, i) => {
@@ -214,6 +214,7 @@ function update(dt) {
     else if (l.state === 'clash') { l.t -= dt; if (l.t <= 0 && !l.mine.mv) resolve(l, i); }
     else if (l.state === 'show') { l.t -= dt; if (l.t <= 0) sweep(l, i, l.winner); }
     else if (l.state === 'war') { l.t -= dt; if (l.t <= 0) warStep(l, i); }
+    if (l.card?.figHide > 0) { l.card.figHide -= dt; if ((l.card.figHide <= 0 || !ready(l)) && !l.card.fl) { l.card.figHide = 0; flip(l.card, 1, 0.22); } }   // 🟢 Fig's peek-a-boo: face up again (at once if it gets played)
     const fr = ready(l) ? l.t / l.tmax : 1, wob = fr < 0.3 ? Math.sin(g.time * 34) * 0.05 * (1 - fr / 0.3) : 0;
     if (l.card) ease(l.card, laneX(i), laneY() - 46, wob, dt);
     if (l.mine) ease(l.mine, laneX(i), laneY() + 46, 0, dt);
@@ -326,7 +327,8 @@ function drawCard(c, t, hover = false) {
 function drawStack(p, n, who, t) {
   const layers = Math.min(10, n), drop = who === 'foe' ? g.foeIn : 0;
   if (!n) { ctx.setLineDash([4, 5]); ctx.strokeStyle = 'rgba(245,197,66,0.35)'; ctx.lineWidth = 1.5; rr(ctx, p.x - CW / 2, p.y - CH / 2, CW, CH, 6); ctx.stroke(); ctx.setLineDash([]); }
-  else { ctx.globalAlpha = 1 - drop; const P = look.shP; ctx.drawImage(look.shadow, p.x - CW / 2 - P + 2, p.y - CH / 2 - P + 4 - drop * 60, CW + 2 * P, CH + 2 * P); for (let i = 0; i < layers; i++) ctx.drawImage(look.back, p.x - CW / 2, p.y - CH / 2 - i * 1.2 - drop * 60 * (1 + i * 0.1), CW, CH); ctx.globalAlpha = 1; }
+  else { ctx.globalAlpha = 1 - drop; const P = look.shP; ctx.drawImage(look.shadow, p.x - CW / 2 - P + 2, p.y - CH / 2 - P + 4 - drop * 60, CW + 2 * P, CH + 2 * P); const wig = who === 'foe' && g.poke > 0 ? Math.sin(g.poke * 40) * 5 * g.poke : 0;   // 🟢 Fig poked the House's pile: the top card wiggles
+    for (let i = 0; i < layers; i++) ctx.drawImage(look.back, p.x - CW / 2 + (i === layers - 1 ? wig : 0), p.y - CH / 2 - i * 1.2 - drop * 60 * (1 + i * 0.1) - (i === layers - 1 ? Math.abs(wig) : 0), CW, CH); ctx.globalAlpha = 1; }
   const by = p.y + CH / 2 + 12, txt = String(n); ctx.font = '900 12px Sora, system-ui, sans-serif'; const w = Math.max(26, ctx.measureText(txt).width + 14);
   ctx.fillStyle = 'rgba(8,5,20,0.75)'; rr(ctx, p.x - w / 2, by - 9, w, 18, 9); ctx.fill(); ctx.strokeStyle = who === 'foe' ? 'rgba(255,95,176,0.6)' : 'rgba(61,214,198,0.7)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, p.x, by + 0.5); ctx.textBaseline = 'alphabetic';
@@ -405,6 +407,45 @@ function pointer(type, p) {
     if (li < 0 || !play(i, li)) { sfx('buzz'); text(d.c.x, d.c.y - CH / 2 - 8, g.lanes.some((l) => l.card) ? 'NOT YET' : 'WAIT FOR THEIR CARD', '#C9B8FF'); }
   }
 }
+// ---------------------------------------------------------------- 🟢 Fig at the table (the shell flies Fig to x, y, then calls act)
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+function figAct(kind) {
+  if (!g || S.over || g.drag) return null;
+  const lanes = g.lanes.map((l, i) => [l, i]).filter(([l]) => ready(l) && l.card);
+  if (kind === 'help') {
+    const li = urgent(), l = g.lanes[li];
+    if (l && l.t < l.tmax * 0.7) return { x: laneX(li), y: laneY() - 46, icon: '⏳', act: () => {   // the most urgent fuse, full again
+      if (!ready(l)) return null;
+      l.t = l.tmax; sparks(laneX(li), laneY() - 46, TEAL, 14, 140); text(laneX(li), laneY() - 100, 'FIG: TAKE YOUR TIME', TEAL); sfx('chime');
+      return figDid('refill fuse'); } };
+    let lo = -1; g.hand.forEach((c, i) => { if (!c.joker && !c.mv && (lo < 0 || c.r < g.hand[lo].r)) lo = i; });
+    const c = g.hand[lo]; if (!c || c.r >= 12) return null;
+    return { x: c.x, y: c.y, icon: '🃏', act: () => {   // your lowest card turned into a better one
+      if (!g.hand.includes(c) || c.joker) return null;
+      const r = Math.min(14, Math.max(c.r + 4, 10 + Math.floor(Math.random() * 4))); spin(c, r); c.glow = 1; sparks(c.x, c.y, GOLD, 12, 120); text(c.x, c.y - 60, `FIG SWAP · ${label(r)}`, GOLD); sfx('chime');
+      return figDid('upgrade card'); } };
+  }
+  if (kind === 'tease') {   // peek-a-boo: one House card turns face down for a moment (its fuse gets a little extra)
+    const pick = lanes.filter(([l]) => l.card.f > 0.5 && !l.card.fl && !l.card.mv)[0]; if (!pick) return null;
+    const [l, li] = pick, c = l.card;
+    return { x: laneX(li), y: laneY() - 46, icon: '🙈', act: () => {
+      if (l.card !== c || !ready(l) || c.fl) return null;
+      flip(c, 0, 0.2); c.figHide = 1.3; l.t = Math.min(l.tmax, l.t + 1.5); text(laneX(li), laneY() - 100, 'PEEK-A-BOO', LILAC); sfx('sneaky');
+      return figDid('hide card'); } };
+  }
+  if (kind === 'idle') {   // poke the House's pile (the top card wiggles), or tap a waiting card so it jiggles
+    if (g.foe.length && g.foeIn <= 0) { const p = foeP(); return { x: p.x, y: p.y - Math.min(10, g.foe.length) * 1.2, icon: '👉', act: () => {
+      if (!g.foe.length) return null;
+      g.poke = 0.7; sparks(p.x, p.y - 20, '#FFE08A', 8, 90); sfx('click'); sfx('click', { delay: 0.1 });
+      return figDid('poke deck'); } }; }
+    const pick = lanes[0]; if (!pick) return null;
+    const [l, li] = pick, c = l.card;
+    return { x: laneX(li), y: laneY() - 46, icon: '👉', act: () => { if (l.card !== c) return null; c.a = 0.4; c.glow = 0.6; sfx('click'); return figDid('jiggle card'); } };
+  }
+  return null;
+}
+
 const organ = {
   key: 'war', name: 'War', icon: '⚔️', verb: 'tap a card to beat theirs · drag it to a lane', beat: 0.9,
   theme: { bg: '#140E2C', gold: '#F5C542', bannerc: '#FFE08A' },
@@ -418,6 +459,7 @@ const organ = {
   // 🕳️ the pocket: the House's face-down pile is the way in (with the pile gone, a face-down card in a war's pot), and what
   // comes up out of it: two high cards into your hand, four more for your pile, a life
   pocket: ladderPocket,
+  figAct,
   pocketSpot() {
     if (!g || g.drag) return null;
     if (g.foe.length && g.foeIn <= 0) { const p = foeP(); return { x: p.x, y: p.y - Math.min(10, g.foe.length) * 1.2, r: CW / 2, icon: '🪜' }; }
@@ -455,6 +497,7 @@ const organ = {
     screen: (x, y) => { const cv = host.cv, r = cv.getBoundingClientRect(), s = r.width / cv.width; return { x: r.left + (x * host.k + host.ox) * s, y: r.top + (y * host.k + host.oy) * s }; },
     handRanks: () => g.hand.map((c) => c.r), handN: g.hand.length, pile: g.mine.length, pileSpot: () => organ.pocketSpot(),
     handPos: (i) => g.hand[i] && { x: g.hand[i].x, y: g.hand[i].y }, lanePos: (li) => ({ x: laneX(li), y: laneY() + 46 }),
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; }, poke: g.poke || 0, hides: g.lanes.map((l) => l.card?.figHide || 0), states: g.lanes.map((l) => l.state), faces: g.lanes.map((l) => (l.card ? +l.card.f.toFixed(2) : null)),
   }),
 };
 export default organ;

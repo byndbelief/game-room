@@ -166,7 +166,8 @@ function moveSquirrel(sq, dt) {
   if (sq.hop) { sq.hop.t += dt; if (sq.hop.t >= sq.hop.dur) sq.hop = null; return; }
   const len = Math.hypot(sq.seg.x2 - sq.seg.x1, sq.seg.y2 - sq.seg.y1) || 1;
   const frenzy = game.twist?.kind === 'frenzy' || game.twist?.kind === 'stare' ? 2 : 1;   // after the stare, they come
-  sq.t += (sq.dir * sq.spd * game.speed * frenzy * dt) / len;
+  const tickled = sq.tk > 0 ? 1.9 : 1; if (sq.tk > 0) sq.tk -= dt;   // 🟢 Fig tickled it: it scurries for a few seconds
+  sq.t += (sq.dir * sq.spd * game.speed * frenzy * tickled * dt) / len;
   if (sq.t >= 1) {   // top of this branch: on up a child, or back down
     if (sq.seg.kids.length && Math.random() < 0.85) { sq.seg = sq.seg.kids[Math.floor(Math.random() * sq.seg.kids.length)]; sq.t = 0; }
     else { sq.t = 1; sq.dir = -1; }
@@ -981,6 +982,60 @@ function renderBar() {
 }
 
 // ---------------------------------------------------------------- the organ
+
+// ---------------------------------------------------------------- 🟢 Fig in the forest (the shell flies Fig to x, y, then calls act)
+// x, y are the shell's field units (through the camera); act() re-finds its target, since the forest moved on while Fig flew.
+let figActs = 0, lastFig = '';
+const fieldOf = (p) => ({ x: W / 2 + (p.x - cam.x) * cam.z, y: H() / 2 + (p.y - cam.y) * cam.z });
+const onField = (q) => q.x > 8 && q.x < W - 8 && q.y > 8 && q.y < H() - 8;
+function nearestOn(list, pos, from, any = false) {   // the thing nearest `from` (forest units) that's on screen right now (`any`: anywhere)
+  let best = null, bd = Infinity;
+  list.forEach((o) => { const p = pos(o), d = Math.hypot(p.x - from.x, p.y - from.y); if (d < bd && (any || onField(fieldOf(p)))) { bd = d; best = o; } });
+  return best;
+}
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+function figAct(kind) {
+  if (!game || !forest || game.dive || S.over) return null;
+  const st = STAPLER(), at = (p, icon, act) => { const q = fieldOf(p); return { x: Math.max(12, Math.min(W - 12, q.x)), y: Math.max(12, Math.min(H() - 12, q.y)), icon, act }; };   // clamped: an acorn arcing above a zoomed-in view is met at the edge
+  if (kind === 'help') {
+    const ac = nearestOn(game.acorns, acornPos, st, true);   // 🌰 the acorn closest to your head first, on screen or arcing above it
+    if (ac) return at(acornPos(ac), '🌰', () => {
+      if (!game.acorns.includes(ac)) return null;
+      const q = acornPos(ac); game.acorns.splice(game.acorns.indexOf(ac), 1); comic('FIG SWAT!', q.x, q.y - 14, '#9CFFB0'); burst(q.x, q.y, ['#8A5A2B', '#C98B4A', '#9CFFB0'], 14); sfx('clack');
+      return figDid('swat acorn'); });
+    const cone = nearestOn(game.cones || [], (c) => c, st);
+    if (cone) return at(cone, '🌲', () => {
+      if (!game.cones.includes(cone)) return null;
+      game.cones.splice(game.cones.indexOf(cone), 1); comic('FIG SWAT!', cone.x, cone.y - 14, '#9CFFB0'); burst(cone.x, cone.y, ['#8A5A2B', '#5A3B1F'], 10); sfx('clack');
+      return figDid('swat cone'); });
+    const sq = nearestOn(game.squirrels, sqPos, st);
+    if (sq) return at(sqPos(sq), '💥', () => {
+      if (!game.squirrels.includes(sq)) return null;
+      sq.size = 1; strike(sq); comic('FIG BOP!', sqPos(sq).x, sqPos(sq).y - 30, '#9CFFB0');   // a whole squirrel pinned at once, no split
+      return figDid('bop squirrel'); });
+    return null;
+  }
+  const live = game.squirrels.filter((q) => onField(fieldOf(sqPos(q))));   // a leaping one too: Fig catches it where it lands
+  const sq = live[Math.floor(Math.random() * live.length)];
+  if (kind === 'tease' && sq) return at(sqPos(sq), '🪶', () => {
+    if (!game.squirrels.includes(sq)) return null;
+    const p = sqPos(sq); sq.tk = 3.5; comic('HEE HEE!', p.x, p.y - 24, '#FF8AD8'); tufts(p.x, p.y, 6); sfx('boing');
+    return figDid('tickle'); });
+  if (kind === 'idle') {
+    if (sq) return at(sqPos(sq), '👉', () => {
+      if (!game.squirrels.includes(sq)) return null;
+      const p = sqPos(sq); sq.daze = Math.max(sq.daze || 0, 0.8); sq.face = -sq.face; comic('SQUEAK!', p.x, p.y - 24, '#FFE08A');
+      game.fx.push({ kind: 'spark', x: p.x, y: p.y - 10, a: Math.random() * 6, life: 0.4, tf: 0.4 }); sfx('pop');
+      return figDid('poke squirrel'); });
+    const tr = forest.trunks.slice().sort((a, b) => Math.abs(a.x2 - st.x) - Math.abs(b.x2 - st.x)).find((t) => onField(fieldOf({ x: t.x2, y: t.y2 })));
+    if (tr) return at({ x: tr.x2, y: tr.y2 }, '🍃', () => {   // knock on the trunk: leaves come down
+      const se = season(); comic('KNOCK KNOCK', tr.x2, tr.y2 - 20); sfx('clack'); sfx('clack', { delay: 0.12 }); game.shake = Math.max(game.shake, 0.15);
+      for (let i = 0; i < 8; i++) game.fx.push({ kind: 'flutter', x: tr.x2 + (Math.random() - 0.5) * 50, y: tr.y2 + (Math.random() - 0.5) * 20, a: Math.random() * 6, c: (se.bloom || se.leaf)[1 + (i % 2)], life: 1.8 });
+      return figDid('knock trunk'); });
+  }
+  return null;
+}
+
 const organ = {
   key: 'squirrel', name: 'Squirrel Chaos', icon: '🐿️', verb: 'tap to staple · tap the stapler to reload', beat: 1.2,
   theme: { bg: '#14200E', gold: '#F5C542', bannerc: '#FFE08A' },
@@ -999,6 +1054,7 @@ const organ = {
   hudLine: () => (game ? `Day ${level}${host.morphs ? '' : ` of ${LEVELS}`} · ${Math.max(0, Math.ceil(level * LEVEL_S - game.time))}s${game.kept.length ? ` · 📎 ${game.kept.length} kept` : ''}` : ''),
   // 🕳️ the pocket: the knothole in the middle trunk (where each Day dives) is the way in, and what comes up out of it
   pocket: knotPocket,
+  figAct,
   pocketSpot() {
     if (!game || !forest || game.dive || S.over) return null;
     const kn = forest.knot, x = W / 2 + (kn.x - cam.x) * cam.z, y = H() / 2 + (kn.y - cam.y) * cam.z;   // through the camera, into the shell's world
@@ -1022,6 +1078,8 @@ const organ = {
     give: (w) => { game.arsenal[w] = (game.arsenal[w] || 0) + WEAPONS[w].ammo; game.weapon = w; renderBar(); }, fxKinds: game.fx.map((f) => f.kind),
     season: season().key, look: { wood: !!look.wood, ks: look.wood?.ks || 0, px: look.wood?.px || 0, back: !!look.back, sprites: look.spr.size, amb: look.amb.length, live: look.live },
     hearts: S.hearts, pocketSpot: organ.pocketSpot(), weapon: game.weapon, arsenal: { ...game.arsenal }, crates: game.crates.map((c) => ({ x: c.x, y: c.y, w: c.w })), acorns: game.acorns.map(acornPos), ammo: game.ammo, dive: !!game.dive, over: S.over, r: S.curve.r,
-    squirrels: game.squirrels.map((sq) => ({ ...sqPos(sq), size: sq.size, hop: !!sq.hop })), W, H: H() }),
+    squirrels: game.squirrels.map((sq) => ({ ...sqPos(sq), size: sq.size, hop: !!sq.hop, tk: sq.tk || 0, daze: sq.daze || 0 })), W, H: H(),
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; },
+    throwAcorn, spawn: (sz) => spawn(sz) }),
 };
 export default organ;

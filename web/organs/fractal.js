@@ -674,6 +674,48 @@ function drawShield(g, wd, t) {
 // ---------------------------------------------------------------- the organ
 const press = () => { if (!game || S.over) return; jump(); clearTimeout(holdT); holdT = setTimeout(() => { if (game && !S.over && game.dash > 0.15) game.dashing = true; }, 170); };
 const release = () => { clearTimeout(holdT); if (game) game.dashing = false; };
+// ---------------------------------------------------------------- 🟢 Fig on the track (the shell flies Fig to x, y, then calls act)
+// Things live in track units (x along the run); the field is x − cam, flipped under the 🪞 mirror. act() re-checks the
+// thing is still there, since the track scrolls on while Fig flies.
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+const scrX = (x) => { const sx = x - game.cam; return game.twist?.k === 'mirror' ? W - sx : sx; };
+const objY = (o) => (o.type === 'drone' ? groundY(o.x) - o.lift : o.type === 'shard' ? groundY(o.x) - o.lift : o.type === 'gap' ? H() * 0.72 : o.type === 'bolt' ? groundY(o.x) - 30 : groundY(o.x + (o.n || 0) * 7) - 8);
+const objX = (o) => (o.type === 'gap' ? o.x + o.w / 2 : o.type === 'spike' ? o.x + o.n * 7 : o.x);
+function sparkle(x, y, col, n) { for (let i = 0; i < n; i++) game.parts.push({ x, y, vx: (Math.random() - 0.5) * 240, vy: (Math.random() - 0.8) * 240, t: 0, life: 0.55, c: i % 2 ? col : '#FFFFFF', k: i % 2 ? 1 : 3, s: 4 }); game.parts.push({ x, y, vx: 0, vy: 0, t: 0, life: 0.4, c: col, k: 2, s: 6, r: 30, gr: 0 }); }
+function figAct(kind) {
+  const g = game; if (!g || g.dive || S.over) return null;
+  const px = g.cam + PX, seen = (o) => { const x = scrX(objX(o)), y = objY(o); return x > 10 && x < W - 10 && y > 10 && y < H() - 10; };
+  const at = (o, icon, act) => ({ x: scrX(objX(o)), y: objY(o), icon, act });
+  if (kind === 'help') {   // the next danger in front of you: a spike row, a drone, a bolt mark, or a chasm (bridged)
+    const o = g.obs.filter((q) => (q.type === 'spike' || q.type === 'drone' || q.type === 'gap' || (q.type === 'bolt' && !q.struck)) && objX(q) > px - 10 && seen(q)).sort((a, b) => objX(a) - objX(b))[0];
+    if (!o) return null;
+    return at(o, o.type === 'gap' ? '🌉' : '💥', () => {
+      if (!g.obs.includes(o)) return null;
+      const x = objX(o), y = objY(o); g.obs.splice(g.obs.indexOf(o), 1); sparkle(x, y, o.type === 'gap' ? world().edge : world().spike, 14); g.shake = Math.max(g.shake, 0.3);
+      sfx(o.type === 'gap' ? 'chime' : 'clack'); host.cue?.('kill', scrX(x), y);
+      return figDid(`clear ${o.type}`); });
+  }
+  if (kind === 'tease') {   // ✨ a bonus arc of shards high up ahead: worth a double jump
+    const sx = Math.min(W - 60, PX + 170), x0 = g.cam + sx, spot = { type: 'shard', x: x0 + 40, lift: 150 };
+    if (!seen(spot)) return null;
+    return { x: scrX(x0 + 40), y: objY(spot), icon: '✨', act: () => {
+      const a = g.cam + Math.min(W - 60, PX + 170); for (let i = 0; i < 5; i++) g.obs.push({ type: 'shard', x: a + i * 22, lift: 130 + Math.sin((i / 4) * Math.PI) * 50, t: i });
+      sparkle(a + 44, groundY(a + 44) - 170, world().shard, 10); sfx('chime', { hi: true });
+      return figDid('shard arc'); } };
+  }
+  if (kind === 'idle') {   // ding the nearest shard ahead so it bobs up, or drum on the ground in front of you
+    const o = g.obs.filter((q) => q.type === 'shard' && q.x > px && seen(q)).sort((a, b) => a.x - b.x)[0];
+    if (o) return at(o, '🔔', () => {
+      if (!g.obs.includes(o)) return null;
+      o.lift += 24; sparkle(o.x, objY(o), world().shard, 6); sfx('ping');
+      return figDid('ding shard'); });
+    const x = g.cam + Math.min(W - 40, PX + 90), y = groundY(x) - 6;
+    return { x: scrX(x), y, icon: '🥁', act: () => { puff(x, groundY(x), 8, true); sfx('thud'); sfx('thud', { delay: 0.15 }); g.shake = Math.max(g.shake, 0.2); return figDid('drum ground'); } };
+  }
+  return null;
+}
+
 const organ = {
   key: 'fractal', name: 'Fractal Dash', icon: '🔺', verb: 'tap to jump · hold to dash', beat: 0.7,
   theme: { bg: '#0B0A1F', gold: '#F5C542', bannerc: '#C9FFF8' },
@@ -691,6 +733,7 @@ const organ = {
   keyup(e) { if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ArrowRight') release(); },
   // 🕳️ the pocket: a shard floating just ahead of you is the way in (it keeps pace with you while it glows)
   pocket: shardPocket,
+  figAct,
   pocketSpot() {
     const g = game; if (!g || g.dive || S.over) return null;
     shardPocket.prepare?.(3);   // find the spot in the set while the shard glows, so the dive is instant
@@ -717,6 +760,8 @@ const organ = {
     obs: game.obs.map((o) => ({ ...o, sx: o.x - game.cam })), twist: game.twist?.k || null, W, H: H(), PX, groundY: groundY(game.cam + PX), gyAt: (sx) => groundY(game.cam + sx),
     world: world().key, worldName: world().name, parts: game.parts.length, looks: [...looks.keys()], look: () => looks.get((depth - 1) % WORLDS.length), goDepth: (n) => { depth = Math.max(1, n) - 1; game.time = depth * DEPTH_S; dive(); },   // 🗺️ jump to a depth's world (tests)
     shield: game.shield, inv: game.inv, drain: () => { game.dash = 0; }, guard: (sec = 30) => { game.shield = sec; }, spikeHere: () => { game.obs.push({ type: 'spike', x: game.cam + PX - 14, n: 3 }); }, lives: S.lives?.fractal ?? 3, pocketSpot: game.pk && { x: game.pk.sx, y: game.pk.y },
-    force: (k) => { const t = TWISTS.find((x) => x.k === k); game.twist = { ...t, t: 0 }; game.twistAt = game.time; S.hearts = 3; }, jump, hurt: () => hurt('spiked') }),
+    force: (k) => { const t = TWISTS.find((x) => x.k === k); game.twist = { ...t, t: 0 }; game.twistAt = game.time; S.hearts = 3; }, jump, hurt: () => hurt('spiked'),
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; },
+    addObs: (o) => { game.obs.push({ ...o, x: game.cam + o.sx }); } }),
 };
 export default organ;

@@ -151,7 +151,7 @@ function update(dt) {
   if (g.twist && g.time > g.twist.until) g.twist = null;
   if (g.guide > 0) g.guide -= dt;
   const b = g.ball; if (!b) { g.ball = tee(); return; }
-  g.cups.forEach((c) => { if (c.big) c.big = Math.max(1, c.big - dt * 0.15); });
+  g.cups.forEach((c) => { if (c.big) c.big = Math.max(1, c.big - dt * 0.15); if (c.kick > 0) c.kick = Math.max(0, c.kick - dt); });
   const ice = g.twist?.kind === 'ice', wind = g.twist?.kind === 'wind' ? g.twist.wind : 0, ripple = g.twist?.kind === 'ripple';
   if (moving()) {
     const inSand = g.sand.some((s) => ((b.x - s.x) / s.rx) ** 2 + ((b.y - s.y) / s.ry) ** 2 < 1);
@@ -407,7 +407,7 @@ function drawFlag(c, th, ts) {
   const top = c.y - 36, col = c.gold ? '#F5C542' : th.flag;
   ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + 16, c.y + 7); ctx.stroke();
   ctx.strokeStyle = '#F4F4F4'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x, top); ctx.stroke(); circ(ctx, c.x, top, 1.8, '#FFD54F');
-  const wv = (u) => Math.sin(ts * 6 - u * 0.35) * 2.4 * (u / 18);
+  const kk = 1 + 5 * (c.kick || 0), wv = (u) => Math.sin(ts * (6 + 10 * (c.kick || 0)) - u * 0.35) * 2.4 * kk * (u / 18);   // 🟢 a kicked flag flaps hard, then settles
   ctx.fillStyle = col; ctx.beginPath(); for (let u = 0; u <= 18; u += 3) ctx.lineTo(c.x + u, top + 1 + wv(u) + u * 0.12); for (let u = 18; u >= 0; u -= 3) ctx.lineTo(c.x + u, top + 12 + wv(u) - u * 0.12); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#ffffff40'; ctx.beginPath(); for (let u = 0; u <= 18; u += 3) ctx.lineTo(c.x + u, top + 1 + wv(u) + u * 0.12); for (let u = 18; u >= 0; u -= 3) ctx.lineTo(c.x + u, top + 5 + wv(u)); ctx.closePath(); ctx.fill();
 }
@@ -470,6 +470,55 @@ function draw(t) {
   g.fx.forEach((f) => { ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.5)); if (f.kind === 'dot') { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 7); ctx.fill(); } else { ctx.font = f.big ? '400 20px Bungee, Impact, sans-serif' : '900 14px Nunito, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = f.col || '#FFE08A'; ctx.strokeStyle = '#102010'; ctx.lineWidth = 4; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); } });
   ctx.globalAlpha = 1;
 }
+// ---------------------------------------------------------------- 🟢 Fig on the green (the shell flies Fig to x, y, then calls act)
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+const onGreen = (q) => q.x > 8 && q.x < W - 8 && q.y > 8 && q.y < H() - 8;
+function along(n, dist) {   // walk `dist` up the fairway's middle from a nearest() point, stopping short of the cup
+  let i = n.i, x = n.x, y = n.y, left = dist;
+  while (i < g.path.length - 1) { const q = g.path[i + 1], d = Math.hypot(q.x - x, q.y - y); if (d >= left) return { x: x + (q.x - x) * left / d, y: y + (q.y - y) * left / d }; left -= d; x = q.x; y = q.y; i += 1; }
+  return { x, y };
+}
+function figPuff(x, y, col, text) { g.fx.push({ kind: 'text', x, y: y - 16, text, life: 1.1, col: '#9CFFB0' }); for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28, v = 40 + Math.random() * 90; g.fx.push({ kind: 'dot', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 50, c: col, life: 0.6, r: 2 }); } }
+function figAct(kind) {
+  if (!g || S.over || !g.ball || !g.path) return null;
+  const b = g.ball;
+  if (kind === 'help') {
+    if (g.gopher && onGreen(g.gopher)) { const gp = g.gopher; return { x: gp.x, y: gp.y, icon: '🐹', act: () => { if (g.gopher !== gp) return null; g.gopher = null; figPuff(gp.x, gp.y, '#C9A27A', 'FIG SHOOED IT'); sfx('clack'); return figDid('shoo gopher'); } }; }
+    // the hazard nearest the ball, cleared for free (no repair spent)
+    const hz = [...g.bumpers.map((o) => ['bumpers', o]), ...g.sand.map((o) => ['sand', o]), ...g.water.map((o) => ['water', o])].filter(([, o]) => onGreen(o)).sort((p, q) => Math.hypot(p[1].x - b.x, p[1].y - b.y) - Math.hypot(q[1].x - b.x, q[1].y - b.y))[0];
+    if (hz && (moving() || Math.hypot(hz[1].x - b.x, hz[1].y - b.y) < 140)) { const [list, o] = hz; return { x: o.x, y: o.y, icon: '🔧', act: () => {
+      if (!g[list].includes(o)) return null;
+      g[list].splice(g[list].indexOf(o), 1); figPuff(o.x, o.y, '#A8E08A', 'FIG FIXED IT'); sfx('clack'); g.par = parOf(); return figDid(`clear ${list}`); } }; }
+    if (moving() || drag) return null;
+    // a little nudge up the fairway toward the cup: 45 along the middle, never closer than 40 to the cup
+    const c = g.cups[0]; if (!c || cupDist(b) < 70) return null;
+    return { x: b.x, y: b.y, icon: '👉', act: () => {
+      if (!g.ball || g.ball !== b || moving()) return null;
+      const n = nearest(b.x, b.y), to = along(n, 45); if (Math.hypot(to.x - c.x, to.y - c.y) < 40 || Math.hypot(to.x - b.x, to.y - b.y) > 90) return null;
+      figPuff(b.x, b.y, '#E8F5D0', 'NUDGE'); b.x = to.x; b.y = to.y; trail = []; g.restT = 0; sfx('putt', { power: 0.2 });
+      return figDid('nudge ball'); } };
+  }
+  if (kind === 'tease') {   // the cup wiggles a short way across the fairway (it stays on the green, still reachable)
+    const c = g.cups[0]; if (!c || moving() || g.cups.length > 1 || cupDist(b) < 50) return null;
+    return { x: c.x, y: c.y, icon: '🤪', act: () => {
+      if (!g.cups.includes(c) || moving()) return null;
+      const n = g.path.length, p = g.path[n - 2], q = g.path[n - 1], L = Math.hypot(q.x - p.x, q.y - p.y) || 1, nx = -(q.y - p.y) / L, ny = (q.x - p.x) / L;
+      const side = Math.max(0, g.pw / 2 - CUP_R * 1.6 - 4) * (0.6 + Math.random() * 0.4) * (Math.random() < 0.5 ? -1 : 1), back = Math.min(25, L * 0.2);
+      const x = q.x - (q.x - p.x) / L * back + nx * side, y = q.y - (q.y - p.y) / L * back + ny * side;
+      if (Math.hypot(x - b.x, y - b.y) < 40) return null;
+      figPuff(c.x, c.y, '#FFFFFF', 'WHEEE'); c.x = x; c.y = y; c.kick = 1; sfx('boing');
+      return figDid('wiggle cup'); } };
+  }
+  if (kind === 'idle') {   // kick the flag so it flaps, or flick the ball's hair (it wobbles in place)
+    const c = g.cups[0]; if (c && onGreen({ x: c.x, y: c.y - 30 })) return { x: c.x + 6, y: c.y - 30, icon: '🦶', act: () => {
+      if (!g.cups.includes(c)) return null;
+      c.kick = 1; g.fx.push({ kind: 'text', x: c.x, y: c.y - 44, text: 'BOINK', life: 0.9 }); sfx('clack'); sfx('boing', { delay: 0.08 });
+      return figDid('kick flag'); } };
+  }
+  return null;
+}
+
 const organ = {
   key: 'putt', name: 'Putt', icon: '⛳', verb: 'drag back and let go to putt', beat: 1.0,
   theme: { bg: '#1E3A1A', gold: '#F5C542', bannerc: '#FFE08A' },
@@ -483,6 +532,7 @@ const organ = {
   hudLine: () => (g ? `⛳ course ${g.course} · ${g.courseHole}/3${g.fixes ? ` · 🔧${g.fixes}` : ''}${g.mull ? ` · ↩️${g.mull}` : ''}` : ''),
   // 🕳️ the pocket: the cup itself is the way in (while the ball sits still), and what comes up out of it
   pocket: cupPocket,
+  figAct,
   pocketSpot: () => { if (!g || !g.ball || !g.cups.length || moving() || drag) return null; const c = g.cups[0]; return { x: c.x, y: c.y, r: CUP_R * (c.big || 1) + 6, icon: '🕳️' }; },
   pocketSeed: () => ({ path: g.path.map((p) => ({ x: p.x, y: p.y })), pw: g.pw, theme: themeOf(), hole: g.hole, course: g.course }),
   pocketReward(res) {
@@ -494,6 +544,7 @@ const organ = {
   level: () => g?.course || 1,
   overText: (how) => (how === 'picked up' ? ['⛳ PICKED UP', 'Too many cups walked away from.'] : ['RUN OVER', '']),
   endStats: () => (g ? `⛳ ${sunkN} cups in ${puttsN} putts` : ''),
-  debug: () => g && ({ themes: THEMES.map((th) => th.key), themeKey: themeOf().key, theme: (i) => { g.hole = ((i % THEMES.length) + THEMES.length) % THEMES.length; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); return themeOf().key; }, hole: g.hole, layerBuilt: LY?.at || 0, fix, fixes: g.fixes, bumps: g.bumpers, sand: g.sand, water: g.water, jump: (c) => { g.course = c; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); }, gopher: g.gopher, bends: g.path.length - 2, pw: g.pw, path: g.path, ball: g.ball, v: g.v, cups: g.cups, putts: g.putts, sunk: sunkN, par: g.par, course: g.course, courseHole: g.courseHole, allowed: PUTTS_OF(), mull: g.mull, free: g.free, pocketSpot: organ.pocketSpot(), twist: g.twist?.kind || null, bumpers: g.bumpers.length, W, H: H(), putt }),
+  debug: () => g && ({ themes: THEMES.map((th) => th.key), themeKey: themeOf().key, theme: (i) => { g.hole = ((i % THEMES.length) + THEMES.length) % THEMES.length; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); return themeOf().key; }, hole: g.hole, layerBuilt: LY?.at || 0, fix, fixes: g.fixes, bumps: g.bumpers, sand: g.sand, water: g.water, jump: (c) => { g.course = c; g.courseHole = 0; g.coursePar = 0; g.courseStrokes = 0; g.ball = null; newCup(); }, gopher: g.gopher, bends: g.path.length - 2, pw: g.pw, path: g.path, ball: g.ball, v: g.v, cups: g.cups, putts: g.putts, sunk: sunkN, par: g.par, course: g.course, courseHole: g.courseHole, allowed: PUTTS_OF(), mull: g.mull, free: g.free, pocketSpot: organ.pocketSpot(), twist: g.twist?.kind || null, bumpers: g.bumpers.length, W, H: H(), putt,
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; }, kick: g.cups[0]?.kick || 0 }),
 };
 export default organ;

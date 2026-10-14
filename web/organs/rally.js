@@ -2466,6 +2466,55 @@ const RIDE_DRAW = {
 const position = () => { const me = g.me; let ahead = 0; g.rivals.forEach((r) => { if (r.done || (!(r.out > 0) && r.s > me.s)) ahead += 1; }); return `${ahead + 1}/`; };
 const progress = () => Math.max(0, Math.min(1, (g.me.s - sOf(GRID)) / (FINISH - sOf(GRID))));
 const side = (p) => (p.x < W / 2 ? 'left' : 'right');
+// ---------------------------------------------------------------- 🟢 Fig on the road (the shell flies Fig to x, y, then calls act)
+// Things live on the table; x, y for the shell go through the chase camera (toScreen), so Fig flies to where it shows.
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+function figAct(kind) {
+  if (!g?.me || g.go > 0 || g.fin || g.done || g.camA == null || !g.zoom || S.over) return null;
+  const me = g.me, L = g.track.len, Hh = H(), seen = (p) => { const q = toScreen(p); return q.x > 10 && q.x < W - 10 && q.y > 10 && q.y < Hh - 10 ? q : null; };
+  const ring = (x, y, col) => { g.waves.push({ x, y, r: 6, R: 40, life: 0.4, max: 0.4, col, w: 4 }); sparks(x, y, 0, -1, 160, 10, [col, '#FFFFFF', '#FFE36B']); };
+  if (kind === 'help') {
+    const rk = g.proj.filter((p) => p.target === me && p.owner !== me && seen(p)).sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0];
+    if (rk) { const q = seen(rk); return { ...q, icon: '🚀', act: () => {   // a rocket homing on you, popped
+      if (!g.proj.includes(rk)) return null;
+      g.proj.splice(g.proj.indexOf(rk), 1); ring(rk.x, rk.y, '#9CFFB0'); g.fx.push({ kind: 'text', x: rk.x, y: rk.y - 24, text: 'FIG POPPED IT', life: 1, col: '#9CFFB0' }); sfx('pop');
+      return figDid('pop rocket'); } }; }
+    const sl = g.slicks.filter((k) => k.s > me.s && (k.s - me.s) * L < 700 && seen(k)).sort((a, b) => a.s - b.s)[0];
+    if (sl) { const q = seen(sl); return { ...q, icon: '🧽', act: () => {   // the next slick on the road, mopped up
+      if (!g.slicks.includes(sl)) return null;
+      g.slicks.splice(g.slicks.indexOf(sl), 1); ring(sl.x, sl.y, '#9CFFB0'); g.fx.push({ kind: 'text', x: sl.x, y: sl.y - 24, text: 'MOPPED', life: 1, col: '#9CFFB0' }); sfx('splash');
+      return figDid('mop slick'); } }; }
+    if (!alive(me)) return null;
+    const q = seen(me); if (!q) return null;
+    return { ...q, icon: '🔥', act: () => {   // a little push: a short nitro
+      if (!alive(g.me)) return null;
+      g.nitro = Math.max(g.nitro || 0, 1.5); ring(g.me.x, g.me.y, '#FF8A3D'); g.fx.push({ kind: 'text', x: g.me.x, y: g.me.y - 30, text: '🔥 FIG PUSH', life: 1, col: '#FFE36B' }); sfx('cannon', { size: 0.4 });
+      return figDid('nitro'); } };
+  }
+  if (kind === 'tease') {   // 🍌 a single slick plopped to one side of the road ahead: plenty of room to miss it
+    for (const ahead of [300, 240, 380, 190, 150]) {   // the farthest spot up the road that's still on screen
+      const s1 = me.s + sOf(ahead); if (s1 > FINISH - 0.02 || loopAt(s1, 40) || splitNear(s1, 40)) continue;
+      const w = wAt(s1), lat = (Math.random() < 0.5 ? -1 : 1) * w * 0.3, p = spotOn(s1, lat), q = seen(p); if (!q || q.y < Hh * 0.12) continue;
+      return { ...q, icon: '🍌', act: () => {
+        if (!g.slicks || g.fin || g.done) return null;
+        g.slicks.push({ x: p.x, y: p.y, s: s1, lat, a: at(s1).a, r: 17, lext: 17, free: lat > 0 ? -1 : 1, owner: null, arm: 0, life: 20 });
+        g.fx.push({ kind: 'text', x: p.x, y: p.y - 24, text: 'OOPS 🍌', life: 1.1, col: '#FFE36B' }); sfx('plunk');
+        return figDid('drop slick'); } };
+    }
+    return null;
+  }
+  if (kind === 'idle') {   // 📯 honk the nearest rival you can see (it jumps), or your own horn
+    const rv = g.rivals.filter((c) => alive(c) && seen(c)).sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0], c = rv || (alive(me) && seen(me) ? me : null);
+    if (!c) return null;
+    return { ...seen(c), icon: '📯', act: () => {
+      if (!alive(c)) return null;
+      c.bob = 1; g.fx.push({ kind: 'text', x: c.x, y: c.y - 28, text: 'HONK HONK', life: 1 }); sfx('tick', { hi: true }); sfx('tick', { hi: true, delay: 0.16 });
+      return figDid(rv ? 'honk rival' : 'honk me'); } };
+  }
+  return null;
+}
+
 const organ = {
   key: 'rally', name: 'Rally', icon: '🏎️', verb: 'race to the finish · hold a side to steer', beat: 1.0,
   theme: { bg: '#B4662A', gold: '#F5C542', bannerc: '#FFE08A' },
@@ -2479,6 +2528,7 @@ const organ = {
   // 🕳️ the pocket: through the thing coming up the road, and what comes back out of it
   pocket: slotcarPocket,
   pocketSpot,
+  figAct,
   pocketSeed() {
     const th = TH(); if (!g.pkThing) g.pkThing = pocketThings().filter((c) => c.s > g.me.s).sort((a, b) => a.s - b.s)[0] || null;
     let surf = null; try { surf = tex(th.surf); } catch { surf = null; }
@@ -2531,6 +2581,7 @@ const organ = {
     twistNow: (k) => { const tw = TWISTS.find((x) => x[2] === k); if (!tw) return; g.twist = null; const keep = Math.random; Math.random = () => TWISTS.indexOf(tw) / TWISTS.length + 1e-6; try { twist(); } finally { Math.random = keep; } },
     stop: () => { Object.assign(g.me, { v: 0, vx: 0, vy: 0, vs: 0, spin: 0, w: 0 }); },
     beat: (ev) => onBeat(ev), clearArms: () => { g.traps = []; g.zones = []; g.slicks = []; g.proj = []; g.crates = []; },
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; },
     hitObstacle: (i = 0, d = 70, v, dl = 0) => { const o = g.solids[i]; if (!o) return null; const sk = o.s - d / g.track.len, p = spotOn(sk, o.lat + dl), a = at(sk).a, me = g.me; me.x = p.x; me.y = p.y; me.a = a; me.s = me.prevS = sk; me.lat = o.lat + dl; me.spin = 0; me.w = 0; me.air = 0; me.v = v ?? topSpeed(); me.vx = Math.cos(a) * me.v; me.vy = Math.sin(a) * me.v; me.vs = me.v; return { x: o.x, y: o.y, r: o.cr }; } }),
 };
 export default organ;

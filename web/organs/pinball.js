@@ -855,6 +855,40 @@ function drawDMD(t) {
   ctx.drawImage(look.dmdMask, dx, dy);
 }
 // ---------------------------------------------------------------- the organ
+// ---------------------------------------------------------------- 🟢 Fig on the table (the shell flies Fig to x, y, then calls act)
+// Things live in table units; toWorld puts them where the shell's field shows them (mirror included).
+let figActs = 0, lastFig = '';
+const figDid = (s) => { figActs += 1; lastFig = s; return s; };
+function figAct(kind) {
+  if (!g || S.over) return null;
+  const inPlay = g.balls.filter((b) => b.st === 'play'), low = inPlay.slice().sort((a, b) => b.y - a.y)[0], at = (x, y, icon, act) => ({ ...toWorld(x, y), icon, act });
+  if (kind === 'help') {
+    if (low && low.y > 480) return at(low.x, low.y, '🖐️', () => {   // the lowest ball, bumped back up the table
+      if (low.st !== 'play') return null;
+      low.vy = -Math.max(900, Math.abs(low.vy)); low.vx = (CX - low.x) * 2 + (Math.random() - 0.5) * 120; spark(low.x, low.y, TEAL, 16, 160); text(low.x, low.y - 30, 'FIG BUMP', TEAL); snd('boing', null, 0); g.shake = Math.max(g.shake, 3);
+      return figDid('bump ball'); });
+    if (playing()) return at(CX, 690, '🛟', () => {   // Fig stands in the drain for a moment: a short ball save
+      g.saveT = Math.max(g.saveT, 5); spark(CX, 690, TEAL, 18, 150); text(CX, 650, 'FIG SAVES 5 S', TEAL); dmd('FIG SAVE', '5 SECONDS', TEAL, 1.4); snd('ping', null, 0);
+      return figDid('ball save'); });
+    return null;
+  }
+  if (kind === 'tease') {   // a tiny nudge from under the glass: the balls jump, no tilt meter (it's Fig's, not yours)
+    if (!low) return null;
+    return at(low.x, low.y, '🫨', () => {
+      const bs = g.balls.filter((b) => b.st === 'play'); if (!bs.length) return null;
+      bs.forEach((b) => { b.vy -= 180; b.vx += (Math.random() - 0.5) * 220; }); g.shake = Math.max(g.shake, 5); snd('thud', null, 0); text(CX, 470, 'WHEE', LILAC);
+      return figDid('nudge'); });
+  }
+  if (kind === 'idle') {
+    if (waiting() && !playing()) return at(PLUNGE.x, PLUNGE.y - 20, '👉', () => {   // taps on the plunger: psst, pull me (it never launches for you)
+      spark(PLUNGE.x, PLUNGE.y - 20, GOLD, 10, 100); text(PLUNGE.x - 40, PLUNGE.y - 60, 'PSST · PULL', GOLD); snd('click', null, 0); snd('click', { hi: true }, 0);
+      return figDid('tap plunger'); });
+    const bp = g.bumps[Math.floor(Math.random() * g.bumps.length)]; if (!bp) return null;
+    return at(bp.x, bp.y, '🔔', () => { bp.flash = 1; spark(bp.x, bp.y, GOLD, 12, 140); score(10, 'fig', bp.x, bp.y - 26, 'DING', GOLD); snd('ping', null, 0); return figDid('ring bumper'); });   // rings a bumper
+  }
+  return null;
+}
+
 const organ = {
   key: 'pinball', name: 'Chaos Pinball', icon: '🎰', verb: 'tap a side to flip · hold and let go to launch', beat: 0.8,
   theme: { bg: '#0B0918', gold: '#F5C542', bannerc: '#FFE08A' },
@@ -867,6 +901,7 @@ const organ = {
   resize() { look.key = ''; },
   // 🕳️ the pocket: the cup is the way in (it glows when you're deep), and what comes up out of the billiard
   pocket: stadiumPocket,
+  figAct,
   pocketSpot() { if (!g || g.tiltT > 0 || g.balls.some((b) => b.st === 'saucer')) return null; const w = toWorld(SAUCER.x, SAUCER.y); return { x: w.x, y: w.y, r: 14 * L.ts, icon: '🎱' }; },
   pocketSeed: () => ({ seed: Math.floor(Math.random() * 1e9), stage: ST() }),
   pocketReward(res) {
@@ -892,6 +927,7 @@ const organ = {
     cannon: !!g.cannon, aimX: g.cannon ? aimX() : null, tankX: g.tank.x, tankDir: g.tank.dir, tankSpeed: 34 * (1 + 0.25 * (ST() - 1)), squirrelOff: g.squirrel.off, bumps: g.bumps.map((b) => ({ x: +b.x.toFixed(1), y: b.y })),
     lastLand: g.lastLand || null, escapes: g.escapes, bad: g.bad, badAt: g.badAt, maxV: Math.round(g.maxV), msg: g.msg?.title || null, dmd: dmdContent().slice(0, 2), auto: g.auto, freeze: g.freeze,
     table: { ts: L.ts, tx: L.tx, ty: L.ty, dy: L.dy }, lives: S.lives?.pinball ?? 3,
+    figActs, lastFig, figAct: (k) => { const a = figAct(k); return a && { x: a.x, y: a.y, icon: a.icon, did: a.act() }; }, bumpFlash: g.bumps.map((b) => b.flash),
     launch: (power = 0.6) => launch(waiting(), power),
     flip: (side, on = true) => { g.keys[side ? 'r' : 'l'] = on; holdSides(); return g.fl[side].on; },
     place: (x, y, vx = 0, vy = 0) => { let b = g.balls.find((q) => q.st === 'play') || waiting() || newBall('play'); b.st = 'play'; b.x = x; b.y = y; b.vx = vx; b.vy = vy; b.first = false; b.autoT = null; return b.id; },
