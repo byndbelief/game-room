@@ -498,7 +498,7 @@ username. A new account only becomes a robot once it's in `public.bots`.
   otherwise the owner pastes it into Supabase → SQL Editor.
 - **theGAME is the starting block.** `schema.sql` + 002–007 are the baseline, verified
   identical to production on 2026-09-27 (`supabase/BASELINE.md`). New changes are
-  `008_…` onward (008_clocks, 009_scoreboard, 010_trophies, 011_tank_moves, 012_smarter_robot, 013_dodge, 014_live_battle, 015_live_chaos, 016_duel_weapons, 017_robot_live, 018_chaos_cards, 019_cards_turn_time, 020_hide_finished, 021_online, 022_fleet_ready, 023_duel_multi, 024_card_loot, 025_duel_fast_reload, 026_bs_fast_reload, 027_bs_themes, 028_bs_shared, 029_duel_dig, 030_bs_theme_wording, 031_duel_world, 032_six_players, 033_more_bots, 034_six_gauntlet_battleship, 035_bunker_buster, 036_golf_course_size, 037_bs_burst applied 2026-09-28; 038_drone_strike, 039_more_loot, 040_golf_live_attacks, 041_golf_attack_loot, 042_more_chaos_hilltop, 043_more_chaos_golf, 044_even_more_chaos, 045_live_countdown, 046_gauntlet_big_ocean, 047_chaos_extras, 048_duel_rotate_start, 049_shoot_the_moon, 050_orogeny, 051_regrowth, 052_fill_holes, 053_bs_volleys_kraken, 054_bs_shared_misses, 055_golf_big_course, 056_bs_always_shared, 057_golf_long_course, 058_chaos_curve, 059_hilltop_fractals, 060_bs_fractals, 061_cards_butterfly_recursion, 062_route_to_chaos, 063_solo_scores 2026-09-29), applied with `apply_migration` under the same name so Supabase's history
+  `008_…` onward (008_clocks, 009_scoreboard, 010_trophies, 011_tank_moves, 012_smarter_robot, 013_dodge, 014_live_battle, 015_live_chaos, 016_duel_weapons, 017_robot_live, 018_chaos_cards, 019_cards_turn_time, 020_hide_finished, 021_online, 022_fleet_ready, 023_duel_multi, 024_card_loot, 025_duel_fast_reload, 026_bs_fast_reload, 027_bs_themes, 028_bs_shared, 029_duel_dig, 030_bs_theme_wording, 031_duel_world, 032_six_players, 033_more_bots, 034_six_gauntlet_battleship, 035_bunker_buster, 036_golf_course_size, 037_bs_burst applied 2026-09-28; 038_drone_strike, 039_more_loot, 040_golf_live_attacks, 041_golf_attack_loot, 042_more_chaos_hilltop, 043_more_chaos_golf, 044_even_more_chaos, 045_live_countdown, 046_gauntlet_big_ocean, 047_chaos_extras, 048_duel_rotate_start, 049_shoot_the_moon, 050_orogeny, 051_regrowth, 052_fill_holes, 053_bs_volleys_kraken, 054_bs_shared_misses, 055_golf_big_course, 056_bs_always_shared, 057_golf_long_course, 058_chaos_curve, 059_hilltop_fractals, 060_bs_fractals, 061_cards_butterfly_recursion, 062_route_to_chaos, 063_solo_scores 2026-09-29; 086_golf_fixes_cup 2026-10-14), applied with `apply_migration` under the same name so Supabase's history
   matches the repo. `tools/drift-check.sql` compares production with a local build.
 - **Edge function:** `notify` is deployed by hand (or `deploy_edge_function`); redeploy
   only when `supabase/functions/notify/` changes.
@@ -738,6 +738,37 @@ shows an event id twice (`chaosShown`); identical messages merge (`×n`); at mos
 the rest one "+n more chaos news" line (no sound). Toasts are compact (13px, 2-line clamp, colour on
 the left edge), sit at the bottom of the screen, never more than two at once, and go after 3.5 s.
 In a game they still wait in the 🔔 (unless Settings says pop-ups).
+
+### Putt Post gets the Putt organ's upgrades (086)
+🌍 **Worlds look** (`web/golf-worlds.js`, the new default; `golfTheme()` reads pref `golfLook`, default 'worlds', so the
+old 'golfTheme' pref no longer counts): every hole is one of the organ's nine places, `WORLDS[h.hi % 9]` (`worldFor(h)`;
+`holeFor` now stamps `h.hi`): meadow, tropic island, desert, ice, candy, lava, space, castle, reef, each with its ground,
+decorations off the course, rails, striped fairway, green apron, pond liquid, sand, bumper style and ambient bits; the
+waving flag, the fading trail, the organ's aim (dots, arrow, power ring) and Fig as your ball (`scene.figBall`). Drawing
+only: `drawHole` hands off to `drawWorld` when THEME is 'worlds'; classic and natural are untouched. The static ground
+is a cached layer (LRU keyed by the hole's outline, tiers `hi` ≤ 6 Mpx / 3 px a unit and `lo`), only the view's part is
+copied each frame. The 🌍/⛳/🌳 pill cycles the three looks (`LOOKS`, `lookChanged`); the hole name carries the place's
+icon (`placeName`); `marginFill()` paints past the course in the place's ground. The lobby preview uses it too.
+🔧 **Fixes**: a quick tap (< 450 ms, no pull) on a bumper, block, pond, mud or sand while you aim clears it (`tryFix` →
+`golf_fix(game, kind, idx)`; two a hole, refused once you've finished the hole). `golf_fixes` (RLS: players of the game)
+keeps them; `load()` reads them, `H()` applies yours through `withFixes(h, [{k, i}])` (golf-engine.js; a cleared block
+takes its four rails from `segs`), `waiting()` shows the current player's. Indexes are into the hole *before* fixes
+(`hazardAt(base, x, y, pad, skip)`), stable because twists and attacks only append. A robot's hole never carries them
+(`robotTurn` sets mode 'bot' before `H()`). `scene.fixable` outlines what can still go.
+🟢 **Fig** sits in the course's corner (`#gfig`, a `palWidget`); tap = joins in / stays put (`r4.figQuiet`, shared with the
+solo games). Only on your own hole and never in a live race with other people (`figMay`). Help (`figHelp`, 0.7 s after a
+putt, once a hole, at par + 1 strokes or more): a gopher pair within 90 of the ball → `golf_fix(…, 'gophers', pair,
+p_fig := true)` (one a hole, not one of your two), else the ball rolls up to 45 along `flowTo` (never through a rail,
+into water or sand). Idle 9 s on your turn → Fig flies to the cup and kicks the flag (`scene.flagKick`), 20 s apart.
+`figGo` flies the chip to `screenOf(x, y)` (the inverse of `toL` + `worldOf`). The nudge needs nothing on the server:
+the next stroke is stored from where the ball now sits.
+🕳️ **Inside the cup**: hole out at par or better (not in a live race) and, after the dive, `cupBonus(hole)` offers 6 s
+(`#cupOffer`); Dive in runs `organs/pockets/cup.js` on `#cupGame` over the course (`playCup`: its own host `ph`, 400-wide
+field, 0.9 s beats, 20 s) with `seed.gifts` = three 🎁 and `seed.art` (the hole drawn small, inlaid; cup.js also takes
+`winLabel`). Sinking all three calls `golf_cup_bonus(game, hole)`: one random Putt Post item (golden tee, magnet, chip,
+the five sneak attacks) into the backpack, once a hole (`golf_cup_bonus` table), only with a turn on that hole at par or
+better from the last 15 minutes. `window.__cup()` is the pocket's debug; `__golf()` gained `fixes`, `fixesLeft`,
+`canFix`, `fig`, `figHelp`, `cupBonus`, `flagKick`, `toScreen`, `hole`, `ball`, `strokes`. Test (scratch): `t_golfup`.
 
 ### Putt Post on phones: the whole screen, and the slingshot Putt (page only)
 The canvas is any shape now. golf.js works in the canvas's own pixels: `lw()`×`lh()` (before the sideways

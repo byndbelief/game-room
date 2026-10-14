@@ -1208,9 +1208,9 @@ const setPref = (k, v) => { try { localStorage.setItem(`set.${k}`, JSON.stringif
 export const dramaOn = () => pref('drama', true) && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 export const hapticsOn = () => pref('haptics', true);
 export const gauntletRounds = () => pref('gtRounds', 3);
-// Putt Post's look on this device: 'classic' mini golf or a 'natural' golf course.
-export const golfTheme = () => pref('golfTheme', 'classic');
-export const setGolfThemePref = (v) => setPref('golfTheme', v);
+// Putt Post's look on this device: 'worlds' (every hole a place, 086), 'classic' mini golf or a 'natural' golf course.
+export const golfTheme = () => pref('golfLook', 'worlds');
+export const setGolfThemePref = (v) => setPref('golfLook', v);
 // Vibration everywhere goes through here, so the switch covers every buzz in every game.
 try {
   const vib = navigator.vibrate?.bind(navigator);

@@ -2,18 +2,24 @@
 import { sb, me, bots, signedIn, esc, nm, friendly, notify, ITEMS, compactPack, backpack, useLoot, announceChaos, backpackBarHTML, sfx, liveGame, nudge, nextUpChip, names, gauntletBar, isPhone, noteMirror, note, onHold, onTaps, rumour, shotClock, stopShotClock, chaosClock, dramaOn, face, livePresence, avatarOf, splash, jumpToNext, setGameTools, condenseTop, golfTheme, setGolfThemePref, liveCountdown, srv } from './common.js';
 import {
   BW, BH, LW, LH, COURSE, POWER, LONG, parOf, maxStrokes, setCourse, HOLES, R, CUP_R, tick, q20, q100, ATTACKS, holeWithAttack, holeWithTwists, twistsFor, CHIP_AIR, drawHole,
-  inPoly, inRect, segDist, reduceMotion, setGolfTheme, holeName, flowTo,
+  inPoly, inRect, segDist, reduceMotion, setGolfTheme, holeName, flowTo, withFixes, hazardAt,
 } from './golf-engine.js';
+import { worldFor } from './golf-worlds.js';
+import { palWidget } from './pals.js';
+import cupPocket from './organs/pockets/cup.js';
 
 const $ = (id) => document.getElementById(id);
 // The course's look (drawing only, so everyone can pick their own): mini golf or a natural course.
+// Three looks (086): 🌍 worlds (every hole a place: meadow, island, canyon, ice… from golf-worlds.js), ⛳ mini golf, 🌳 natural.
+const LOOKS = { worlds: ['🌍', 'Worlds', 'every hole a new place'], classic: ['⛳', 'Mini golf', 'classic mini golf'], natural: ['🌳', 'Natural', 'a natural golf course'] };
+const LOOK_NEXT = { worlds: 'classic', classic: 'natural', natural: 'worlds' };
 function showTheme() {
-  const nat = golfTheme() === 'natural'; setGolfTheme(golfTheme());
-  const b = $('themeBtn'); b.innerHTML = nat ? '🌳<span class="tlabel"> Natural</span>' : '⛳<span class="tlabel"> Mini golf</span>'; b.setAttribute('aria-pressed', String(nat));
-  b.title = nat ? 'Natural golf course: tap for mini golf' : 'Mini golf: tap for a natural golf course';
-  document.body.classList.toggle('natural', nat);
+  const k = LOOKS[golfTheme()] ? golfTheme() : 'worlds', [icon, label, what] = LOOKS[k], nk = LOOK_NEXT[k]; setGolfTheme(k);
+  const b = $('themeBtn'); b.innerHTML = `${icon}<span class="tlabel"> ${label}</span>`; b.setAttribute('aria-pressed', String(k !== 'classic'));
+  b.title = `${what[0].toUpperCase() + what.slice(1)}: tap for ${LOOKS[nk][2]}`;
+  document.body.classList.toggle('natural', k === 'natural');
 }
-$('themeBtn').onclick = () => { setGolfThemePref(golfTheme() === 'natural' ? 'classic' : 'natural'); showTheme(); sfx('click'); };
+$('themeBtn').onclick = () => { setGolfThemePref(LOOK_NEXT[LOOKS[golfTheme()] ? golfTheme() : 'worlds']); showTheme(); lookChanged(); sfx('click'); };
 showTheme();
 const cv = $('course'), ctx = cv.getContext('2d');
 
@@ -47,7 +53,11 @@ const magnetize = (h, on) => (on ? { ...h, cupR: 13, cupSpeed: 7.5 * POWER } : h
 const holeAt = (hi, type, t) => holeWithTwists(G.game.seed, hi, type, G.game.twists, t);
 // My turn's slot: the turn number, or live, my slot on the hole everyone's on.
 const myT = () => (liveOn ? Math.floor(G.game.t / n()) * n() + G.game.players.indexOf(me.id) : G.game.t);
-const H = () => magnetize(holeAt(curHole(), curAttack, myT()), magnetOn && mode !== 'bot');
+// 🔧 Fixes (086): the hazards a player cleared off a hole (golf_fixes), as withFixes() takes them.
+const fixesOf = (p, hole) => (G?.fixes || []).filter((f) => f.player === p && f.hole === hole).map((f) => ({ k: f.kind, i: f.idx }));
+const FIX_N = 2;
+const fixesLeft = () => Math.max(0, FIX_N - (G?.fixes || []).filter((f) => f.player === me.id && f.hole === curHole() && !f.fig).length);
+const H = () => magnetize(mode === 'bot' ? holeAt(curHole(), curAttack, myT()) : withFixes(holeAt(curHole(), curAttack, myT()), fixesOf(me.id, curHole())), magnetOn && mode !== 'bot');
 let chipNext = false;   // a ⛳ Chip Shot is loaded for the next putt (043)
 const isBot = (id) => bots.has(id);
 const who = (id) => (id === me.id ? 'You' : nm(id));
@@ -65,16 +75,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- loading
 async function load(id) {
-  const [g, t, p, a, s] = await Promise.all([
+  const [g, t, p, a, s, fx] = await Promise.all([
     sb.from('golf_games').select('*').eq('id', id).maybeSingle(),
     sb.from('golf_turns').select('*').eq('game_id', id).order('t'),
     sb.from('golf_players').select('*').eq('game_id', id),
     sb.from('golf_accusations').select('*').eq('game_id', id),
     sb.from('golf_secrets').select('*').eq('game_id', id),
+    sb.from('golf_fixes').select('player,hole,kind,idx,fig').eq('game_id', id),
   ]);
   if (!g.data) return false;
   setCourse((g.data.course || 100) / 100);   // 4+ players: a bigger course, zoomed out (036)
-  G = { game: g.data, turns: t.data ?? [], players: p.data ?? [], acc: a.data ?? [], secrets: s.data ?? [], best: G?.best };
+  G = { game: g.data, turns: t.data ?? [], players: p.data ?? [], acc: a.data ?? [], secrets: s.data ?? [], fixes: fx.data ?? [], best: G?.best };
   if (G.game.gauntlet_id) gauntletBar(G.game.gauntlet_id, G.game.id, me.id, (p) => names[p] ?? 'someone');
   return true;
 }
@@ -235,7 +246,9 @@ function loop(t) {
     if (rot) ctx.setTransform(0, 1, -1, 0, cv.width, 0);   // sideways: the canvas's own pixels, turned
     else ctx.setTransform(1, 0, 0, 1, 0, 0);
     const base = ctx.getTransform(), k = kNow();
-    ctx.fillStyle = golfTheme() === 'natural' ? '#3F6B2C' : '#1A4F32'; ctx.fillRect(0, 0, lw(), lh());   // past the course's edge
+    ctx.fillStyle = marginFill(); ctx.fillRect(0, 0, lw(), lh());   // past the course's edge
+    scene.figBall = ['aim', 'rolling', 'wedge', 'reveal', 'done'].includes(mode); scene.fixable = canFix();
+    figTick(t);
     ctx.transform(k, 0, 0, k, lw() / 2 - k * cam.x, lh() / 2 - k * cam.y);
     drawHole(ctx, scene.hole, t, scene); if (liveOn) drawGhosts();
     ctx.setTransform(base);
@@ -326,7 +339,7 @@ const fromStroke = (s) => (s.chip ? [s.x, s.y, s.vx, s.vy, 1] : [s.x, s.y, s.vx,
 // ---------------------------------------------------------------- header, scorecard
 function setHud(hole, player, s, replay) {
   $('holeNo').textContent = `Hole ${hole + 1} of ${G.game.start + G.game.count} · Par ${parOf(hole)}`;
-  $('holeName').textContent = holeName(hole);
+  $('holeName').textContent = placeName(hole);
   $('whoPill').innerHTML = `${replay ? '▶' : '⛳'} ${face(player)}${who(player)}`;
   $('strokes').textContent = s;
 }
@@ -413,7 +426,7 @@ async function decide() {
 }
 function waiting(cur) {
   mode = 'idle';
-  scene = { hole: holeAt(curHole(), 0, G.game.t), fx: [], clock: 0 };
+  scene = { hole: withFixes(holeAt(curHole(), 0, G.game.t), fixesOf(cur, curHole())), fx: [], clock: 0 };
   setHud(curHole(), cur, 0, false);
   $('tip').textContent = `Waiting for ${who(cur).replace(/<[^>]+>/g, '')} to play hole ${curHole() + 1}. This page updates when they do.`;
   $('cheats').hidden = true; $('pack').innerHTML = ''; $('packMini').innerHTML = '';
@@ -506,7 +519,9 @@ function startTurn() {
     + (tw.some((x) => x.k === 'cup') ? ' 🚩 Chaos moved the cup!' : '') + (tw.some((x) => x.k === 'gopher') ? ' 🐹 Gophers dug up the fairway: in one hole, out the other.' : '')
     + (tw.some((x) => x.k === 'fog') ? ' 🌫️ Fog rolled in: you only see round your ball.' : '') + (tw.some((x) => x.k === 'flood') ? ' 🌊 A flood left a new pond.' : '')
     + (tw.some((x) => x.k === 'windmill') ? ' 🌀 A windmill sprang up.' : '') + (tw.some((x) => x.k === 'mud') ? ' 🟤 Watch the mud: it swallows speed.' : '')
-    + (tw.some((x) => x.k === 'gust') ? ' 🍃 A gust is blowing across the hole.' : '');
+    + (tw.some((x) => x.k === 'gust') ? ' 🍃 A gust is blowing across the hole.' : '')
+    + (canFix() ? ` 🔧 Tap a hazard to clear it (${fixesLeft()} on this hole).` : '');
+  fig.idleAt = performance.now();
   $('send').hidden = true;
   renderCard();
   if (curAttack && liveOn) { attackFrom = 0; landLiveAttack(); }   // live: no box to tap while everyone else races
@@ -626,10 +641,11 @@ cv.addEventListener('wheel', (e) => {
   viewAt(cam.z * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), worldOf(L), L);   // ctrl: a trackpad pinch
 }, { passive: false });
 cv.addEventListener('pointerdown', (e) => {
+  fig.idleAt = performance.now();
   if (mode === 'wedge') return wedgeTo(toLogical(e));
   if (mode !== 'aim') return;
   if (cam.intro) { cam.intro = null; cam.z = cam.over ? 1 : zPlay(); [cam.x, cam.y] = camClamp(...camFocus(), cam.z); }   // straight to the tee, before the aim is read
-  drag = { ...toLogical(e), cx: e.clientX, cy: e.clientY, mouse: e.pointerType === 'mouse' }; cv.setPointerCapture(e.pointerId); setLocked(false);
+  drag = { ...toLogical(e), cx: e.clientX, cy: e.clientY, mouse: e.pointerType === 'mouse', t0: performance.now() }; cv.setPointerCapture(e.pointerId); setLocked(false);
   // Holding still on your own ball is the secret foot wedge.
   clearTimeout(wedgeHold);
   if (canCheat() && scene.ball && Math.hypot(drag.x - scene.ball.x, drag.y - scene.ball.y) < (26 * kNorm()) / kNow()) wedgeHold = setTimeout(() => { if (drag && !scene.aim) cheatWedge(); }, 750);
@@ -655,8 +671,9 @@ cv.addEventListener('pointermove', (e) => {
 });
 cv.addEventListener('pointercancel', () => { drag = null; scene.aim = null; showAim(null); });
 cv.addEventListener('pointerup', async (e) => {
-  if (!drag) return; drag = null;
+  if (!drag) return; const d0 = drag; drag = null;
   const a = scene.aim;
+  if (!a && mode === 'aim' && performance.now() - d0.t0 < 450 && tryFix(d0)) return;   // 🔧 a quick tap on a hazard clears it
   if (!a || a.p < 0.04 || mode !== 'aim') { scene.aim = null; showAim(null); if (mode === 'aim') $('tip').textContent = 'Drag back further to putt.'; return; }
   if (e.pointerType !== 'mouse') { setLocked(true); phShow(e); $('tip').textContent = 'Fine-tune with ↺ ↻ − +, then tap Putt!'; return; }
   scene.aim = null; showAim(null);
@@ -680,6 +697,7 @@ async function putt(a) {
   $('tip').textContent = r.penalty ? 'Splash! One penalty stroke. Back to where you putted from.' : `Stroke ${strokes + 1}. Drag back and let go.`;
   if (curAttack && attackFrom === current.length && liveOn) landLiveAttack();   // it landed while the ball rolled
   renderCheats(); renderCard();
+  setTimeout(figHelp, 700);
 }
 
 // ---------------------------------------------------------------- cheating (if you dare)
@@ -754,7 +772,7 @@ function wedgeTo(pt) {
 // ---------------------------------------------------------------- finishing a hole
 async function finishTurn(holed) {
   mode = 'done'; $('cheats').hidden = true; $('pack').innerHTML = ''; $('packMini').innerHTML = '';
-  const par = parOf(curHole()), t = G.game.t;
+  const par = parOf(curHole()), t = G.game.t, hole = curHole();
   if (holed) { celebrate(strokes, par); startDive(); }
   const wasLive = liveOn;
   const { data, error } = await sb.rpc(wasLive ? 'golf_submit_live' : 'golf_submit_turn', { p_game: G.game.id, p_strokes: current.map(fromStroke), p_actual: strokes, p_cheats: cheatsUsed, p_holed: holed,
@@ -768,6 +786,7 @@ async function finishTurn(holed) {
   announceChaos({ gameId: G.game.id }); pack = await backpack();
   await sleep(holed && strokes === 1 && !reduceMotion ? 1800 : 300);
   await diveDone();   // all the way down into the cup first
+  if (holed && !wasLive && strokes <= par) await cupBonus(hole);   // 🕳️ at par or better, the cup opens (086)
   await load(G.game.id);
   if (G.game.status === 'over' || n() === 1) { afterPanel = false; return decide(); }
   afterPanel = true; renderAfter(); decide();
@@ -810,8 +829,8 @@ async function robotTurn() {
   const bot = curPlayer(), t = G.game.t, sk = botSkill();
   const { data: atk } = await sb.rpc('golf_bot_attack', { p_game: G.game.id });
   curAttack = atk?.type || 0; curAttacker = atk?.attacker || null;
-  const h = H();
-  cheatsUsed = 0; strokes = 0; current = []; mode = 'bot'; $('pack').innerHTML = ''; $('packMini').innerHTML = '';
+  mode = 'bot'; const h = H();   // (before H(): a robot's hole never carries your fixes)
+  cheatsUsed = 0; strokes = 0; current = []; $('pack').innerHTML = ''; $('packMini').innerHTML = '';
   scene = { hole: h, fx: [], clock: 0, ball: { x: h.tee[0], y: h.tee[1] } };
   camIntro(holeKey(curHole()));
   setHud(curHole(), bot, 0, false); renderCard();
@@ -966,13 +985,161 @@ async function deleteGame() {
   location.href = './';
 }
 
+// ---------------------------------------------------------------- 🌍 the look, 🔧 fixes, 🟢 Fig, 🕳️ inside the cup (086)
+// The Putt organ's upgrades, for the family game. The look is drawing only (golf-worlds.js). Fixes go through the server
+// (golf_fix) so every page builds your hole the same way. Fig helps only on your own hole, and never in a live race with
+// other people. The cup bonus is a game of its own (organs/pockets/cup.js); a win drops one Putt Post item (golf_cup_bonus).
+const lookIs = (k) => (LOOKS[golfTheme()] ? golfTheme() : 'worlds') === k;
+const placeName = (hole) => (lookIs('worlds') ? `${worldFor({ hi: hole }).icon} ` : '') + holeName(hole);
+function lookChanged() { cupArts.clear(); scene.cupArt = undefined; if (G && scene.hole) $('holeName').textContent = placeName(curHole()); }
+const marginFill = () => (lookIs('natural') ? '#3F6B2C' : lookIs('worlds') && scene.hole ? worldFor(scene.hole).bg[1] : '#1A4F32');
+const myPlay = () => G?.game.status === 'playing' && (liveOn ? !myHoleDone() : curPlayer() === me.id);
+const baseHole = () => holeAt(curHole(), curAttack, myT());
+const canFix = () => mode === 'aim' && !locked && myPlay() && fixesLeft() > 0 && !!hazardAt(baseHole(), 0, 0, 1e9, (k, i) => fixesOf(me.id, curHole()).some((f) => f.k === k && f.i === i));
+let fixing = false;
+function tryFix(pt) {
+  if (!canFix() || fixing) return false;
+  const done = fixesOf(me.id, curHole()), hz = hazardAt(baseHole(), pt.x, pt.y, (8 * kNorm()) / kNow(), (k, i) => done.some((f) => f.k === k && f.i === i));
+  if (!hz) return false;
+  fixing = true; sfx('click');
+  sb.rpc('golf_fix', { p_game: G.game.id, p_kind: hz.k, p_idx: hz.i }).then(({ data, error }) => {
+    fixing = false;
+    if (error) { $('tip').textContent = friendly(error); sfx('buzz'); return; }
+    G.fixes.push({ player: me.id, hole: data.hole, kind: hz.k, idx: hz.i, fig: false });
+    if (mode === 'aim') scene.hole = H();
+    burst(pt.x, pt.y, ['#FFE08A', '#fff', '#9CFFB0'], 26, 0.05); sfx('pop');
+    bigText('<span class="small-pop">🔧 Fixed!</span>', 900);
+    $('tip').textContent = `🔧 Gone! ${data.left ? `${data.left} more fix${data.left > 1 ? 'es' : ''} on this hole.` : 'That was your last fix on this hole.'}`;
+  });
+  return true;
+}
+
+// 🟢 Fig sits in the corner of the course. Tap it: Fig joins in, or stays put (the same switch as the solo games').
+const fig = { w: null, busy: false, helped: -1, idleAt: performance.now(), kicked: -1e9 };
+const figQuiet = () => { try { return localStorage.getItem('r4.figQuiet') === '1'; } catch { return false; } };
+const humans = () => G.game.players.filter((p) => !isBot(p)).length;
+const figMay = () => !figQuiet() && !!G && !(liveOn && humans() > 1) && mode === 'aim' && !locked && !drag && myPlay();
+function figInit() {
+  const el = $('gfig'), d = Math.min(2, devicePixelRatio || 1);
+  el.width = el.height = Math.round(52 * d); fig.w = palWidget(el, { pal: 'calm', s: 14, dpr: d });
+  const show = () => { el.classList.toggle('quiet', figQuiet()); el.title = figQuiet() ? 'Fig is staying put: tap and Fig joins in' : 'Fig joins in: tap and Fig stays put'; };
+  el.onclick = () => { try { localStorage.setItem('r4.figQuiet', figQuiet() ? '0' : '1'); } catch {} show(); sfx('click'); note(figQuiet() ? '🙈 Fig will stay put.' : '🤚 Fig will join in.'); };
+  show();
+}
+function screenOf(x, y) {   // a course point → px in the course box (the inverse of toL + worldOf)
+  const k = kNow(), Lx = (x - cam.x) * k + lw() / 2, Ly = (y - cam.y) * k + lh() / 2;
+  const u = rot ? (lh() - Ly) / lh() : Lx / lw(), v = rot ? Lx / lw() : Ly / lh(), r = cv.getBoundingClientRect(), w = cv.parentElement.getBoundingClientRect();
+  return { x: r.left - w.left + Math.min(1, Math.max(0, u)) * r.width, y: r.top - w.top + Math.min(1, Math.max(0, v)) * r.height };
+}
+function figGo(x, y, act) {
+  const el = $('gfig'); if (fig.busy || !el) return;
+  fig.busy = true; el.style.transform = '';
+  const p = screenOf(x, y), dx = p.x - (el.offsetLeft + el.offsetWidth / 2), dy = p.y - (el.offsetTop + el.offsetHeight / 2) - 18;
+  el.classList.add('out'); el.style.transform = `translate(${dx}px, ${dy}px) scale(1.5)`;
+  setTimeout(() => { act(); fig.w?.react?.({ peak: true }); setTimeout(() => { el.style.transform = ''; el.classList.remove('out'); setTimeout(() => { fig.busy = false; }, 600); }, 650); }, 620);
+}
+// help: struggling (a bogey or worse already) and the ball's still out → Fig shoos a gopher pair near it, or rolls
+// the ball a little way along the best route to the cup (never through a rail, never into water). Once a hole.
+function figHelp() {
+  if (!figMay() || fig.busy || fig.helped === curHole() || !scene.ball || strokes < parOf(curHole()) + 1) return;
+  const h = H(), b = scene.ball, base = baseHole(), done = fixesOf(me.id, curHole());
+  const gp = (base.gophers || []).findIndex(([gx, gy], i) => !done.some((f) => f.k === 'gophers' && f.i === i >> 1) && Math.hypot(gx - b.x, gy - b.y) < 90);
+  if (gp >= 0) {
+    fig.helped = curHole();
+    return figGo(base.gophers[gp][0], base.gophers[gp][1], () => sb.rpc('golf_fix', { p_game: G.game.id, p_kind: 'gophers', p_idx: gp >> 1, p_fig: true }).then(({ data, error }) => {
+      if (error) return;
+      G.fixes.push({ player: me.id, hole: data.hole, kind: 'gophers', idx: gp >> 1, fig: true });
+      if (mode === 'aim') scene.hole = H(); sfx('pop'); bigText('<span class="small-pop">🐹 Shoo!</span>', 900); $('tip').textContent = '🟢 Fig chased the gophers off. Their holes are filled in.';
+    }));
+  }
+  const f = flowTo(h), here = f(b.x, b.y); let best = null;
+  for (let i = 0; i < 24; i++) {
+    const a = (i * Math.PI) / 12;
+    for (const d of [45, 32, 20]) { const x = q20(b.x + Math.cos(a) * d), y = q20(b.y + Math.sin(a) * d); if (!clearSpot(h, x, y, b) || h.sand.some((q) => inRect(x, y, q))) continue; const v = f(x, y); if (v < here - 10 && (!best || v < best.v)) best = { x, y, v }; break; }
+  }
+  if (!best) return;
+  fig.helped = curHole();
+  figGo(b.x, b.y, () => {
+    if (mode !== 'aim' || drag || locked || scene.ball !== b) return;
+    scene.ball = { x: best.x, y: best.y }; burst(best.x, best.y, ['#9CFFB0', '#fff'], 18, 0.04); sfx('boing');
+    $('tip').textContent = '🟢 Fig gave your ball a little push. Drag back and let go.';
+  });
+}
+// idle: nothing touched for a while on your turn → Fig flies over and kicks the flag
+function figTick(now) {
+  if (!figMay() || fig.busy || cam.intro || now - fig.idleAt < 9000 || now - fig.kicked < 20000 || !scene.hole) return;
+  fig.kicked = now;
+  figGo(scene.hole.cup[0], scene.hole.cup[1] - 20, () => { scene.flagKick = performance.now(); sfx('boing'); });
+}
+
+// 🕳️ Inside the cup: holed at par or better → a 6 s offer to dive in; 20 s to sink three cups for a prize.
+function cupBonus(hole) {
+  if (!$('cupOffer')) return Promise.resolve();
+  return new Promise((done) => {
+    const box = $('cupOffer'); box.hidden = false;
+    box.innerHTML = `<b>🕳️ The cup opened!</b><span>Sink 3 cups in 20 s for a prize.</span><div class="row"><button class="go" id="cupIn">Dive in</button><button id="cupNo">No thanks</button></div><i class="cupbar"></i>`;
+    sfx('chime');
+    const close = (go) => { clearTimeout(tm); box.hidden = true; if (!go) return done(); playCup(hole).then(done); };
+    const tm = setTimeout(() => close(false), 6000);
+    $('cupIn').onclick = () => close(true); $('cupNo').onclick = () => close(false);
+  });
+}
+function playCup(hole) {
+  return new Promise((done) => {
+    const c = $('cupGame'), r = cv.getBoundingClientRect(), w = cv.parentElement.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1);
+    Object.assign(c.style, { left: `${r.left - w.left}px`, top: `${r.top - w.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); c.hidden = false;
+    const W = 400, Hh = Math.max(520, (W * c.height) / c.width), k = Math.min(c.width / W, c.height / Hh);
+    const t0 = performance.now(), dur = cupPocket.dur || 20;
+    let end = false, last = t0, beat = 0;
+    const ph = { W, H: Hh, k, ox: (c.width - W * k) / 2, oy: (c.height - Hh * k) / 2, cv: c, ctx: c.getContext('2d'), sfx, mood: () => 'calm', S: { curve: { r: 3.7 } },
+      left: () => Math.max(0, dur - (performance.now() - t0) / 1000), win: (res) => finish(res, true), lose: (res) => finish(res, false) };
+    const h = scene.hole || H();
+    const th = lookIs('worlds') ? worldFor(h) : { bg: ['#1F5B3A', '#174A2F'], fair: ['#46A75A', '#4FB464'], rail: [[12, '#5A3A1E'], [8, '#8B5A2B']], flag: '#E4572E' };
+    const prize = ['p', '🎁', 'prize'];
+    cupPocket.start(ph, { theme: th, art: drawHoleTo(h, 300), gifts: [prize, prize, prize], winLabel: '3 CUPS · A PRIZE' });
+    const at = (e) => { const b = c.getBoundingClientRect(); return { x: (((e.clientX - b.left) / b.width) * c.width - ph.ox) / k, y: (((e.clientY - b.top) / b.height) * c.height - ph.oy) / k }; };
+    c.onpointerdown = (e) => { c.setPointerCapture?.(e.pointerId); cupPocket.pointer('down', at(e)); };
+    c.onpointermove = (e) => cupPocket.pointer('move', at(e));
+    c.onpointerup = c.onpointercancel = (e) => cupPocket.pointer('up', at(e));
+    const frame = (t) => {
+      if (end) return;
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      cupPocket.update(dt); beat += dt; if (beat > 0.9) { beat = 0; cupPocket.onBeat(); }
+      if (end) return;
+      if (ph.left() <= 0) return finish(cupPocket.timeUp(), false);
+      cupPocket.draw(t);
+      const x = ph.ctx, left = Math.ceil(ph.left());
+      x.setTransform(1, 0, 0, 1, 0, 0); x.font = `900 ${Math.round(16 * d)}px system-ui, sans-serif`; x.textAlign = 'left'; x.textBaseline = 'top';
+      x.fillStyle = left <= 5 ? '#FF8A80' : '#FFE08A'; x.strokeStyle = '#0B140B'; x.lineWidth = 4 * d; x.strokeText(`🕳️ ${left} s`, 12 * d, 12 * d); x.fillText(`🕳️ ${left} s`, 12 * d, 12 * d);
+      requestAnimationFrame(frame);
+    };
+    async function finish(res, won) {
+      if (end) return; end = true;
+      c.onpointerdown = c.onpointermove = c.onpointerup = c.onpointercancel = null;
+      if (!won) { c.hidden = true; $('tip').textContent = `🕳️ The cup closed: ${res?.why || 'next time'}.`; return done(); }
+      const { data, error } = await sb.rpc('golf_cup_bonus', { p_game: G.game.id, p_hole: hole });
+      c.hidden = true;
+      if (error) { $('tip').textContent = friendly(error); return done(); }
+      const it = ITEMS[data.item] || { icon: '🎁', name: data.item };
+      sfx('fanfare'); bigText(`<span class="small-pop">${it.icon} ${esc(it.name)}!</span>`, 1800);
+      $('tip').textContent = `🕳️ All three cups! ${it.icon} ${it.name} dropped into your backpack.`;
+      pack = await backpack();
+      setTimeout(done, 900);
+    }
+    requestAnimationFrame(frame);
+    window.__cup = () => ({ ...cupPocket.debug?.(), left: ph.left(), end });
+  });
+}
+
+
 // ---------------------------------------------------------------- start
 (async () => {
   if (!(await signedIn())) return;
   condenseTop(document.querySelector('.hudbar > .stack'));   // phones: ← · hole · toolbar
   const id = (location.hash.match(/game=([0-9a-f-]{36})/) || [])[1];
   if (!id || !(await load(id))) { $('holeName').textContent = 'Game not found'; $('holeNo').textContent = 'It may have been deleted.'; return; }
-  sizeCanvas(); addEventListener('resize', sizeCanvas);
+  sizeCanvas(); addEventListener('resize', sizeCanvas); figInit();
   if (window.ResizeObserver) { const ro = new ResizeObserver(() => { if (fullCourse()) sizeCanvas(); }); ro.observe($('packMini')); ro.observe(document.querySelector('.hudbar')); }   // the full-screen course fits round them
   new MutationObserver(() => requestAnimationFrame(sizeCanvas)).observe($('play'), { attributes: true, attributeFilter: ['class'] });   // in and out of full screen
   $('cardFold').open = !isPhone();
@@ -1005,5 +1172,5 @@ async function deleteGame() {
   upNext(); setInterval(() => { if (!document.hidden) upNext(); }, 20000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) upNext(); });
   decide();
-  window.__golf = () => ({ mode, liveOn, liveGo, holeGo: holeGo(), goIn: goAt() - Date.now(), offset: srv.offset, t: G?.game.t, hole_go: G?.game.hole_go });   // test hook
+  window.__golf = () => ({ cupBonus, flagKick: scene.flagKick, fixes: G?.fixes, fixesLeft: fixesLeft(), canFix: canFix(), fig: { ...fig, w: undefined }, hole: scene.hole, ball: scene.ball, strokes, H, toScreen: screenOf, cam: { ...cam }, kNow: kNow(), kNorm: kNorm(), figHelp, mode, liveOn, liveGo, holeGo: holeGo(), goIn: goAt() - Date.now(), offset: srv.offset, t: G?.game.t, hole_go: G?.game.hole_go });   // test hook
 })();

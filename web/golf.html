@@ -145,6 +145,18 @@ table.score{border-collapse:collapse;width:100%;font-variant-numeric:tabular-num
 #play.fs-on #course{border-radius:0}
 .mapbtn{position:absolute;right:10px;bottom:10px;z-index:3;width:42px;height:42px;padding:0;border-radius:50%;font-size:20px;line-height:1;background:#0B1A12b3;border:1px solid #ffffff33;box-shadow:0 4px 12px #0006}
 .mapbtn.on{background:#F2C14E;border-color:#F2C14E}
+/* 🟢 Fig in the course's corner (086): flies out to help, kicks the flag when you go quiet; tap = joins in / stays put */
+.gfig{position:absolute;left:8px;bottom:8px;z-index:4;width:52px;height:52px;border-radius:50%;background:#0B1A1299;border:1px solid #ffffff2a;box-shadow:0 4px 12px #0006;cursor:pointer;transition:transform .6s cubic-bezier(.45,0,.3,1.25),background .3s;touch-action:manipulation}
+.gfig.out{background:transparent;border-color:transparent;box-shadow:none;pointer-events:none}
+.gfig.quiet{opacity:.55;filter:grayscale(.6)}
+/* 🕳️ the cup's offer and its bonus game */
+.cupoffer{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;width:min(92%,340px);display:flex;flex-direction:column;gap:6px;align-items:center;text-align:center;padding:12px 14px 14px;border-radius:16px;background:#0B1A12e6;border:1px solid #F2C14E88;box-shadow:0 10px 30px #000a;overflow:hidden;animation:cupin .35s ease-out both}
+@keyframes cupin{from{transform:translate(-50%,20px) scale(.8);opacity:0}}
+.cupoffer b{font-size:17px;color:#F2C14E}.cupoffer span{font-size:14px;opacity:.9}
+.cupoffer .cupbar{position:absolute;left:0;bottom:0;height:4px;background:#F2C14E;width:100%;animation:cupbar 6s linear both}
+@keyframes cupbar{to{width:0}}
+.cupgame{position:absolute;z-index:7;touch-action:none;border-radius:18px;background:#050A07}
+@media (max-width:760px){ #play:not(.fs-on) .cupgame{border-radius:0} }
 .score td small.pen{display:block;font-size:9px;line-height:1;font-weight:700;color:#FF9A7A;opacity:.9}
 .score td.going{font-style:italic;opacity:.75}
 #play.fs-on{gap:8px!important}
@@ -233,6 +245,9 @@ table.score{border-collapse:collapse;width:100%;font-variant-numeric:tabular-num
         <span class="phread" id="phRead" aria-live="off"></span>
       </div>
       <button type="button" class="mapbtn" id="mapBtn" hidden aria-pressed="false" title="The whole hole" aria-label="Show the whole hole">🗺️</button>
+      <canvas class="gfig" id="gfig" aria-label="Fig: tap to have Fig join in or stay put" role="button"></canvas>
+      <div class="cupoffer" id="cupOffer" hidden></div>
+      <canvas class="cupgame" id="cupGame" hidden aria-label="Inside the cup: drag back and let go to flick Fig into the cups"></canvas>
       <div class="hio" id="hio" hidden></div>
       <div class="overlay" id="gate" hidden><div class="card" id="gateCard"></div></div>
     </div>

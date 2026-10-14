@@ -1,6 +1,7 @@
 // Putt Post engine: the 18 holes, random obstacles, physics, sneak-attack effects and drawing.
 // Shared by every player's browser, so a stored putt replays identically everywhere.
 // (Ported unchanged from the link version of Putt Post.)
+import { drawWorld } from './golf-worlds.js';
 export const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ================================================================= course
@@ -219,7 +220,7 @@ function mazeHole(seed, hi, cols){
 const holeCache=new Map();
 function holeFor(seed, hi){
   const mz=isMaze(hi)?mazeCols():0, key=seed+':'+hi+':'+mz;
-  if(!holeCache.has(key)) holeCache.set(key, mz ? mazeHole(seed||1,hi,mz) : seed ? randomExtras(seed,hi) : buildHole(HOLES[hi], null));
+  if(!holeCache.has(key)){ const h=mz ? mazeHole(seed||1,hi,mz) : seed ? randomExtras(seed,hi) : buildHole(HOLES[hi], null); h.hi=hi; holeCache.set(key, h); }
   return holeCache.get(key);
 }
 
@@ -433,11 +434,40 @@ function holeAt(seed, hi, type){
 }
 
 
+// ================================================================= 🔧 fixes (086)
+// A player can clear a few hazards off the hole they're playing (golf_fix on the server keeps the list, so
+// every page builds the same hole for them). A fix is {k, i}: the i-th of h[k] (blocks, bumpers, sand,
+// water, mud; Fig's 'gophers' is the i-th pair). Twists and attacks only ever append to those lists, so an
+// index means the same hazard all hole long. A cleared block takes its four rails with it.
+const FIXABLE=['bumpers','blocks','water','mud','sand'];
+const fixCache=new WeakMap();
+function withFixes(h, list){
+  if(!list || !list.length) return h;
+  const key=JSON.stringify(list.map(f=>[f.k,f.i]));
+  let m=fixCache.get(h); if(!m){ m=new Map(); fixCache.set(h,m); }
+  if(m.has(key)) return m.get(key);
+  const gone=(k,i)=>list.some(f=>f.k===k && f.i===i);
+  const out={...h, fixed:list.length};
+  FIXABLE.forEach(k=>{ if(h[k]) out[k]=h[k].filter((_,i)=>!gone(k,i)); });
+  if(h.gophers) out.gophers=h.gophers.filter((_,i)=>!gone('gophers',i>>1));
+  if(h.blocks.some((_,i)=>gone('blocks',i))){ const o=h.outline.length; out.segs=h.segs.filter((_,j)=>!(j>=o && j<o+4*h.blocks.length && gone('blocks',(j-o)>>2))); }
+  m.set(key,out); return out;
+}
+// The hazard under a course point (a tap), small things first, or null.
+// skip(k, i) passes over ones already cleared (look them up in the hole before its fixes, so i is the stored index).
+function hazardAt(h, x, y, pad=6, skip=()=>false){
+  for(let i=0;i<h.bumpers.length;i++){ const [bx,by,br]=h.bumpers[i]; if(!skip('bumpers',i) && Math.hypot(x-bx,y-by)<br+pad) return {k:'bumpers',i}; }
+  const near=(q)=>x>=q[0]-pad && x<=q[0]+q[2]+pad && y>=q[1]-pad && y<=q[1]+q[3]+pad;
+  for(const k of ['blocks','water','mud','sand']){ const a=h[k]||[]; for(let i=0;i<a.length;i++) if(!skip(k,i) && near(a[i])) return {k,i}; }
+  return null;
+}
+
+
 // Looks (drawing only; the physics is the same): 'classic' mini golf (wooden rails on felt) or
 // 'natural', a real course (rough edges, a mown fairway, a green round the cup, trees, hedges,
 // boulders, bunkers and ponds). Chosen per device (golfTheme() in common.js).
-let THEME='classic';
-function setGolfTheme(v){ THEME=v==='natural'?'natural':'classic'; }
+let THEME='worlds';
+function setGolfTheme(v){ THEME=['natural','classic'].includes(v)?v:'worlds'; }
 // Trees in the rough round a hole, placed once per hole: clear of the course and of each other.
 const treeCache=new WeakMap();
 function treesFor(h){
@@ -474,6 +504,7 @@ function treeSprite(v){
 }
 function pathPts(c,pts){ c.beginPath(); pts.forEach(([x,y],i)=>c[i?'lineTo':'moveTo'](x,y)); c.closePath(); }
 function drawHole(c, h, t, scene={}){
+  if(THEME==='worlds') return drawWorld(c, h, t, scene);
   const nat=THEME==='natural', S=COURSE;
   if(nat){
     // the rough: long olive grass, tufts, and trees standing in it
@@ -664,4 +695,4 @@ function drawHole(c, h, t, scene={}){
 }
 
 
-export { BW, BH, LONG, POWER, parOf, maxStrokes, holeName, isMaze, mazeCols, flowTo, LW, LH, COURSE, setCourse, HOLES, N_HOLES, rng, inPoly, inRect, segDist, buildHole, reachable, holeFor, R, CUP_R, MAX_STROKES, tick, q20, q100, ATTACKS, holeWithAttack, holeWithTwists, twistsFor, CHIP_AIR, drawHole, setGolfTheme, COS, SIN };
+export { withFixes, hazardAt, FIXABLE, GOPH_R, bladeSegs, THEME, BW, BH, LONG, POWER, parOf, maxStrokes, holeName, isMaze, mazeCols, flowTo, LW, LH, COURSE, setCourse, HOLES, N_HOLES, rng, inPoly, inRect, segDist, buildHole, reachable, holeFor, R, CUP_R, MAX_STROKES, tick, q20, q100, ATTACKS, holeWithAttack, holeWithTwists, twistsFor, CHIP_AIR, drawHole, setGolfTheme, COS, SIN };

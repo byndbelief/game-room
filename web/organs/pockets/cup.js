@@ -55,6 +55,7 @@ function sink(c) {
 function result(won) {
   if (!won) return { pts: s.pts, why: s.sunk ? `${s.sunk} of 3 cups: so close` : 'the cup closed over you' };
   const left = Math.round(ph.left?.() || 0);
+  if (s.win) return { pts: s.pts + 200 + left * 15, label: s.win, left, gift: {} };
   return { pts: s.pts + 200 + left * 15, label: '3 CUPS · MULLIGAN, PUTT, FIX', sub: `↩️ a mulligan, ➕ a free putt and 🔧 a fix to take up · ${left} s to spare`, gift: { mull: 1, free: 1, fix: 1 } };
 }
 function update(dt) {
@@ -92,7 +93,9 @@ function build() {
   { const g = x.createRadialGradient(T.cx - T.R * 0.3, T.cy - T.R * 0.4, T.R * 0.1, T.cx, T.cy, T.R); g.addColorStop(0, th.fair?.[0] || '#62B84C'); g.addColorStop(1, th.bg?.[1] || '#2C6526'); x.fillStyle = g; x.beginPath(); x.arc(T.cx, T.cy, T.R, 0, 7); x.fill(); }
   x.save(); x.beginPath(); x.arc(T.cx, T.cy, T.R - 2, 0, 7); x.clip();
   for (let i = 0; i < 900; i++) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * T.R; x.fillStyle = Math.random() < 0.5 ? '#ffffff10' : '#00000014'; x.fillRect(T.cx + Math.cos(a) * r, T.cy + Math.sin(a) * r, 1.6, 1.6); }
-  if (s.path?.length > 1) {   // the hole up top, in miniature
+  if (s.art) {   // Putt Post hands down its hole as a picture: inlaid in the felt, faded in
+    const a = s.art, sc = Math.min((T.R * 1.3) / a.width, (T.R * 1.3) / a.height); x.globalAlpha = 0.32; x.drawImage(a, T.cx - (a.width * sc) / 2, T.cy - (a.height * sc) / 2, a.width * sc, a.height * sc); x.globalAlpha = 1;
+  } else if (s.path?.length > 1) {   // the hole up top, in miniature
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; s.path.forEach((p) => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
     const pw = s.pw || 60, sc = Math.min((T.R * 1.25) / Math.max(1, x1 - x0 + pw), (T.R * 1.25) / Math.max(1, y1 - y0 + pw)), mx = (x0 + x1) / 2, my = (y0 + y1) / 2, P = (p) => [T.cx + (p.x - mx) * sc, T.cy + (p.y - my) * sc];
     x.lineCap = 'round'; x.lineJoin = 'round'; const way = () => { x.beginPath(); s.path.forEach((p, i) => x[i ? 'lineTo' : 'moveTo'](...P(p))); };
@@ -148,10 +151,10 @@ const pocket = {
   key: 'cup', name: 'Inside the cup', icon: '🕳️', goal: 'sink all three', dur: DUR, rim: '#F5C542', system: 'Hénon map',
   start(h, seed = {}) {
     ph = h; ctx = h.ctx; bg = null;
-    s = { T: null, th: seed.theme || {}, path: seed.path || null, pw: seed.pw || 60, orb: { x: (Math.random() - 0.5) * 0.2, y: (Math.random() - 0.5) * 0.1 }, cups: [], bumps: [], fx: [], trail: [], drag: null, sunk: 0, pts: 0, flicks: 0, time: 0, done: false };
+    s = { T: null, th: seed.theme || {}, path: seed.path || null, art: seed.art || null, win: seed.winLabel || null, pw: seed.pw || 60, orb: { x: (Math.random() - 0.5) * 0.2, y: (Math.random() - 0.5) * 0.1 }, cups: [], bumps: [], fx: [], trail: [], drag: null, sunk: 0, pts: 0, flicks: 0, time: 0, done: false };
     s.T = table(); for (let i = 0; i < 60 + Math.floor(Math.random() * 60); i++) henon(s.orb);   // onto the attractor first
     rest();
-    GIFTS.forEach(([gift, icon, name]) => { const p = nextSpot(70, [...s.cups, { x: s.ball.x, y: s.ball.y }]); if (p) s.cups.push({ ...p, gift, icon, name, sunk: false }); });
+    (seed.gifts || GIFTS).forEach(([gift, icon, name]) => { const p = nextSpot(70, [...s.cups, { x: s.ball.x, y: s.ball.y }]); if (p) s.cups.push({ ...p, gift, icon, name, sunk: false }); });
     for (let i = 0; i < 3; i++) spawnBump();
   },
   update, draw,

@@ -4,6 +4,7 @@ import { PAL, PALS, drawPal, palWidget, palMood } from './pals.js';
 import { applyPalTheme } from './common.js';   // 🟢 Fig, who lives in r4box, in four moods
 import { sb, ITEMS, backpack, useLoot, announceChaos, backpackBarHTML, sfx, fsButton, fsRefresh, fsExit, nextUpChip, isPhone, note, gauntletBar, splash, danger, onHold, onTaps, rumour, shotClock, stopShotClock, chaosClock, chaosIn, gauntletRounds, openSettings, avatar, face, livePresence, jumpToNext, startOnline, online, agoText, setGameTools, themeTiles, forgetThemes, golfTheme, liveCountdown, overlayHost, bifurcation } from './common.js';
 import { holeName, holeWithAttack, holeWithTwists, drawHole, LW, LH, setCourse, setGolfTheme } from './golf-engine.js';
+import { worldFor } from './golf-worlds.js';
 import { THEMES, themeOf, vesselSVG } from './bs-themes.js';
 import { W as DW, H as DH, startXs, buildTop, setWorld, setTerrain } from './duel-engine.js';
 const app = document.getElementById('app');
@@ -1041,7 +1042,7 @@ function drawPreview(cv, card, myFleets, atMe) {
     setCourse((card.g.course || 100) / 100);   // 4+ players: the bigger course (036)
     setGolfTheme(golfTheme());
     const hole = holeWithTwists(card.g.seed, card.hole, 0, card.g.twists, card.g.t), k = Math.min(w / LH, h / LW) * 1.08;
-    c.save(); c.fillStyle = golfTheme() === 'natural' ? '#4B7A33' : '#1F5B3A'; c.fillRect(0, 0, w, h);
+    c.save(); c.fillStyle = golfTheme() === 'natural' ? '#4B7A33' : golfTheme() === 'worlds' ? worldFor(hole).bg[1] : '#1F5B3A'; c.fillRect(0, 0, w, h);
     // centre on the hole, rotated sideways so it fills a wide card
     c.translate(w / 2, h / 2); c.rotate(-Math.PI / 2); c.scale(k, k); c.translate(-LW / 2, -LH / 2);
     drawHole(c, hole, 0, { ball: { x: hole.tee[0], y: hole.tee[1] } });
