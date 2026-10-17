@@ -267,6 +267,22 @@ function fit() {
 }
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// One sign-in for r4box: there is no sign-in here any more. r4box.com signs
+// people in and passes the session over in the URL fragment (#…r4sso=…, never
+// sent to any server); it is taken out of the address at once and kept here.
+export const SIGN_IN = 'https://r4box.com/';
+export function toSignIn() { location.replace(SIGN_IN + '?next=' + encodeURIComponent(location.href)); }
+await (async () => {
+  const m = location.hash.match(/(?:^#|&)r4sso=([A-Za-z0-9_-]+)/);
+  if (!m) return;
+  const rest = location.hash.replace(/(?:^#|&)r4sso=[A-Za-z0-9_-]+/, '').replace(/^&/, '');
+  history.replaceState(null, '', location.pathname + location.search + (rest ? (rest.startsWith('#') ? rest : '#' + rest) : ''));
+  try {
+    const t = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
+    await sb.auth.setSession({ access_token: t.a, refresh_token: t.r });
+  } catch {}
+})();
 export const me = { id: null, username: null };
 export const names = {};          // profile id -> username
 export const bots = new Set();    // profile ids of robot players
@@ -380,7 +396,7 @@ export function agoText(t) {
 // Loads the signed-in player, or sends them to the sign-in page.
 export async function signedIn() {
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { location.href = './'; return false; }
+  if (!session) { toSignIn(); return false; }
   const [{ data: profiles }, { data: botRows }] = await Promise.all([
     sb.from('profiles').select('id, username'),
     sb.from('bots').select('profile_id'),
@@ -1223,7 +1239,7 @@ export async function signOutHere() {
     if (sub) { await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
   } catch {}
   await sb.auth.signOut();
-  location.href = './';
+  location.href = SIGN_IN + '?signout=1';   // and out of r4box.com too: one sign-in, one sign-out
 }
 function sw(key, on, label, hint) {
   return `<div class="setrow"><div><strong>${label}</strong><span>${hint}</span></div>

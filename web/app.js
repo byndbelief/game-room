@@ -1,8 +1,7 @@
-import { USERNAME_DOMAIN } from './config.js';
 import { rankOf, RANK_ICON, WEIGHTS, CHAOS, phaseOf, makeCurve, stepCurve } from './chaos.js';   // 🌀 the box
 import { PAL, PALS, drawPal, palWidget, palMood } from './pals.js';
 import { applyPalTheme } from './common.js';   // 🟢 Fig, who lives in r4box, in four moods
-import { sb, ITEMS, backpack, useLoot, announceChaos, backpackBarHTML, sfx, fsButton, fsRefresh, fsExit, nextUpChip, isPhone, note, gauntletBar, splash, danger, onHold, onTaps, rumour, shotClock, stopShotClock, chaosClock, chaosIn, gauntletRounds, openSettings, avatar, face, livePresence, jumpToNext, startOnline, online, agoText, setGameTools, themeTiles, forgetThemes, golfTheme, liveCountdown, overlayHost, bifurcation } from './common.js';
+import { sb, toSignIn, ITEMS, backpack, useLoot, announceChaos, backpackBarHTML, sfx, fsButton, fsRefresh, fsExit, nextUpChip, isPhone, note, gauntletBar, splash, danger, onHold, onTaps, rumour, shotClock, stopShotClock, chaosClock, chaosIn, gauntletRounds, openSettings, avatar, face, livePresence, jumpToNext, startOnline, online, agoText, setGameTools, themeTiles, forgetThemes, golfTheme, liveCountdown, overlayHost, bifurcation } from './common.js';
 import { holeName, holeWithAttack, holeWithTwists, drawHole, LW, LH, setCourse, setGolfTheme } from './golf-engine.js';
 import { worldFor } from './golf-worlds.js';
 import { THEMES, themeOf, vesselSVG } from './bs-themes.js';
@@ -318,32 +317,9 @@ window.addEventListener('hashchange', route);
 
 // ---------------------------------------------------------------- login
 
-function loginView(msg) {
-  setChannel(null);
-  view(`
-    <div class="narrow login">
-      <header class="stack"><a class="r4mark" href="./"><i aria-hidden="true"></i>r4box<small>r = 4</small></a><h1>Game on</h1>
-        <p class="muted">Sign in with your player name to jump into the Route to Chaos.</p></header>
-      <div class="hello"><canvas id="palHi" width="240" height="240" aria-hidden="true"></canvas><p class="bubble" id="palSay">Hi! I live in r4box.</p></div>
-      <form class="card" id="login">
-        <label class="field" for="user">Username<input type="text" id="user" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
-        <label class="field" for="pass">Password<input type="password" id="pass" autocomplete="current-password" required></label>
-        ${msg ? `<p class="error">${esc(msg)}</p>` : ''}
-        <div><button class="primary" type="submit">Sign in</button></div>
-      </form>
-    </div>`);
-  { palWidget(document.getElementById('palHi'), { pal: 'calm', s: 40, beat: 0.8, dpr: 2 }); document.getElementById('palSay').textContent = "Hi, I'm Fig. I live in r4box. Four personalities, one curve: come and see."; }
-  document.getElementById('login').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const user = document.getElementById('user').value.trim().toLowerCase();
-    const password = document.getElementById('pass').value;
-    // Accept a bare username or the full login email.
-    const email = user.includes('@') ? user : `${user}@${USERNAME_DOMAIN}`;
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) return loginView(`That username and password don't match (tried ${email}). Check the spelling and try again.`);
-    await loadMe(data.user.id);
-    route();
-  });
+// No sign-in here: r4box.com is the one sign-in, and sends people back.
+function loginView() {
+  toSignIn();
 }
 
 
