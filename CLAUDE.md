@@ -6,7 +6,7 @@ robots `admiral_bot`, `bot1`, `bot2`, `bot3` and `bot4` (033). Logins are
 `<username>@thegame.com` in Supabase Auth, made by hand in the dashboard; the site takes a bare
 username. A new account only becomes a robot once it's in `public.bots`.
 
-- **Site:** https://r4box.com (custom domain on GitHub Pages; `web/CNAME`, DNS at Porkbun (nameservers `*.ns.porkbun.com`); mail is Fastmail (MX `us1`/`us2-smtp.messagingengine.com`, SPF, DKIM `fm1-3._domainkey`); the old https://byndbelief.github.io/game-room/ redirects there once the Pages setting names the domain) — plain HTML/JS in `web/`, no build step. Every path in the site is relative, so it serves from a root or a subpath alike.
+- **Site:** https://games.r4box.com (moved from the apex on 2026-10-17; r4box.com is now the front door, repo `byndbelief/r4box-home`, which forwards old links here and hands a phone's old sign-in over via `#r4handoff=` (top of `common.js`); custom domain on GitHub Pages; `web/CNAME`, DNS at Porkbun (nameservers `*.ns.porkbun.com`); mail is Fastmail (MX `us1`/`us2-smtp.messagingengine.com`, SPF, DKIM `fm1-3._domainkey`); the old https://byndbelief.github.io/game-room/ redirects there once the Pages setting names the domain) — plain HTML/JS in `web/`, no build step. Every path in the site is relative, so it serves from a root or a subpath alike.
 - **Backend:** Supabase project **theGAME** (`okywhdfmdpdvrfhbkyeo`, us-west-2): Postgres with
   row-level security, `security definer` RPCs for every move, Realtime, and the `notify`
   Edge Function (Web Push, VAPID).
@@ -485,7 +485,7 @@ username. A new account only becomes a robot once it's in `public.bots`.
 ## Deploying
 
 - **There is no "deploy" step for the site.** Pushing to `main` is the deploy: GitHub Pages
-  rebuilds and r4box.com serves the new files within minutes. Don't end a round by suggesting,
+  rebuilds and games.r4box.com serves the new files within minutes. Don't end a round by suggesting,
   asking about or waiting for a deploy, and don't put "rebuilds from main" in recaps — the owner
   gets a stray "deploy" suggestion from it. Say "pushed" and stop. (The LeanBrokers repo this
   session happens to run from has a manual deploy workflow; that is not this project.)
