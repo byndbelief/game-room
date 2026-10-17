@@ -1,0 +1,14 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Stats" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:20px;background:var(--r4-bg)}.r{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.c{display:flex;flex-direction:column;gap:14px}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const { StatCard, Badge } = window.R4boxDesignSystem_3e3a61;
+function Demo() { 
+return <div className="c"><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><StatCard name="phoenix_lord" me streak="🔥 3" stats={[{value:12,label:'wins'},{value:3,label:'titles'}]} kinds={['⚓ 5','⛳ 4','💥 3']} /><StatCard name="dad_commander" stats={[{value:9,label:'wins'},{value:2,label:'titles'}]} kinds={['⚓ 4','⛳ 2','💥 3']} /></div>
+<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}><Badge icon="🕵️" title="Sharpest eye" how="Catch 5 cheaters" got /><Badge icon="🦊" title="Sneakiest" how="Cheat 10 times unseen" got /><Badge icon="🌀" title="Strange Attractor" how="Top chaos rank" progress={.4} count="4 / 10" /><Badge icon="⛳" title="Hole in one" how="Sink a putt in one" /></div></div>; }
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

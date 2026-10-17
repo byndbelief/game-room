@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>r4box cockpit: options</title>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0}a{color:var(--teal)}a:hover{color:var(--mint)}.opt{position:absolute;top:80px;width:1280px;height:800px;background:var(--r4-bg);border-radius:12px;overflow:hidden;color:var(--r4-ink);font-family:var(--font-body)}.badge{position:absolute;top:24px;width:1280px;white-space:nowrap;font:700 20px/1 var(--font-display);color:var(--r4-ink);display:flex;gap:12px;align-items:baseline}.badge span{font:400 15px/1 system-ui;color:var(--r4-muted)}</style>
+</head><body>
+<section>
+<div class="badge" id="1a" style="left:0">1a<span>Instrument panel: the curve as a live gauge, box and games as two panels</span></div>
+<div class="opt" data-screen-label="1a Instrument panel" style="left:0"><div id="ra" style="height:100%"></div></div>
+<div class="badge" id="1b" style="left:1360px">1b<span>Split launcher: curve on the left, numbered list on the right (keys 1–7)</span></div>
+<div class="opt" data-screen-label="1b Split launcher" style="left:1360px"><div id="rb" style="height:100%"></div></div>
+<div class="badge" id="1c" style="left:2720px">1c<span>Command bar: type to jump, pinned dock below</span></div>
+<div class="opt" data-screen-label="1c Command bar" style="left:2720px"><div id="rc" style="height:100%"></div></div>
+<div class="badge" style="left:0;top:920px">1a mobile</div>
+<div class="opt" data-screen-label="1a mobile" style="left:0;top:976px;width:390px;height:844px;border-radius:28px"><div id="ma" style="height:100%;overflow:auto"></div></div>
+<div class="badge" style="left:1360px;top:920px">1b mobile</div>
+<div class="opt" data-screen-label="1b mobile" style="left:1360px;top:976px;width:390px;height:844px;border-radius:28px"><div id="mb" style="height:100%;overflow:auto"></div></div>
+<div class="badge" style="left:2720px;top:920px">1c mobile</div>
+<div class="opt" data-screen-label="1c mobile" style="left:2720px;top:976px;width:390px;height:844px;border-radius:28px"><div id="mc" style="height:100%;overflow:auto"></div></div>
+</section>
+<script type="text/babel" src="cockpit-shared.jsx"></script>
+<script type="text/babel" src="CockpitA.jsx"></script>
+<script type="text/babel" src="CockpitB.jsx"></script>
+<script type="text/babel" src="CockpitC.jsx"></script>
+<script type="text/babel">
+[['ra', CockpitA], ['rb', CockpitB], ['rc', CockpitC], ['ma', CockpitA, 1], ['mb', CockpitB, 1], ['mc', CockpitC, 1]].forEach(([id, C, m]) => ReactDOM.createRoot(document.getElementById(id)).render(<C mobile={!!m} />));
+</script>
+</body></html>

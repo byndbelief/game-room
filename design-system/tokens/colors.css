@@ -1,0 +1,78 @@
+/* r4box colour: one deep ink-violet, plus the logistic curve's colours for meaning.
+   teal = calm, violet = period-doubling ("the window"), gold = golden / onset, hot = a peak / chaos, mint = the period-3 window. */
+:root {
+  color-scheme: dark;
+  /* base: ink-violet surfaces */
+  --r4-bg: #0B0918;
+  --r4-panel: #171331;
+  --r4-panel-2: #1F1A3F;
+  --r4-line: #2F2957;
+  --r4-ink: #F3F1FF;
+  --r4-muted: #ACA5D6;
+  --r4-faint: #7A73A8;
+  --r4-code: #8A83B8;
+  --r4-preview: #0E0A24;
+
+  /* the curve's colours */
+  --teal: #3DD6C6;
+  --teal-ink: #062A26;
+  --violet: #B9A6FF;
+  --violet-ink: #150F33;
+  --gold: #F5C542;
+  --gold-ink: #2A2100;
+  --hot: #FF5A4A;
+  --hot-soft: #4A2230;
+  --mint: #C9FFF8;
+  --lilac: #8B7BFF;
+  --moss: #9BE37A;
+  --moss-ink: #10240A;
+
+  /* game-world colours (Battleship) */
+  --water: #1A1640;
+  --water-2: #262058;
+  --ship: #8C9BB0;
+  --miss: #B8C8DA;
+
+  /* status */
+  --online: #3DDC84;
+  --live: #2FA36B;
+  --danger: #C0392B;
+  --peek: #B37BFF;
+  --streak: #FF8A3D;
+
+  /* companion palette (data-pal on :root; Fig's four moods) */
+  --pal: var(--teal); --pal-2: var(--hot); --pal-ink: var(--teal-ink);
+
+  /* semantic aliases */
+  --surface-page: var(--r4-bg);
+  --surface-card: var(--r4-panel);
+  --surface-raised: var(--r4-panel-2);
+  --surface-glass: #ffffff08;
+  --surface-glass-2: #ffffff10;
+  --border-default: var(--r4-line);
+  --border-glass: #ffffff12;
+  --border-glass-2: #ffffff22;
+  --text-body: var(--r4-ink);
+  --text-muted: var(--r4-muted);
+  --text-faint: var(--r4-faint);
+  --accent: var(--teal);
+  --accent-ink: var(--teal-ink);
+  --focus-ring: var(--gold);
+  --selected: var(--gold);
+  --hit: var(--hot);
+  --flag: var(--gold);
+  --flag-ink: var(--gold-ink);
+
+  /* brand gradients */
+  --grad-curve: linear-gradient(100deg, var(--teal), var(--violet) 45%, var(--gold) 70%, var(--hot)); /* @kind color */
+  --grad-mark: conic-gradient(from 210deg, var(--teal), var(--violet), var(--gold), var(--hot), var(--teal)); /* @kind color */
+  --grad-hero-border: linear-gradient(120deg, #3DD6C6aa, #B9A6FF66 40%, #F5C54288 70%, #FF5A4A66); /* @kind color */
+  --grad-avatar: linear-gradient(160deg, #3DD6C6, #B9A6FF); /* @kind color */
+  --grad-door: linear-gradient(160deg, #1d1840, var(--r4-panel) 55%); /* @kind color */
+  --grad-box: linear-gradient(160deg, #15102F, #0B0918 70%); /* @kind color */
+  --bg-page: radial-gradient(900px 420px at 15% -10%, #2A1F5E55, transparent 60%), radial-gradient(700px 380px at 100% 0%, #0E4A4655, transparent 60%), var(--r4-bg); /* @kind color */
+}
+:root[data-pal=fig] { --pal: #3DD6C6; --pal-2: #FF5A4A; --pal-ink: #062A26; }
+:root[data-pal=kit] { --pal: #B9A6FF; --pal-2: #C9FFF8; --pal-ink: #150F33; }
+:root[data-pal=bit] { --pal: #8B7BFF; --pal-2: #3DD6C6; --pal-ink: #150F33; }
+:root[data-pal=phi] { --pal: #9BE37A; --pal-2: #F5C542; --pal-ink: #10240A; }

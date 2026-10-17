@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>r4box login: options</title>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0}a{color:var(--teal)}a:hover{color:var(--mint)}.opt{position:absolute;background:var(--r4-bg);overflow:hidden;color:var(--r4-ink);font-family:var(--font-body)}.m{width:390px;height:844px;border-radius:28px}.d{width:1280px;height:800px;border-radius:12px}.opt>div{height:100%}.badge{position:absolute;white-space:nowrap;font:700 20px/1 var(--font-display);color:var(--r4-ink);display:flex;gap:12px;align-items:baseline}.badge span{font:400 15px/1 system-ui;color:var(--r4-muted)}.t1 .badge{top:24px}.t1 .opt{top:80px}.t0 .badge{top:1000px}.t0 .opt{top:1056px}</style>
+</head><body>
+<section class="t1">
+<div class="badge" id="4a" style="left:0">4a<span>Turn r up to 4: drag into chaos to open the box</span></div>
+<div class="opt m" data-screen-label="4a mobile" style="left:0"><div id="fam"></div></div>
+<div class="opt d" data-screen-label="4a desktop" style="left:430px"><div id="fad"></div></div>
+<div class="badge" id="4b" style="left:1790px">4b<span>Trace your stars: a pattern lock on the attractor</span></div>
+<div class="opt m" data-screen-label="4b mobile" style="left:1790px"><div id="fbm"></div></div>
+<div class="opt d" data-screen-label="4b desktop" style="left:2220px"><div id="fbd"></div></div>
+<div class="badge" id="4c" style="left:3580px">4c<span>Knock three times: each knock steps the curve</span></div>
+<div class="opt m" data-screen-label="4c mobile" style="left:3580px"><div id="fcm"></div></div>
+<div class="opt d" data-screen-label="4c desktop" style="left:4010px"><div id="fcd"></div></div>
+</section>
+<section class="t0">
+<div class="badge" id="3a" style="left:0">3a<span>Who's here: tap your name, then passkey</span></div>
+<div class="opt m" data-screen-label="3a mobile" style="left:0"><div id="am"></div></div>
+<div class="opt d" data-screen-label="3a desktop" style="left:430px"><div id="ad"></div></div>
+<div class="badge" id="3b" style="left:1790px">3b<span>One card: every method visible</span></div>
+<div class="opt m" data-screen-label="3b mobile" style="left:1790px"><div id="bm"></div></div>
+<div class="opt d" data-screen-label="3b desktop" style="left:2220px"><div id="bd"></div></div>
+<div class="badge" id="3c" style="left:3580px">3c<span>One smart field: name or email</span></div>
+<div class="opt m" data-screen-label="3c mobile" style="left:3580px"><div id="cm"></div></div>
+<div class="opt d" data-screen-label="3c desktop" style="left:4010px"><div id="cd"></div></div>
+</section>
+<script type="text/babel" src="login-shared.jsx"></script>
+<script type="text/babel" src="LoginA.jsx"></script>
+<script type="text/babel" src="LoginB.jsx"></script>
+<script type="text/babel" src="LoginC.jsx"></script>
+<script type="text/babel" src="fun-shared.jsx"></script>
+<script type="text/babel" src="FunR.jsx"></script>
+<script type="text/babel" src="FunStars.jsx"></script>
+<script type="text/babel" src="FunKnock.jsx"></script>
+<script type="text/babel">
+[['fam', FunR, 1], ['fad', FunR], ['fbm', FunStars, 1], ['fbd', FunStars], ['fcm', FunKnock, 1], ['fcd', FunKnock],
+ ['am', LoginA, 1], ['ad', LoginA], ['bm', LoginB, 1], ['bd', LoginB], ['cm', LoginC, 1], ['cd', LoginC]].forEach(([id, C, m]) => ReactDOM.createRoot(document.getElementById(id)).render(<C mobile={!!m} />));
+</script>
+</body></html>

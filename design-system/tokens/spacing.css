@@ -1,0 +1,48 @@
+:root {
+  /* spacing used across the source (gaps and paddings) */
+  --sp-1: 4px; --sp-2: 6px; --sp-3: 8px; --sp-4: 10px; --sp-5: 12px; --sp-6: 14px;
+  --sp-7: 16px; --sp-8: 18px; --sp-9: 20px; --sp-10: 28px;
+  --wrap-max: 1100px;
+  --lobby-max: 980px;
+  --lobby-wide: 1320px;
+  --narrow-max: 560px;
+
+  /* radii */
+  --radius-cell: 4px;
+  --radius-thumb: 8px;
+  --radius-input: 10px;
+  --radius-button: 12px;
+  --radius-glyph: 12px;
+  --radius-enter: 14px;
+  --radius-row: 16px;
+  --radius-cta: 16px;
+  --radius-card: 18px;
+  --radius-tile: 20px;
+  --radius-hero: 24px;
+  --radius-door: 28px;
+  --radius-pill: 999px;
+  --radius-mark: 22%; /* @kind radius */
+
+  /* borders */
+  --bw: 1.5px; /* @kind spacing */
+  --bw-thin: 1px; /* @kind spacing */
+
+  /* shadows */
+  --shadow-hover: 0 10px 24px #0003;
+  --shadow-float: 0 14px 34px #0003;
+  --shadow-hero: 0 0 0 1px #3DD6C61a inset, 0 30px 60px #00000080;
+  --shadow-modal: 0 30px 80px #000a;
+  --shadow-cta: 0 10px 34px #3DD6C64d;
+  --shadow-cta-hover: 0 14px 40px #3DD6C673;
+  --shadow-enter: 0 8px 24px #3DD6C633;
+  --shadow-selected: 0 0 0 2px var(--gold);
+  --glow-mark: 0 0 18px #3DD6C666;
+
+  /* motion */
+  --ease-pop: cubic-bezier(.2, 1.6, .4, 1); /* @kind other */
+  --ease-land: cubic-bezier(.2, 1.8, .4, 1); /* @kind other */
+  --ease-in-card: cubic-bezier(.2, 1.4, .4, 1); /* @kind other */
+  --dur-fast: .12s; /* @kind other */
+  --dur: .15s; /* @kind other */
+  --dur-slow: .2s; /* @kind other */
+}

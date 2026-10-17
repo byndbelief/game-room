@@ -1,0 +1,17 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Game" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:20px;background:var(--r4-bg)}.r{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.c{display:flex;flex-direction:column;gap:14px}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const { Board, BoardCell, Stamp } = window.R4boxDesignSystem_3e3a61;
+function Demo() { 
+const [cells, setCells] = React.useState({ B3:'hit', B4:'sunk', B5:'sunk', D7:'miss', E2:'miss', H5:'ship', H6:'ship', H7:'ship', F8:'peek', C9:'aim' });
+const states = ['water','ship','miss','hit','sunk','aim','peek'];
+return <div className="r" style={{alignItems:'flex-start',gap:24}}><div style={{width:320}}><Board cells={cells} onCell={(key)=>setCells({...cells,[key]:cells[key]==='aim'?undefined:'aim'})} /></div>
+<div className="c"><div className="r" style={{gap:8}}>{states.map(s=><div key={s} style={{width:40,display:'flex',flexDirection:'column',gap:4,alignItems:'center'}}><div style={{width:34,height:34}}><BoardCell state={s} /></div><span style={{font:'10px var(--font-mono)',color:'var(--r4-muted)'}}>{s}</span></div>)}</div>
+<Stamp tone="gold" animate={false} style={{fontSize:44}}>HIT!</Stamp><Stamp tone="red" animate={false} style={{fontSize:44}}>SUNK!</Stamp></div></div>; }
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

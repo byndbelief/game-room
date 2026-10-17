@@ -1,0 +1,20 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Core" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:20px;background:var(--r4-bg)}.r{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.c{display:flex;flex-direction:column;gap:14px}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const { Button, EnterButton, Chip, Pill, Status, Card, Field, Segmented, BotStep, LiveDot } = window.R4boxDesignSystem_3e3a61;
+function Demo() { 
+const [seg, setSeg] = React.useState(5); const [n, setN] = React.useState(1); const [p, setP] = React.useState(true);
+return <div className="c">
+<div className="r"><Button>Default</Button><Button variant="primary">Start game</Button><Button variant="fire">Fire now</Button><Button variant="danger">Leave</Button><Button variant="link">Clear</Button><Button disabled>Disabled</Button><Button variant="primary" display>Sign in</Button></div>
+<div className="r"><EnterButton>Enter Chaos 🌀</EnterButton><EnterButton alt>🧬 Solo run</EnterButton><EnterButton size="lg">Play <span>→</span></EnterButton></div>
+<div className="r"><Chip pressed={p} onClick={() => setP(!p)}>phoenix_lord</Chip><Chip>obanai_rocks</Chip><Chip tone="gold" pressed>dad_commander</Chip><BotStep value={n} onChange={setN} /><Segmented options={[{value:3,label:'3 rounds'},{value:5,label:'5 rounds'},{value:7,label:'7 rounds'}]} value={seg} onChange={setSeg} /></div>
+<div className="r"><Pill tone="turn">Your turn</Pill><Pill tone="wait">Their turn</Pill><Pill tone="done">Over</Pill><Pill tone="out">Sunk</Pill><Pill tone="chaos">Round 2 of 5: ⛳</Pill><Pill tone="streak">🔥 3</Pill><LiveDot /><LiveDot off>Offline</LiveDot></div>
+<div className="r" style={{alignItems:'stretch'}}><Card style={{flex:1}}><Field label="Username" placeholder="phoenix_lord" /></Card><div className="c" style={{flex:1,gap:8}}><Status>👀 Tap a square on an opponent's board to peek.</Status><Status tone="good">You sank the cruiser!</Status><Status tone="bad">Busted: you lose your next turn.</Status></div></div>
+</div>; }
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script></body></html>

@@ -1,0 +1,32 @@
+:root {
+  --font-display: "Unbounded", "Arial Black", Impact, sans-serif;
+  --font-body: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --display: var(--font-display);
+  --body: var(--font-body);
+
+  /* scale (px values from source) */
+  /* hero = r4box.com h1 (800, lh .98, ls -.035em); h1 = app h1 (700); section = r4box.com h2 */
+  --fs-hero: clamp(38px, 8.4vw, 92px); /* @kind font */
+  --fs-h1: clamp(28px, 7vw, 40px); /* @kind font */
+  --fs-lobby-h1: clamp(22px, 5.5vw, 34px); /* @kind font */
+  --fs-section: clamp(22px, 3.4vw, 30px); /* @kind font */
+  --fs-h2: 19px; /* @kind font */
+  --fs-mark: 22px; /* @kind font */
+  --fs-cta: 17px; /* @kind font */
+  --fs-body: 16px; /* @kind font */
+  --fs-small: 13px; /* @kind font */
+  --fs-chip: 14px; /* @kind font */
+  --fs-eyebrow: 12px; /* @kind font */
+  --fs-label: 11px; /* @kind font */
+
+  --lh-hero: .98; /* @kind font */
+  --lh-heading: 1.1; /* @kind font */
+  --lh-body: 1.5; /* @kind font */
+  --ls-hero: -.035em; /* @kind font */
+  --ls-heading: -.01em; /* @kind font */
+  --ls-mark: -.02em; /* @kind font */
+  --ls-eyebrow: .14em; /* @kind font */
+
+  --text-heading: 700 var(--fs-h2)/var(--lh-heading) var(--font-display); /* @kind font */
+}
