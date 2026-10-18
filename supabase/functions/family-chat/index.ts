@@ -7,6 +7,7 @@
 // their tutor and trip-helper asks.
 //
 // POST { text?, image?, ref? } -> { id, claude: 'asked' | 'closed' | 'limit' | null, left }
+// POST { call: true, to? } -> { id }: someone started a video call (a card, and a ring for `to`, or everyone).
 //   image: a path the page uploaded to the family-chat bucket, "<user id>/<name>"
 //   ref: { type: 'item' | 'poll', id }: share a trip item or poll into the chat; the
 //        card's title, picture and trip are read from the database here.
@@ -84,7 +85,7 @@ async function family(): Promise<Member[]> {
     .map((u) => ({ id: u.id, username: (prof ?? []).find((p) => p.id === u.id)?.username ?? '?', role: u.app_metadata!.r4_role }));
 }
 
-async function push(to: string[], title: string, body: string) {
+async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean } = {}) {
   try {
     const since = new Date(Date.now() - PRESENT_MS).toISOString();
     const { data: here } = await admin.from('chat_reads').select('user_id').in('user_id', to).gte('seen_at', since);
@@ -92,7 +93,7 @@ async function push(to: string[], title: string, body: string) {
     if (!away.length) return;
     webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') ?? 'mailto:alerts@example.com', Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!);
     const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', away);
-    const payload = JSON.stringify({ title, body: body.slice(0, 140), url: 'https://r4box.com/chat.html', tag: 'family-chat' });
+    const payload = JSON.stringify({ title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring });
     await Promise.all((subs ?? []).map((s) =>
       webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload)
         .catch((e: { statusCode?: number }) => {
@@ -180,8 +181,26 @@ Deno.serve(async (req) => {
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
 
-  let body: { text?: string; image?: string; ref?: { type?: string; id?: unknown } };
+  let body: { text?: string; image?: string; ref?: { type?: string; id?: unknown }; call?: boolean; to?: string };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
+
+  // Starting a video call (105): a card in the chat, and a ring for everyone not reading it.
+  // The call itself runs between the browsers; this only says it began. Once a minute at most.
+  if (body.call === true) {
+    const fam = await family();
+    const me = fam.find((f) => f.id === user.id)!;
+    const { data: recent } = await admin.from('chat_messages').select('id').eq('author', user.id).eq('ref->>type', 'call')
+      .gte('created_at', new Date(Date.now() - 60_000).toISOString()).limit(1);
+    if (recent?.length) return json({ id: recent[0].id, claude: null, left: null });
+    // Ringing one person (a 1 to 1 call) or everyone.
+    const to = fam.find((f) => f.id === body.to && f.id !== user.id) ?? null;
+    const { data: msg, error } = await admin.from('chat_messages')
+      .insert({ author: user.id, body: to ? `📹 Called ${to.username}` : '📹 Started a video call', ref: to ? { type: 'call', to: to.id } : { type: 'call' } }).select('id').single();
+    if (error) { console.error(error); return json({ error: 'Could not start the call. Try again.' }, 500); }
+    EdgeRuntime.waitUntil(push(to ? [to.id] : fam.filter((f) => f.id !== user.id).map((f) => f.id), `📹 ${me.username} is calling${to ? ' you' : ''}`, 'Tap to join the video call',
+      { url: 'https://r4box.com/chat.html#call', tag: 'family-call', ring: true }));
+    return json({ id: msg.id, claude: null, left: null });
+  }
   const text = String(body.text ?? '').trim().slice(0, 4000) || null;
   // A photo must be one this person uploaded: their own folder in the bucket.
   const image = typeof body.image === 'string' && new RegExp(`^${user.id}/[\\w-]{1,80}\\.(jpg|png|webp)$`).test(body.image) ? body.image : null;
