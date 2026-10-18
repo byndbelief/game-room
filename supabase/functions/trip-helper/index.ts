@@ -26,11 +26,14 @@ const json = (body: unknown, status = 200) =>
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
 const KINDS = ['plan', 'idea', 'booking', 'pack'];
+// Only YouTube videos (the trip page plays them in privacy-enhanced mode); the database checks the same.
+const YT = /^https:\/\/(www\.|m\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)[A-Za-z0-9_-]{11}/;
 const TOPICS = ['dates', 'flights', 'stay', 'tickets', 'transport', 'food', 'activities', 'other'];
 const FIELDS = {
   title: { type: 'string', description: 'Short name, e.g. "Snorkel tour at Hanauma Bay"' },
   notes: { type: 'string', description: 'Useful details: why, opening hours, tips, price estimates ("about $40 each"), address' },
   link: { type: 'string', description: 'https link to the source or official page' },
+  video: { type: 'string', description: 'For food and things to do: a YouTube link (youtube.com/watch?v=... or youtu.be/...) to a short video of that place, dish or experience, copied from a search result. Never made up.' },
   day: { type: 'string', description: 'YYYY-MM-DD, within the trip dates, for plan and booking items' },
   at: { type: 'string', description: 'Time of day, e.g. "9:30" or "evening"' },
   cost: { type: 'number', description: 'Known or quoted total cost in the trip currency (plan and booking only)' },
@@ -136,6 +139,7 @@ How to help:
 - Give every item except packing lines a topic: dates, flights, stay, tickets, transport, food, activities or other.
 - Dates, flights, stay, tickets and transport are one-or-the-other choices: file their options as ideas, and the family picks one on the trip page. An idea marked [CHOSEN] is their decision. Build on it (flights and hotels for the chosen dates, a hotel near the chosen venue, tickets for the chosen day) and don't add more options for a part that already has a choice unless asked.
 - When asked to research one thing ("find…", "what should we…", "best…"), use web_search, then add the best 3 to 6 options as ideas with a link and useful notes (why it's good for this family, price range, hours, distance). Don't schedule research results unless asked.
+- Food and things to do should make the family want to go: for each, if a search shows a YouTube video of that place, dish or experience (a short food or travel video, family friendly), put its link in video. Search YouTube for it when you can ("<name> <city> youtube"). Only use a link you actually saw in a result; leave video out rather than guess.
 - When asked to plan or start the trip (or "break it down", "what do we need"), break it into the parts this trip needs and work through each one, so the family sees every decision with real options:
   1. dates: 2 or 3 date windows (the event's actual schedule; otherwise season, prices, weather, school breaks), titled like "Dates: Jun 12–15 (Fri–Mon)".
   2. flights${trip.origin ? ` from ${trip.origin}` : ''}: for the leading dates, 2 or 3 options (nonstop vs cheaper connection, which airports, airlines that fly it, flight time), with the typical round-trip fare per person and for the whole family. Link a Google Flights search: https://www.google.com/travel/flights?q=Flights%20from%20ORIGIN%20to%20DEST%20on%20YYYY-MM-DD%20returning%20YYYY-MM-DD.${trip.origin ? '' : ' Where they fly from is not set: skip flights and ask for it in your reply (a parent can also just tell you).'} Skip if the trip is clearly a drive.
@@ -159,6 +163,7 @@ How to help:
       const o: Record<string, unknown> = {};
       for (const k of ['title', 'notes', 'at', 'conf']) if (typeof v[k] === 'string') o[k] = (v[k] as string).slice(0, k === 'notes' ? 2000 : 200);
       if (typeof v.link === 'string' && /^https?:\/\//.test(v.link)) o.link = v.link.slice(0, 500);
+      if (typeof v.video === 'string' && YT.test(v.video)) o.video = v.video.slice(0, 300);
       if (typeof v.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.day)) o.day = v.day;
       if (typeof v.cost === 'number' && v.cost >= 0 && v.cost < 1e7) o.cost = Math.round(v.cost * 100) / 100;
       if (typeof v.done === 'boolean') o.done = v.done;
