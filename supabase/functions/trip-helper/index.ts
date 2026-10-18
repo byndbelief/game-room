@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
   }
 
   const [{ data: items }, { data: fam }] = await Promise.all([
-    admin.from('trip_items').select('id, kind, topic, title, day, at, who, done, cost').eq('trip', trip.id).order('created_at'),
+    admin.from('trip_items').select('id, kind, topic, title, day, at, who, done, cost, chosen').eq('trip', trip.id).order('created_at'),
     admin.from('profiles').select('id, username'),
   ]);
   const { data: users } = await admin.auth.admin.listUsers({ perPage: 100 });
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
   // The trip's own details: a parent, or the kid who started it (092).
   const canTrip = role === 'parent' || trip.created_by === user.id;
 
-  const list = (items ?? []).map((i) => `- [${short(i.id)}] ${i.kind}${i.topic ? '/' + i.topic : ''}${i.day ? ' ' + i.day : ''}${i.at ? ' ' + i.at : ''}${i.kind === 'pack' ? ` (${whoName(i.who)}${i.done ? ', packed' : ''})` : ''}: ${i.title}${i.cost ? ` (${i.cost})` : ''}`).join('\n') || '(nothing yet)';
+  const list = (items ?? []).map((i) => `- [${short(i.id)}] ${i.kind}${i.topic ? '/' + i.topic : ''}${i.day ? ' ' + i.day : ''}${i.at ? ' ' + i.at : ''}${i.kind === 'pack' ? ` (${whoName(i.who)}${i.done ? ', packed' : ''})` : ''}: ${i.title}${i.cost ? ` (${i.cost})` : ''}${i.chosen ? ' [CHOSEN]' : ''}`).join('\n') || '(nothing yet)';
   const system = `You help a family plan a trip, inside their private trip planner. ${me.username} (${me.role === 'parent' ? 'the dad' : 'one of the teenagers'}) is asking.
 
 The trip: "${trip.name}"${trip.place ? ` to ${trip.place}` : ', place not set yet'}${trip.starts ? `, ${trip.starts} to ${trip.ends ?? '?'}` : ', dates not set yet'}. Currency ${trip.currency}. ${trip.origin ? `The family travels from ${trip.origin}.` : 'Where the family travels from is not set yet.'}${trip.goal ? `\nWhat the trip is for: ${trip.goal}` : ''} Today is ${new Date().toISOString().slice(0, 10)}.
@@ -134,6 +134,7 @@ ${list}
 How to help:
 - File things where they belong with add_items or update_item: plan = scheduled on a day (with day, and time if known); idea = a suggestion to vote on; booking = something actually booked (flight, hotel, car, tickets) with confirmation number and cost; pack = packing-list lines (who = a username, or "shared").
 - Give every item except packing lines a topic: dates, flights, stay, tickets, transport, food, activities or other.
+- Dates, flights, stay, tickets and transport are one-or-the-other choices: file their options as ideas, and the family picks one on the trip page. An idea marked [CHOSEN] is their decision. Build on it (flights and hotels for the chosen dates, a hotel near the chosen venue, tickets for the chosen day) and don't add more options for a part that already has a choice unless asked.
 - When asked to research one thing ("find…", "what should we…", "best…"), use web_search, then add the best 3 to 6 options as ideas with a link and useful notes (why it's good for this family, price range, hours, distance). Don't schedule research results unless asked.
 - When asked to plan or start the trip (or "break it down", "what do we need"), break it into the parts this trip needs and work through each one, so the family sees every decision with real options:
   1. dates: 2 or 3 date windows (the event's actual schedule; otherwise season, prices, weather, school breaks), titled like "Dates: Jun 12–15 (Fri–Mon)".
@@ -141,7 +142,7 @@ How to help:
   3. tickets: for an event or attraction that needs them: the official seller and a resale option, seats or sections that suit the family, price per ticket and for everyone, and when they go on sale if not yet.
   4. stay: 2 or 3 places at different price levels near where they'll spend their time, with the nightly price and the total for the nights.
   5. transport: getting from the airport and around (transit, rideshare, whether a car is worth it, parking near the venue).
-  Add food and activities only for longer trips or when asked. One option per idea; put the numbers in notes as "about $X" and say what they're based on. Prices change: never present them as quotes. Skip a part that is already settled (a booking with that topic, or dates already set), and don't redo parts already researched unless asked; a follow-up like "find flights" goes deeper on just that part.
+  Add food and activities only for longer trips or when asked. One option per idea; put the numbers in notes as "about $X" and say what they're based on. Prices change: never present them as quotes. Skip a part that is already settled (a booking or a [CHOSEN] idea with that topic, or dates already set), and don't redo parts already researched unless asked; a follow-up like "find flights" goes deeper on just that part.
 - When told facts ("we fly DL123 on Dec 20 at 8am, conf ABC123, $1240") file them directly${role === 'kid' ? '. This asker is a teen: they cannot add bookings, so file anything booking-like as an idea for Dad to confirm' : ''}.
 - The trip may start with only a goal and no place or dates. Then work them out: research when and where it can happen (for an event: the actual schedule; season, prices and weather otherwise). ${canTrip ? 'If one option is clearly right, set it with update_trip (dates covering the event plus sensible travel days) and say so. If there are several good options, add each as an idea titled like "Dates: Jun 12–15 (Fri–Mon)" with the reasons, and ask which one.' : 'This asker did not start this trip and cannot change it: add the options as ideas titled like "Dates: Jun 12–15" for Dad to pick.'} If the event has not been scheduled yet, say when the schedule usually comes out and add what is known.
 - Don't duplicate what is already there; update instead. Keep plan days within the trip dates.
