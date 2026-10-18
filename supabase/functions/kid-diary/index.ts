@@ -41,7 +41,8 @@ const TOOL = {
         source: { type: 'string', enum: ['tutor', 'trip', 'chat'] },
         summary: { type: 'string', description: 'one or two sentences: what this topic is for them, so far' },
         stage: { type: 'string', enum: STAGES },
-        parent: { type: 'string', description: 'slug of the topic this one grew out of, only for a genuine branch' } } } },
+        parent: { type: 'string', description: 'slug of the topic this one grew out of, only for a genuine branch' },
+        seed: { type: 'string', description: "only when this topic is one of the seeds they planted, now actually started: that seed's id from the list" } } } },
       events: { type: 'array', items: { type: 'object', required: ['slug', 'day', 'kind', 'effort'], properties: {
         slug: { type: 'string' },
         day: { type: 'string', description: 'YYYY-MM-DD, the day it happened' },
@@ -64,6 +65,7 @@ Rules:
 - Never quote them word for word, and never include personal details (addresses, schools, people outside the family, passwords, health details).
 - If something sounds upset, scary or very personal, keep it gentle and general ("you talked through something hard") or leave it out. Never record details of it.
 - Games: mention them lightly in the entry if listed; their events are filed for you.
+- Seeds: things they planted in their world as what they want to grow next. When the material shows they actually started on one, file its topic with that seed's id (a spark, and say so warmly in the entry: their seed sprouted). Don't file a seed they haven't started on.
 - Keep everything kind and family friendly. If a day has nothing worth a diary line, leave it out.
 Call file_diary exactly once.`;
 }
@@ -129,7 +131,10 @@ async function buildKid(kid: Kid) {
   if (material.trim()) {
     const existing = [...known.values()].filter((t) => t.source !== 'game')
       .map((t) => `- ${t.slug} (${t.source}, ${t.stage}): ${t.title}${t.summary ? ' — ' + clip(t.summary, 160) : ''}`).join('\n') || '(none yet)';
-    const user = `Topics so far:\n${existing}\n\n${gameLines.length ? 'Games (already filed):\n' + gameLines.join('\n') + '\n\n' : ''}What ${kid.username} asked, ${localDay(from, kid.tz)} to ${localDay(now, kid.tz)}:\n${material}`;
+    // Seeds they planted (108): a topic that starts one makes it sprout, and the seed goes.
+    const { data: seeds } = await admin.from('kid_seeds').select('id, title, kind').eq('kid', kid.id);
+    const seedList = (seeds ?? []).map((s) => `- [${s.id.slice(0, 8)}] ${clip(s.title, 60)} (${s.kind === 'tutor' ? 'to learn' : s.kind === 'chat' ? 'a wonder' : 'somewhere to go'})`).join('\n');
+    const user = `Topics so far:\n${existing}\n\n${seedList ? 'Seeds they planted (not started yet):\n' + seedList + '\n\n' : ''}${gameLines.length ? 'Games (already filed):\n' + gameLines.join('\n') + '\n\n' : ''}What ${kid.username} asked, ${localDay(from, kid.tz)} to ${localDay(now, kid.tz)}:\n${material}`;
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -158,6 +163,8 @@ async function buildKid(kid: Kid) {
         const { data } = await admin.from('kid_topics').insert({ kid: kid.id, slug: t.slug, source: t.source, created: lastDay, ...v }).select('id, slug, title, source, summary, stage').single();
         if (data) known.set(t.slug, data);
       }
+      const seed = typeof t.seed === 'string' && t.seed.length >= 6 ? (seeds ?? []).find((x) => x.id.startsWith(t.seed.toLowerCase().slice(0, 8))) : null;
+      if (seed && known.get(t.slug)) await admin.from('kid_seeds').delete().eq('id', seed.id).eq('kid', kid.id);
     }
     // A new topic's created day is its first event's day.
     const firstDay = new Map<string, string>();
