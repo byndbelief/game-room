@@ -54,6 +54,22 @@ const FIELDS = {
         minutes: { type: 'integer', description: 'door-to-door time for the leg, layovers included' },
         stops: { type: 'integer' }, via: { type: 'array', items: { type: 'string' }, description: 'connection airport codes' },
         flights: { type: 'array', items: { type: 'string' }, description: 'flight numbers, if known' } } } } } },
+  details: { type: 'object', description: "For options in a plan for tickets, stay or transport: which piece of the plan (seg) and the facts the family compares. Fill in all you can.",
+    properties: {
+      seg: { type: 'integer', description: 'which piece of that part\'s plan (0 = first)' },
+      name: { type: 'string' }, area: { type: 'string', description: 'neighbourhood' },
+      nightly: { type: 'number' }, nights: { type: 'integer' }, total: { type: 'number', description: 'everything for the whole family, in the trip currency' },
+      rating: { type: 'number', description: 'guest rating out of 5' }, reviews: { type: 'integer' },
+      walk_min: { type: 'integer', description: 'stay: minutes on foot to the main place they will be (venue, centre)' },
+      room: { type: 'string', description: 'stay: room or beds for the family' }, perks: { type: 'array', items: { type: 'string' }, description: 'e.g. breakfast, pool, kitchen' },
+      free_cancel: { type: 'boolean' },
+      event: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD' }, venue: { type: 'string' },
+      section: { type: 'string', description: 'tickets: section or seat area' }, seller: { type: 'string' }, official: { type: 'boolean', description: 'tickets: the official seller (not resale)' },
+      price_each: { type: 'number' }, count: { type: 'integer' }, fees_included: { type: 'boolean' }, together: { type: 'boolean', description: 'tickets: seats together' },
+      view: { type: 'string', description: 'tickets: what the view is like, in a few words' },
+      mode: { type: 'string', enum: ['metro', 'bus', 'taxi', 'rideshare', 'shuttle', 'car', 'walk', 'train'] },
+      from: { type: 'string' }, to: { type: 'string' }, minutes: { type: 'integer' },
+      when: { type: 'string', description: 'transport: e.g. "on arrival, ~14:00" or "after the show"' }, book_ahead: { type: 'boolean' } } },
   topic: { type: 'string', enum: TOPICS, description: 'Which part of the trip this decides: dates, flights, stay (hotels, rentals), tickets (events, attractions that need them), transport (airport transfers, car, transit), food, activities, other. Not for pack items.' },
 };
 const TOOLS = [
@@ -71,6 +87,14 @@ const RETIRE_TOOL = { name: 'retire_items', description: 'Remove option ideas th
 const PLAN_TOOL = { name: 'set_flight_plan', description: "Set the trip's flight plan: the flights it takes, in order, each from an airport to an airport on a day. Picks the family already made on legs that stay the same are kept.",
   input_schema: { type: 'object', required: ['legs'], properties: { legs: { type: 'array', items: { type: 'object', required: ['from', 'to', 'date'], properties: {
     from: { type: 'string', description: 'airport code' }, to: { type: 'string', description: 'airport code' }, date: { type: 'string', description: 'YYYY-MM-DD' } } } } } } };
+// The pieces each of the other parts needs (the stays, the events, the trips around town); the page builds a pick per piece.
+const PART_PLAN_TOOL = { name: 'set_plan', description: "Set the plan for tickets, stay or transport: the pieces that part needs, in order. Picks already made on pieces that stay the same are kept.",
+  input_schema: { type: 'object', required: ['part', 'pieces'], properties: {
+    part: { type: 'string', enum: ['tickets', 'stay', 'transport'] },
+    pieces: { type: 'array', items: { type: 'object', required: ['label'], properties: {
+      label: { type: 'string', description: 'short, e.g. "Mexico City · Dec 3–5", "Bruno Mars · Estadio GNP", "MEX airport → hotel"' },
+      date: { type: 'string', description: 'YYYY-MM-DD (stay: check-in)' }, until: { type: 'string', description: 'stay: check-out, YYYY-MM-DD' },
+      from: { type: 'string' }, to: { type: 'string' } } } } } } };
 const TRIP_TOOL = { name: 'update_trip', description: "Set the trip's own details once they are clear: a good name, the place (city, region), and start and end dates (YYYY-MM-DD). Use it when the goal or research settles where and when.",
   input_schema: { type: 'object', properties: { name: { type: 'string' }, place: { type: 'string' }, starts: { type: 'string' }, ends: { type: 'string' },
     origin: { type: 'string', description: 'Where the family travels from, with the airport, e.g. "Raleigh (RDU)". Only when told.' } } } };
@@ -99,6 +123,24 @@ function cleanFlight(f: Record<string, unknown>) {
   const kind = f.kind === 'leg' ? 'leg' : f.kind === 'oneway' ? 'oneway' : 'roundtrip';
   return { kind, leg: kind === 'leg' && Number.isInteger(f.leg) && (f.leg as number) >= 0 && (f.leg as number) < 8 ? f.leg : undefined, price_pp: num(f.price_pp, 1e5), price_total: num(f.price_total, 1e6),
     airlines: Array.isArray(f.airlines) ? f.airlines.filter((a) => typeof a === 'string').map((a) => (a as string).slice(0, 40)).slice(0, 4) : undefined, legs };
+}
+
+// An option's details for the tickets, stay and transport builders: known keys only, each its own type and size.
+const DNUM: Record<string, number> = { nightly: 1e5, total: 1e6, rating: 5.01, price_each: 1e5, distance_km: 1e4 };
+const DINT: Record<string, number> = { seg: 8, nights: 60, reviews: 1e7, walk_min: 600, count: 30, minutes: 2000 };
+const DSTR = ['name', 'area', 'room', 'event', 'venue', 'section', 'seller', 'view', 'from', 'to', 'when'];
+const DBOOL = ['free_cancel', 'official', 'fees_included', 'together', 'book_ahead'];
+const MODES = ['metro', 'bus', 'taxi', 'rideshare', 'shuttle', 'car', 'walk', 'train'];
+function cleanDetails(d: Record<string, unknown>) {
+  const o: Record<string, unknown> = {};
+  for (const [k, max] of Object.entries(DNUM)) if (typeof d[k] === 'number' && (d[k] as number) >= 0 && (d[k] as number) < max) o[k] = Math.round((d[k] as number) * 100) / 100;
+  for (const [k, max] of Object.entries(DINT)) if (Number.isInteger(d[k]) && (d[k] as number) >= 0 && (d[k] as number) < max) o[k] = d[k];
+  for (const k of DSTR) if (typeof d[k] === 'string' && (d[k] as string).trim()) o[k] = (d[k] as string).trim().slice(0, 80);
+  for (const k of DBOOL) if (typeof d[k] === 'boolean') o[k] = d[k];
+  if (typeof d.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) o.date = d.date;
+  if (MODES.includes(d.mode as string)) o.mode = d.mode;
+  if (Array.isArray(d.perks)) o.perks = d.perks.filter((x) => typeof x === 'string').map((x) => (x as string).slice(0, 30)).slice(0, 6);
+  return o;
 }
 
 async function claude(system: string, messages: unknown[], search: boolean, tools: unknown[]) {
@@ -175,7 +217,7 @@ Deno.serve(async (req) => {
 The trip: "${trip.name}"${trip.place ? ` to ${trip.place}` : ', place not set yet'}${trip.starts ? `, ${trip.starts} to ${trip.ends ?? '?'}` : ', dates not set yet'}. Currency ${trip.currency}. ${trip.origin ? `The family travels from ${trip.origin}.` : 'Where the family travels from is not set yet.'}${trip.goal ? `\nWhat the trip is for: ${trip.goal}` : ''} Today is ${new Date().toISOString().slice(0, 10)}.
 The family: ${family.map((f) => `${f.username} (${f.role === 'parent' ? 'dad' : 'teen'})`).join(', ')}.
 
-${Array.isArray(trip.flight_plan) && trip.flight_plan.length ? `Flight plan (legs in order):\n${trip.flight_plan.map((l: { from: string; to: string; date: string; pick?: string }, n: number) => `- leg ${n}: ${l.from}→${l.to} on ${l.date}${l.pick ? ` (picked [${String(l.pick).slice(0, 8)}])` : ''}`).join('\n')}\n\n` : ''}What is in the trip now (id in brackets):
+${Array.isArray(trip.flight_plan) && trip.flight_plan.length ? `Flight plan (legs in order):\n${trip.flight_plan.map((l: { from: string; to: string; date: string; pick?: string }, n: number) => `- leg ${n}: ${l.from}→${l.to} on ${l.date}${l.pick ? ` (picked [${String(l.pick).slice(0, 8)}])` : ''}`).join('\n')}\n\n` : ''}${trip.plans && typeof trip.plans === 'object' ? Object.entries(trip.plans).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => `${k} plan:\n${(v as { label: string; pick?: string }[]).map((x, n) => `- piece ${n}: ${x.label}${x.pick ? ` (picked [${String(x.pick).slice(0, 8)}])` : ''}`).join('\n')}`).join('\n') + '\n\n' : ''}What is in the trip now (id in brackets):
 ${list}
 
 How to help:
@@ -195,6 +237,10 @@ How to help:
 - The trip may start with only a goal and no place or dates. Then work them out: research when and where it can happen (for an event: the actual schedule; season, prices and weather otherwise). ${canTrip ? 'If one option is clearly right, set it with update_trip (dates covering the event plus sensible travel days) and say so. If there are several good options, add each as an idea titled like "Dates: Jun 12–15 (Fri–Mon)" with the reasons, and ask which one.' : 'This asker did not start this trip and cannot change it: add the options as ideas titled like "Dates: Jun 12–15" for Dad to pick.'} If the event has not been scheduled yet, say when the schedule usually comes out and add what is known.
 - Don't duplicate what is already there; update instead. Keep plan days within the trip dates.
 - Trips with several flights (out and home, or a city in between) use a flight plan, and the family builds the itinerary one leg at a time. When asked to set up flights: set_flight_plan from what is known (the chosen dates, the places, where they travel from; e.g. LAX→MEX, MEX→JFK, JFK→LAX), then for each leg add 3 to 5 options as flight ideas, each one real flight (or one connection) on that leg's day: title like "Aeroméxico AM 647 · 07:05", flight = { kind: 'leg', leg: <index>, price_pp, price_total, airlines, legs: [that one leg with depart, arrive, from, to, minutes, stops, via, flights] }, and a Google Flights one-way search link for that day. Mix them: the cheapest, the quickest, a good time of day. When asked for more options on a leg, add 2 or 3 different ones for it.
+- Tickets, stay and transport can have plans too, built the same way. When asked to set one up: retire that part's old options you found (retire_items), set_plan from what is decided (the flight plan, the chosen dates, the events), then add 3 or 4 options per piece as ideas of that topic with details { seg: <index>, ... } and a link:
+  stay: one piece per city and set of nights (from the flight plan: where they sleep between flights). Options at different prices near where they'll be: name, area, nightly, nights, total, rating, reviews, walk_min to the main place, room for the family, perks, free_cancel. Title like "Hotel Carlota · Juárez".
+  tickets: one piece per event that needs tickets. Options: event, date, venue, section, seller, official (official box office vs resale), price_each, count (the family), total, fees_included, together, view. Title like "Section 105 · Ticketmaster".
+  transport: one piece per trip they'll make (arrival airport to the stay, to and from the main event, the stay to the departure airport), timed to the picked flights if there are. Options: mode, from, to, minutes, total, when, book_ahead. Title like "Metro Line 1 + walk" or "Uber from the airport".
 - Any flight option you add or change gets its flight details filled (see flights above), so the family can compare them; when asked to fill in flight details, research each flight idea's schedule and typical fare and update_item its flight.
 - When the family makes a choice, the parts after it should fit: options found for other dates, another airport or another part of town no longer do. Retire those (retire_items; only ideas marked (claude) that aren't chosen), adjust ones that still fit, and research new options where a part is left with fewer than 2 that fit. Leave parts that have a booking or a [CHOSEN] idea alone, and never retire what the family added (family).
 - Never book, buy, sign up for or contact anything; you only research and organise.
@@ -204,7 +250,7 @@ How to help:
 
   const added: string[] = [], changed: string[] = [];
   let tripChanged = false, retired = 0;
-  const tools = canTrip ? [...TOOLS, TRIP_TOOL, RETIRE_TOOL, PLAN_TOOL] : TOOLS;
+  const tools = canTrip ? [...TOOLS, TRIP_TOOL, RETIRE_TOOL, PLAN_TOOL, PART_PLAN_TOOL] : TOOLS;
   async function run(name: string, input: Record<string, unknown>) {
     const clean = (v: Record<string, unknown>) => {
       const o: Record<string, unknown> = {};
@@ -217,6 +263,7 @@ How to help:
       if (typeof v.who === 'string') o.who = whoId(v.who);
       if (TOPICS.includes(v.topic as string)) o.topic = v.topic;
       if (v.flight && typeof v.flight === 'object') o.flight = cleanFlight(v.flight as Record<string, unknown>);
+      if (v.details && typeof v.details === 'object') o.details = cleanDetails(v.details as Record<string, unknown>);
       if (KINDS.includes(v.kind as string)) o.kind = v.kind === 'booking' && role === 'kid' ? 'idea' : v.kind;
       return o;
     };
@@ -268,6 +315,23 @@ How to help:
       if (error) return 'Could not set the flight plan: ' + error.message;
       trip.flight_plan = legs; tripChanged = true;
       return 'Flight plan set: ' + legs.map((l, n) => `leg ${n} ${l.from}→${l.to} ${l.date}`).join('; ');
+    }
+    if (name === 'set_plan' && canTrip) {
+      const part = String(input.part ?? '');
+      if (!['tickets', 'stay', 'transport'].includes(part)) return 'part is tickets, stay or transport.';
+      const plans = trip.plans && typeof trip.plans === 'object' ? { ...trip.plans } : {};
+      const old: { label: string; pick?: string }[] = Array.isArray(plans[part]) ? plans[part] : [];
+      const day = (x: unknown) => (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : undefined);
+      const pieces = ((input.pieces as Record<string, unknown>[]) ?? []).slice(0, 8).filter((x) => typeof x.label === 'string' && (x.label as string).trim())
+        .map((x, n) => { const label = (x.label as string).trim().slice(0, 80);
+          return { label, date: day(x.date), until: day(x.until), from: typeof x.from === 'string' ? x.from.slice(0, 60) : undefined, to: typeof x.to === 'string' ? x.to.slice(0, 60) : undefined,
+            pick: old[n] && old[n].label === label ? old[n].pick ?? null : null }; });
+      if (!pieces.length) return 'A plan needs at least one piece with a label.';
+      plans[part] = pieces;
+      const { error } = await admin.from('trips').update({ plans }).eq('id', trip.id);
+      if (error) return 'Could not set the plan: ' + error.message;
+      trip.plans = plans; tripChanged = true;
+      return `${part} plan set: ` + pieces.map((x, n) => `piece ${n} ${x.label}`).join('; ');
     }
     if (name === 'update_trip' && canTrip) {
       const v: Record<string, unknown> = {};
