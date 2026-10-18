@@ -133,11 +133,13 @@ async function buildKid(kid: Kid) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, system: prompt(kid.username), max_tokens: 4096, tools: [TOOL], tool_choice: { type: 'tool', name: 'file_diary' },
+      body: JSON.stringify({ model: MODEL, system: prompt(kid.username), max_tokens: 4096, tools: [TOOL],
         messages: [{ role: 'user', content: user }] }),
     });
     if (!r.ok) throw new Error(`anthropic ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    const out = (await r.json()).content?.find((b: { type: string }) => b.type === 'tool_use')?.input ?? {};
+    // The model can't be forced to use the tool, so check that it did: no diary filed is a failed build.
+    const out = (await r.json()).content?.find((b: { type: string; name?: string }) => b.type === 'tool_use' && b.name === 'file_diary')?.input;
+    if (!out) throw new Error('Claude answered without filing the diary');
     await fileGames();
     const first = localDay(from, kid.tz), lastDay = localDay(now, kid.tz);
     const okDay = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= first && d <= lastDay;
