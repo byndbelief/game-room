@@ -4,7 +4,7 @@
 // a parent should see the chat (danger, distress, abuse, strangers...); only
 // those chats are visible to a parent, who gets a push when one is flagged.
 // Each kid has a daily cap and open hours (public.tutor_settings, set by a
-// parent). Parents may use it too, without limits, to try it.
+// parent); the cap is shared with their trip-helper and family-chat @claude asks. Parents may use it too, without limits, to try it.
 //
 // POST { text, chat? }   -> { chat, title, reply, left }
 // POST { action: 'status' } -> { open, left, cap, hours }
@@ -98,9 +98,13 @@ Deno.serve(async (req) => {
   const s = { daily_cap: 40, start_hour: 7, end_hour: 21, tz: 'America/New_York', ...(set ?? {}) };
   const { hour, dayStart } = local(s.tz);
   const open = role === 'parent' || (hour >= s.start_hour && hour < s.end_hour);
-  const { count } = await admin.from('tutor_messages').select('id', { count: 'exact', head: true })
-    .eq('kid', user.id).eq('role', 'user').gte('created_at', dayStart.toISOString());
-  const left = role === 'parent' ? 999 : Math.max(0, s.daily_cap - (count ?? 0));
+  const since = dayStart.toISOString();
+  const [{ count: a }, { count: b }, { count: c }] = await Promise.all([
+    admin.from('tutor_messages').select('id', { count: 'exact', head: true }).eq('kid', user.id).eq('role', 'user').gte('created_at', since),
+    admin.from('trip_asks').select('id', { count: 'exact', head: true }).eq('asker', user.id).gte('created_at', since),
+    admin.from('chat_messages').select('id', { count: 'exact', head: true }).eq('author', user.id).eq('asks_claude', true).gte('created_at', since),
+  ]);
+  const left = role === 'parent' ? 999 : Math.max(0, s.daily_cap - (a ?? 0) - (b ?? 0) - (c ?? 0));
   const hours = `${s.start_hour}:00 to ${s.end_hour}:00`;
 
   let body: { text?: string; chat?: string; action?: string };

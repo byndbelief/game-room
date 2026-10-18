@@ -3,7 +3,8 @@
 // is told) into the trip as plan / idea / booking / pack items, or moves and
 // edits existing ones. It never books or buys anything, and has no other tools.
 // Kids: bookings they mention become ideas (only a parent adds bookings), and
-// their asks count toward their tutor daily cap and hours.
+// their asks count toward their tutor daily cap and hours (shared with tutor and
+// family-chat @claude asks).
 //
 // POST { trip, text } -> { reply, added: [ids], changed: [ids], trip: changed?, left }
 // A parent's ask, or the ask of whoever started the trip, may also set the trip's
@@ -98,11 +99,12 @@ Deno.serve(async (req) => {
     const { hour, dayStart } = local(s.tz);
     if (hour < s.start_hour || hour >= s.end_hour) return json({ error: `Claude is open ${s.start_hour}:00 to ${s.end_hour}:00.` }, 429);
     const since = dayStart.toISOString();
-    const [{ count: a }, { count: b }] = await Promise.all([
+    const [{ count: a }, { count: b }, { count: c }] = await Promise.all([
       admin.from('tutor_messages').select('id', { count: 'exact', head: true }).eq('kid', user.id).eq('role', 'user').gte('created_at', since),
       admin.from('trip_asks').select('id', { count: 'exact', head: true }).eq('asker', user.id).gte('created_at', since),
+      admin.from('chat_messages').select('id', { count: 'exact', head: true }).eq('author', user.id).eq('asks_claude', true).gte('created_at', since),
     ]);
-    left = s.daily_cap - (a ?? 0) - (b ?? 0);
+    left = s.daily_cap - (a ?? 0) - (b ?? 0) - (c ?? 0);
     if (left <= 0) return json({ error: "That's all the questions for today. Back tomorrow!" }, 429);
   }
 
