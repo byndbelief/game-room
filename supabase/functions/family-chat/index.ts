@@ -129,7 +129,7 @@ When someone asks to add something to a trip ("add churros to the Mexico trip", 
 
   const messages: { role: string; content: unknown }[] = [{ role: 'user', content }];
   let reply = '';
-  const added: { trip: string; title: string }[] = [];
+  const added: { trip: string; title: string; id: string }[] = [];
   async function addToTrip(input: { trip?: string; items?: Record<string, unknown>[] }) {
     const want = String(input.trip ?? '').toLowerCase().slice(0, 8);
     const trip = (trips ?? []).find((t) => want.length >= 6 && t.id.startsWith(want));
@@ -145,9 +145,9 @@ When someone asks to add something to a trip ("add churros to the Mexico trip", 
       return o;
     }).filter(Boolean);
     if (!rows.length) return 'Nothing to add (each item needs a title).';
-    const { data, error } = await admin.from('trip_items').insert(rows).select('title');
+    const { data, error } = await admin.from('trip_items').insert(rows).select('id, title');
     if (error) return 'Could not add: ' + error.message;
-    for (const d of data!) added.push({ trip: trip.id, title: d.title });
+    for (const d of data!) added.push({ trip: trip.id, title: d.title, id: d.id });
     return `Added to ${trip.name}: ${data!.map((d) => d.title).join('; ')}`;
   }
   for (let turn = 0; turn < 6; turn++) {
@@ -167,7 +167,7 @@ When someone asks to add something to a trip ("add churros to the Mexico trip", 
     messages.push({ role: 'user', content: results });
   }
   // What was added rides along as a card that opens the trip.
-  const ref = added.length ? { type: 'added', trip: added[0].trip, trip_name: (trips ?? []).find((t) => t.id === added[0].trip)?.name ?? 'the trip', titles: added.map((a) => a.title).slice(0, 6) } : null;
+  const ref = added.length ? { type: 'added', trip: added[0].trip, trip_name: (trips ?? []).find((t) => t.id === added[0].trip)?.name ?? 'the trip', titles: added.map((a) => a.title).slice(0, 6), ids: added.map((a) => a.id).slice(0, 6) } : null;
   return { reply: reply || (added.length ? 'Done.' : "Sorry, I couldn't come up with an answer to that one."), ref };
 }
 
