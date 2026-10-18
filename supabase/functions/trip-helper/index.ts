@@ -41,7 +41,8 @@ const FIELDS = {
   who: { type: 'string', description: 'For pack items: a family username, or "shared"' },
   flight: { type: 'object', description: 'For flight options: the details the family compares (typical fares, real schedules from what you found). Fill in all you can.',
     properties: {
-      kind: { type: 'string', enum: ['roundtrip', 'oneway'] },
+      kind: { type: 'string', enum: ['roundtrip', 'oneway', 'leg'], description: "'leg' for one leg of the trip's flight plan" },
+      leg: { type: 'integer', description: 'for kind leg: which leg of the flight plan (0 = first)' },
       price_pp: { type: 'number', description: 'typical fare per person, in the trip currency' },
       price_total: { type: 'number', description: 'for the whole family' },
       airlines: { type: 'array', items: { type: 'string' } },
@@ -66,6 +67,10 @@ const TOOLS = [
 // found itself, never chosen, and nobody has discussed or polled: what the family added stays.
 const RETIRE_TOOL = { name: 'retire_items', description: 'Remove option ideas that no longer fit what the family chose (e.g. flights for other dates). Only works on ideas you found (marked claude in the list) that are not chosen and that nobody has commented on or polled.',
   input_schema: { type: 'object', required: ['ids', 'why'], properties: { ids: { type: 'array', items: { type: 'string' } }, why: { type: 'string', description: 'one short reason, e.g. "for other dates"' } } } };
+// The flights a trip takes, in order (LAX→MEX, MEX→NYC, NYC→LAX); the page builds an itinerary from one option per leg.
+const PLAN_TOOL = { name: 'set_flight_plan', description: "Set the trip's flight plan: the flights it takes, in order, each from an airport to an airport on a day. Picks the family already made on legs that stay the same are kept.",
+  input_schema: { type: 'object', required: ['legs'], properties: { legs: { type: 'array', items: { type: 'object', required: ['from', 'to', 'date'], properties: {
+    from: { type: 'string', description: 'airport code' }, to: { type: 'string', description: 'airport code' }, date: { type: 'string', description: 'YYYY-MM-DD' } } } } } } };
 const TRIP_TOOL = { name: 'update_trip', description: "Set the trip's own details once they are clear: a good name, the place (city, region), and start and end dates (YYYY-MM-DD). Use it when the goal or research settles where and when.",
   input_schema: { type: 'object', properties: { name: { type: 'string' }, place: { type: 'string' }, starts: { type: 'string' }, ends: { type: 'string' },
     origin: { type: 'string', description: 'Where the family travels from, with the airport, e.g. "Raleigh (RDU)". Only when told.' } } } };
@@ -91,7 +96,8 @@ function cleanFlight(f: Record<string, unknown>) {
     stops: Number.isInteger(l.stops) && (l.stops as number) >= 0 && (l.stops as number) <= 4 ? l.stops : undefined,
     via: strs(l.via, /^[A-Za-z]{3}$/, 3), flights: strs(l.flights, /^[A-Za-z0-9]{2,3}\s?\d{1,4}$/, 8),
   }));
-  return { kind: f.kind === 'oneway' ? 'oneway' : 'roundtrip', price_pp: num(f.price_pp, 1e5), price_total: num(f.price_total, 1e6),
+  const kind = f.kind === 'leg' ? 'leg' : f.kind === 'oneway' ? 'oneway' : 'roundtrip';
+  return { kind, leg: kind === 'leg' && Number.isInteger(f.leg) && (f.leg as number) >= 0 && (f.leg as number) < 8 ? f.leg : undefined, price_pp: num(f.price_pp, 1e5), price_total: num(f.price_total, 1e6),
     airlines: Array.isArray(f.airlines) ? f.airlines.filter((a) => typeof a === 'string').map((a) => (a as string).slice(0, 40)).slice(0, 4) : undefined, legs };
 }
 
@@ -169,7 +175,7 @@ Deno.serve(async (req) => {
 The trip: "${trip.name}"${trip.place ? ` to ${trip.place}` : ', place not set yet'}${trip.starts ? `, ${trip.starts} to ${trip.ends ?? '?'}` : ', dates not set yet'}. Currency ${trip.currency}. ${trip.origin ? `The family travels from ${trip.origin}.` : 'Where the family travels from is not set yet.'}${trip.goal ? `\nWhat the trip is for: ${trip.goal}` : ''} Today is ${new Date().toISOString().slice(0, 10)}.
 The family: ${family.map((f) => `${f.username} (${f.role === 'parent' ? 'dad' : 'teen'})`).join(', ')}.
 
-What is in the trip now (id in brackets):
+${Array.isArray(trip.flight_plan) && trip.flight_plan.length ? `Flight plan (legs in order):\n${trip.flight_plan.map((l: { from: string; to: string; date: string; pick?: string }, n: number) => `- leg ${n}: ${l.from}→${l.to} on ${l.date}${l.pick ? ` (picked [${String(l.pick).slice(0, 8)}])` : ''}`).join('\n')}\n\n` : ''}What is in the trip now (id in brackets):
 ${list}
 
 How to help:
@@ -188,6 +194,7 @@ How to help:
 - When told facts ("we fly DL123 on Dec 20 at 8am, conf ABC123, $1240") file them directly${role === 'kid' ? '. This asker is a teen: they cannot add bookings, so file anything booking-like as an idea for Dad to confirm' : ''}.
 - The trip may start with only a goal and no place or dates. Then work them out: research when and where it can happen (for an event: the actual schedule; season, prices and weather otherwise). ${canTrip ? 'If one option is clearly right, set it with update_trip (dates covering the event plus sensible travel days) and say so. If there are several good options, add each as an idea titled like "Dates: Jun 12–15 (Fri–Mon)" with the reasons, and ask which one.' : 'This asker did not start this trip and cannot change it: add the options as ideas titled like "Dates: Jun 12–15" for Dad to pick.'} If the event has not been scheduled yet, say when the schedule usually comes out and add what is known.
 - Don't duplicate what is already there; update instead. Keep plan days within the trip dates.
+- Trips with several flights (out and home, or a city in between) use a flight plan, and the family builds the itinerary one leg at a time. When asked to set up flights: set_flight_plan from what is known (the chosen dates, the places, where they travel from; e.g. LAX→MEX, MEX→JFK, JFK→LAX), then for each leg add 3 to 5 options as flight ideas, each one real flight (or one connection) on that leg's day: title like "Aeroméxico AM 647 · 07:05", flight = { kind: 'leg', leg: <index>, price_pp, price_total, airlines, legs: [that one leg with depart, arrive, from, to, minutes, stops, via, flights] }, and a Google Flights one-way search link for that day. Mix them: the cheapest, the quickest, a good time of day. When asked for more options on a leg, add 2 or 3 different ones for it.
 - Any flight option you add or change gets its flight details filled (see flights above), so the family can compare them; when asked to fill in flight details, research each flight idea's schedule and typical fare and update_item its flight.
 - When the family makes a choice, the parts after it should fit: options found for other dates, another airport or another part of town no longer do. Retire those (retire_items; only ideas marked (claude) that aren't chosen), adjust ones that still fit, and research new options where a part is left with fewer than 2 that fit. Leave parts that have a booking or a [CHOSEN] idea alone, and never retire what the family added (family).
 - Never book, buy, sign up for or contact anything; you only research and organise.
@@ -197,7 +204,7 @@ How to help:
 
   const added: string[] = [], changed: string[] = [];
   let tripChanged = false, retired = 0;
-  const tools = canTrip ? [...TOOLS, TRIP_TOOL, RETIRE_TOOL] : TOOLS;
+  const tools = canTrip ? [...TOOLS, TRIP_TOOL, RETIRE_TOOL, PLAN_TOOL] : TOOLS;
   async function run(name: string, input: Record<string, unknown>) {
     const clean = (v: Record<string, unknown>) => {
       const o: Record<string, unknown> = {};
@@ -248,6 +255,19 @@ How to help:
       if (error) return 'Could not retire: ' + error.message;
       retired += gone.length;
       return `Retired ${gone.length}${discussed.size ? ` (kept ${ids.length - gone.length} the family discussed)` : ''}.`;
+    }
+    if (name === 'set_flight_plan' && canTrip) {
+      const old = Array.isArray(trip.flight_plan) ? trip.flight_plan : [];
+      const legs = ((input.legs as Record<string, unknown>[]) ?? []).slice(0, 8).map((l) => ({
+        from: String(l.from ?? '').toUpperCase().slice(0, 3), to: String(l.to ?? '').toUpperCase().slice(0, 3),
+        date: typeof l.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(l.date) ? l.date : null,
+      })).filter((l) => /^[A-Z]{3}$/.test(l.from) && /^[A-Z]{3}$/.test(l.to) && l.date)
+        .map((l, n) => ({ ...l, pick: old[n] && old[n].from === l.from && old[n].to === l.to && old[n].date === l.date ? old[n].pick ?? null : null }));
+      if (!legs.length) return 'A flight plan needs legs with airport codes and dates.';
+      const { error } = await admin.from('trips').update({ flight_plan: legs }).eq('id', trip.id);
+      if (error) return 'Could not set the flight plan: ' + error.message;
+      trip.flight_plan = legs; tripChanged = true;
+      return 'Flight plan set: ' + legs.map((l, n) => `leg ${n} ${l.from}→${l.to} ${l.date}`).join('; ');
     }
     if (name === 'update_trip' && canTrip) {
       const v: Record<string, unknown> = {};
