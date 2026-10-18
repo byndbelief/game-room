@@ -205,6 +205,10 @@ Deno.serve(async (req) => {
   const family = (users?.users ?? []).filter((u) => ['parent', 'kid'].includes(u.app_metadata?.r4_role))
     .map((u) => ({ id: u.id, username: (fam ?? []).find((p) => p.id === u.id)?.username ?? '?', role: u.app_metadata!.r4_role }));
   const me = family.find((f) => f.id === user.id)!;
+  // Who's going (104): chosen family members and guests; unset is the whole family.
+  const goingMembers = Array.isArray(trip.going?.members) ? family.filter((f) => trip.going.members.includes(f.id)) : family;
+  const guests: string[] = Array.isArray(trip.going?.guests) ? trip.going.guests.filter((g: unknown) => typeof g === 'string').slice(0, 12) : [];
+  const travellers = Math.max(1, goingMembers.length + guests.length);
   const whoId = (w?: string) => (!w || w === 'shared' ? null : family.find((f) => f.username === w)?.id ?? null);
   const whoName = (id: string | null) => (id ? family.find((f) => f.id === id)?.username ?? '?' : 'shared');
   const short = (id: string) => id.slice(0, 8);
@@ -216,6 +220,7 @@ Deno.serve(async (req) => {
 
 The trip: "${trip.name}"${trip.place ? ` to ${trip.place}` : ', place not set yet'}${trip.starts ? `, ${trip.starts} to ${trip.ends ?? '?'}` : ', dates not set yet'}. Currency ${trip.currency}. ${trip.origin ? `The family travels from ${trip.origin}.` : 'Where the family travels from is not set yet.'}${trip.goal ? `\nWhat the trip is for: ${trip.goal}` : ''} Today is ${new Date().toISOString().slice(0, 10)}.
 The family: ${family.map((f) => `${f.username} (${f.role === 'parent' ? 'dad' : 'teen'})`).join(', ')}.
+Who's going: ${travellers} ${travellers === 1 ? 'person' : 'people'} (${[...goingMembers.map((f) => f.username), ...guests.map((g) => g + ' (guest)')].join(', ')}). Price everything for them: fares and tickets × ${travellers}, rooms that sleep ${travellers}, totals for ${travellers}.
 
 ${Array.isArray(trip.flight_plan) && trip.flight_plan.length ? `Flight plan (legs in order):\n${trip.flight_plan.map((l: { from: string; to: string; date: string; pick?: string }, n: number) => `- leg ${n}: ${l.from}→${l.to} on ${l.date}${l.pick ? ` (picked [${String(l.pick).slice(0, 8)}])` : ''}`).join('\n')}\n\n` : ''}${trip.plans && typeof trip.plans === 'object' ? Object.entries(trip.plans).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => `${k} plan:\n${(v as { label: string; pick?: string }[]).map((x, n) => `- piece ${n}: ${x.label}${x.pick ? ` (picked [${String(x.pick).slice(0, 8)}])` : ''}`).join('\n')}`).join('\n') + '\n\n' : ''}What is in the trip now (id in brackets):
 ${list}
