@@ -6,11 +6,16 @@
 // nothing else. Kids' @claude asks count toward the same daily cap and hours as
 // their tutor and trip-helper asks.
 //
-// POST { text?, image?, ref? } -> { id, claude: 'asked' | 'closed' | 'limit' | null, left }
+// POST { text?, image?, ref?, reply? } -> { id, claude: 'asked' | 'closed' | 'limit' | null, left }
 // POST { call: true, to? } -> { id }: someone started a video call (a card, and a ring for `to`, or everyone).
 //   image: a path the page uploaded to the family-chat bucket, "<user id>/<name>"
 //   ref: { type: 'item' | 'poll', id }: share a trip item or poll into the chat; the
 //        card's title, picture and trip are read from the database here.
+//   reply: a message id: this goes in that message's thread (109); Claude answers there too.
+//
+// Flowers: when a kid's @claude question is a real curiosity (not trip logistics or the
+// weather), it grows a flower in their world: a chat topic in kid_topics (a petal, a
+// kid_events row, when the topic is already there), and Claude's answer carries the card.
 //
 // Secrets: ANTHROPIC_API_KEY, and the notify function's VAPID_* for alerts.
 // SUPABASE_* are automatic.
@@ -103,9 +108,10 @@ async function push(to: string[], title: string, body: string, opt: { url?: stri
   } catch (e) { console.error('push', e); }
 }
 
-async function answer(fam: Member[], asker: Member, askId: number): Promise<{ reply: string; ref: Record<string, unknown> | null }> {
-  const { data: past } = await admin.from('chat_messages').select('id, author, is_claude, body, image, created_at')
-    .lte('id', askId).order('id', { ascending: false }).limit(30);
+async function answer(fam: Member[], asker: Member, askId: number, root: number | null): Promise<{ reply: string; ref: Record<string, unknown> | null }> {
+  // In a thread, the thread is the conversation: its first message and the replies so far.
+  const q = admin.from('chat_messages').select('id, author, is_claude, body, image, created_at').lte('id', askId);
+  const { data: past } = await (root ? q.or(`id.eq.${root},reply_to.eq.${root}`) : q.is('reply_to', null)).order('id', { ascending: false }).limit(30);
   const msgs = (past ?? []).reverse();
   const nameOf = (m: { author: string | null; is_claude: boolean }) => (m.is_claude ? 'Claude' : fam.find((f) => f.id === m.author)?.username ?? 'someone');
   const ask = msgs[msgs.length - 1];
@@ -172,6 +178,31 @@ When someone asks to add something to a trip ("add churros to the Mexico trip", 
   return { reply: reply || (added.length ? 'Done.' : "Sorry, I couldn't come up with an answer to that one."), ref };
 }
 
+// A kid's question as a flower in their world: a short name for what they were curious about, or none.
+async function flower(kid: Member, question: string, reply: string): Promise<Record<string, unknown> | null> {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 40, system: 'A teen asked a question in the family chat. If it shows curiosity about a subject (science, history, how something works, a skill, an idea), reply with only a 2 to 4 word title for that subject, like "Deep sea light" or "Why cats purr". If it is logistics, plans, the weather, scores, a trip, small talk or a request to do something, reply with only NONE.',
+      messages: [{ role: 'user', content: `Question: ${question.slice(0, 600)}\nAnswer: ${reply.slice(0, 400)}` }] }),
+  });
+  if (!r.ok) return null;
+  const title = ((await r.json()).content?.[0]?.text ?? '').trim().replace(/^["']|["'.]$/g, '').slice(0, 60);
+  if (!title || /^none$/i.test(title)) return null;
+  const slug = title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  if (!/^[a-z0-9]/.test(slug)) return null;
+  const day = new Date().toISOString().slice(0, 10);
+  const { data: had } = await admin.from('kid_topics').select('id, title').eq('kid', kid.id).eq('slug', slug).maybeSingle();
+  let topic = had?.id;
+  if (!topic) {
+    const { data: t, error } = await admin.from('kid_topics').insert({ kid: kid.id, slug, title, source: 'chat', stage: 'spark', created: day }).select('id').single();
+    if (error) { console.error('flower', error); return null; }
+    topic = t.id;
+  }
+  await admin.from('kid_events').insert({ kid: kid.id, topic, day, kind: had ? 'deepen' : 'spark', effort: 1, summary: question.replace(ASKS, '').trim().slice(0, 500) || null });
+  return { type: 'flower', who: kid.id, title: had?.title ?? title, grew: had ? 'a new petal' : 'new' };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
@@ -181,7 +212,7 @@ Deno.serve(async (req) => {
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
 
-  let body: { text?: string; image?: string; ref?: { type?: string; id?: unknown }; call?: boolean; to?: string };
+  let body: { text?: string; image?: string; ref?: { type?: string; id?: unknown }; call?: boolean; to?: string; reply?: number };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // Starting a video call (105): a card in the chat, and a ring for everyone not reading it.
@@ -208,6 +239,13 @@ Deno.serve(async (req) => {
   if (body.ref && !ref) return json({ error: 'That is no longer in the trip.' }, 404);
   if (!text && !image && !ref) return json({ error: 'Type a message first.' }, 400);
   const asks = !!text && ASKS.test(text);
+  // A reply goes under the thread's first message (never a reply to a reply).
+  let root: number | null = null;
+  if (body.reply != null) {
+    const { data: r } = await admin.from('chat_messages').select('id, reply_to').eq('id', Number(body.reply)).maybeSingle();
+    if (!r) return json({ error: 'That message is gone.' }, 404);
+    root = r.reply_to ?? r.id;
+  }
 
   const fam = await family();
   const me = fam.find((f) => f.id === user.id)!;
@@ -235,7 +273,7 @@ Deno.serve(async (req) => {
   }
 
   const { data: msg, error } = await admin.from('chat_messages')
-    .insert({ author: user.id, body: text ?? (ref ? (ref.type === 'poll' ? `📊 ${ref.question}` : `📍 ${ref.title}`) : null), image, ref, asks_claude: claude === 'asked' }).select('id').single();
+    .insert({ author: user.id, body: text ?? (ref ? (ref.type === 'poll' ? `📊 ${ref.question}` : `📍 ${ref.title}`) : null), image, ref, asks_claude: claude === 'asked', reply_to: root }).select('id').single();
   if (error) { console.error(error); return json({ error: 'Could not send. Try again.' }, 500); }
 
   const others = fam.filter((f) => f.id !== user.id).map((f) => f.id);
@@ -243,9 +281,11 @@ Deno.serve(async (req) => {
     await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.title}`) : '📷 Photo'));
     if (claude !== 'asked') return;
     let reply: string, cref: Record<string, unknown> | null = null;
-    try { ({ reply, ref: cref } = await answer(fam, me, msg.id)); }
+    let ok = false;
+    try { ({ reply, ref: cref } = await answer(fam, me, msg.id, root)); ok = true; }
     catch (e) { console.error(e); reply = "Sorry, I couldn't answer just now. Try @claude again in a minute."; }
-    await admin.from('chat_messages').insert({ author: null, is_claude: true, body: reply.slice(0, 4000), ref: cref });
+    if (ok && !cref && role === 'kid') try { cref = await flower(me, text!, reply); } catch (e) { console.error('flower', e); }
+    await admin.from('chat_messages').insert({ author: null, is_claude: true, body: reply.slice(0, 4000), ref: cref, reply_to: root });
     await push(fam.map((f) => f.id), '✦ Claude', reply);
   })());
 
