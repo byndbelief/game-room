@@ -2,7 +2,7 @@
    world colours (Putt Post's green, the duel's night); this only sets the chrome around it.
    Loaded after a page's own <style>, so its :root wins on the fonts. */
 :root {
-  --r4-bg: #0B0918; --r4-panel: #171331; --r4-line: #2F2957; --r4-ink: #F3F1FF; --r4-muted: #ACA5D6;
+  --r4-bg: #000000; --r4-panel: #0D0B1F; --r4-line: #251F48; --r4-ink: #F3F1FF; --r4-muted: #ACA5D6;
   --teal: #3DD6C6; --gold: #F5C542; --hot: #FF5A4A; --violet: #B9A6FF; --mint: #C9FFF8;
   --display: "Unbounded", "Arial Black", Impact, sans-serif;
   --body: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
