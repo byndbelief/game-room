@@ -120,15 +120,18 @@ Deno.serve(async (req) => {
     const er = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 3000, tool_choice: { type: 'tool', name: 'explain_lines' },
-        system: `You help ${role === 'parent' ? 'a parent' : 'a teen'} learn to code by explaining their file line by line, like a friendly tutor sitting beside them. For each line or small group of lines that does something worth knowing, write one short plain-words note (under 20 words) on what it does and why; skip blank lines, closing brackets and lines that repeat an idea already explained. Put a group's note on its first line.`,
+      body: JSON.stringify({ model: MODEL, max_tokens: 3000,
+        system: `You help ${role === 'parent' ? 'a parent' : 'a teen'} learn to code by explaining their file line by line, like a friendly tutor sitting beside them. For each line or small group of lines that does something worth knowing, write one short plain-words note (under 20 words) on what it does and why; skip blank lines, closing brackets and lines that repeat an idea already explained. Put a group's note on its first line. Always answer by calling explain_lines.`,
         tools: [{ name: 'explain_lines', description: 'The notes, by line number.', input_schema: { type: 'object', required: ['lines'], properties: { lines: { type: 'array', items: { type: 'object', required: ['n', 'text'], properties: { n: { type: 'integer' }, text: { type: 'string' } } } } } } }],
         messages: [{ role: 'user', content: `${file}:\n${numbered}` }] }),
     });
     if (!er.ok) { console.error('anthropic', er.status, (await er.text()).slice(0, 300)); return json({ error: 'Claude couldn’t read it just now. Try again.' }, 502); }
     const ed = await er.json(), tu = (ed.content ?? []).find((b: { type: string }) => b.type === 'tool_use');
     const max = src.split('\n').length;
-    const help = (tu?.input?.lines ?? []).filter((x: { n?: number; text?: string }) => Number.isInteger(x?.n) && x.n! >= 1 && x.n! <= max && typeof x.text === 'string')
+    // (forcing the tool isn't allowed on this model: if it answered in words, read "12: note" lines from them)
+    const said = (ed.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('\n');
+    const fromText = [...said.matchAll(/^\s*(?:line\s*)?(\d+)\s*[:|.)-]\s*(.+)$/gim)].map((m) => ({ n: +m[1], text: m[2].trim() }));
+    const help = (tu?.input?.lines ?? fromText).filter((x: { n?: number; text?: string }) => Number.isInteger(x?.n) && x.n! >= 1 && x.n! <= max && typeof x.text === 'string')
       .slice(0, 400).map((x: { n: number; text: string }) => ({ n: x.n, text: x.text.slice(0, 240) }));
     await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: 'ask' });
     return json({ help, left: leftOf(builds) });
