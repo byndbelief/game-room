@@ -7,12 +7,15 @@
 // completely different. The page turns any of these into a new version. Claude can also just
 // answer ("explain main.js", "why is it broken?") without changing anything.
 //
-// POST { project, ask, files?, logs?, image?, html? } -> { say, note?, change?, files?, name?, left }
+// POST { project, ask, files?, logs?, image?, html?, chat? } -> { say, note?, change?, files?, name?, next?, left }
 //   project: its id; only its maker or a helper may ask (projects.collab, 110)
 //   files:   a code project's unsaved draft, if the person is editing (else its current version)
 //   logs:    the last console lines from the preview, for "why is it broken?"
 //   image:   a JPEG data URL: the full-screen preview with the person's red marks drawn on it
 //   html:    a kit project's page as the kit builds it now, for rebuilding it as code
+//   chat:    the ✦ Vibes chat so far ([{ me, t }], last 10), so Claude doesn't repeat itself
+//   next:    two or three short things to ask next, for where the project is (the page's chips)
+// Claude also reads the project's commit notes, so it knows how far along it is.
 // POST { project, explain: { file, src } } -> { help: [{ n, text, terms }], glossary: [{ term, means, example }], left }
 //   💡 Help on the code bench: a short note for the lines worth explaining. A question, not a build.
 //
@@ -96,7 +99,7 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: 'Sign in first.' }, 401);
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
-  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; explain?: { file?: unknown; src?: unknown } };
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; chat?: unknown; explain?: { file?: unknown; src?: unknown } };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // How many builds are left today (also what the page asks with no project).
@@ -152,6 +155,9 @@ Deno.serve(async (req) => {
   const files = code ? (cleanFiles(body.files) ?? v.files ?? {}) : null;
   const logs = Array.isArray(body.logs) ? body.logs.slice(-12).map((l) => (Array.isArray(l) ? `${l[0]}: ${String(l[1]).slice(0, 300)}` : '')).join('\n') : '';
   const img = typeof body.image === 'string' ? body.image.match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]{100,2000000})$/) : null;
+  const chat = Array.isArray(body.chat) ? body.chat.slice(-10).filter((m) => m && typeof m.t === 'string')
+    .map((m) => `${m.me ? 'They' : 'You'}: ${String(m.t).slice(0, 800)}`).join('\n') : '';
+  const history = (p.versions ?? []).slice(-20).map((x: { v: number; note?: string }) => `v${x.v}: ${String(x.note ?? '').slice(0, 100)}`).join('\n');
   const who = role === 'parent' ? 'a parent' : 'a kid (a teen, around 14 to 18)';
 
   const kitHtml = !code && typeof body.html === 'string' ? body.html.slice(0, 60_000) : '';
@@ -176,10 +182,12 @@ Deno.serve(async (req) => {
 ${code
   ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
   : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
-${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
-  const content = code
+${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
+Then, on its own last line, write NEXT: and two or three short things they could ask you next (each under 6 words, separated by |), right for where this project is now: a new one might want to understand it or make it theirs; a broken one, a fix; a working one, the next feature or polish that fits what it is. Like: NEXT: add a score | make it faster
+Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
+  const content = `The project "${p.name}", ${p.versions.length} version${p.versions.length === 1 ? '' : 's'} so far:\n${history}\n${chat ? `\nThe chat so far:\n${chat}\n` : ''}\n` + (code
     ? `The files:\n${Object.entries(files!).map(([k, s]) => `--- ${k}\n${s}`).join('\n')}\n${logs ? `\nThe preview's console:\n${logs}\n` : ''}\nThey ask: ${ask}`
-    : `The project "${p.name}" now: ${JSON.stringify(v.params)}${kitHtml ? `\n\nIts page as the kit builds it:\n${kitHtml}` : ''}\n\nThey ask: ${ask}`;
+    : `The project "${p.name}" now: ${JSON.stringify(v.params)}${kitHtml ? `\n\nIts page as the kit builds it:\n${kitHtml}` : ''}\n\nThey ask: ${ask}`);
 
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -188,7 +196,10 @@ ${img ? 'They marked up a picture of the preview: red lines and circles point at
   });
   if (!r.ok) { console.error('anthropic', r.status, (await r.text()).slice(0, 300)); return json({ error: 'Claude couldn’t answer just now. Try again.' }, 502); }
   const d = await r.json();
-  const say = (d.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('').trim();
+  const said = (d.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('').trim();
+  const nm = said.match(/\n?\s*NEXT:\s*(.+)\s*$/i);
+  const say = (nm ? said.slice(0, nm.index) : said).trim();
+  const next = nm ? nm[1].split('|').map((x) => x.trim().replace(/^["'`]+|["'`.]+$/g, '')).filter((x) => x && x.length <= 40).slice(0, 3) : [];
   const use = (d.content ?? []).find((b: { type: string; name?: string }) => b.type === 'tool_use');
   let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '', name = '';
   if (use && canBuild) {
@@ -201,5 +212,5 @@ ${img ? 'They marked up a picture of the preview: red lines and circles point at
   const built = !!(change || newFiles);
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? 'build' : 'ask' });
   return json({ say: say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?'),
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, left: leftOf(builds + (built ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, left: leftOf(builds + (built ? 1 : 0)) });
 });
