@@ -4,10 +4,11 @@
 // returns the files it changed. The page turns either into a new version. Claude can also
 // just answer ("explain main.js", "why is it broken?") without changing anything.
 //
-// POST { project, ask, files?, logs? } -> { say, note?, change?, files?, left }
+// POST { project, ask, files?, logs?, image? } -> { say, note?, change?, files?, left }
 //   project: its id; only its maker or a helper may ask (projects.collab, 110)
 //   files:   a code project's unsaved draft, if the person is editing (else its current version)
 //   logs:    the last console lines from the preview, for "why is it broken?"
+//   image:   a JPEG data URL: the full-screen preview with the person's red marks drawn on it
 //
 // Kids get 8 builds a day (a build = Claude changed something) and 30 answers; parents, no cap.
 // Each one is a project_builds row. What Claude writes always runs in a sandboxed frame.
@@ -89,7 +90,7 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: 'Sign in first.' }, 401);
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
-  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown };
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // How many builds are left today (also what the page asks with no project).
@@ -113,6 +114,7 @@ Deno.serve(async (req) => {
   const kit = KITS[p.kit];
   const files = code ? (cleanFiles(body.files) ?? v.files ?? {}) : null;
   const logs = Array.isArray(body.logs) ? body.logs.slice(-12).map((l) => (Array.isArray(l) ? `${l[0]}: ${String(l[1]).slice(0, 300)}` : '')).join('\n') : '';
+  const img = typeof body.image === 'string' ? body.image.match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]{100,2000000})$/) : null;
   const who = role === 'parent' ? 'a parent' : 'a kid (a teen, around 14 to 18)';
 
   const tool = code
@@ -132,7 +134,7 @@ Deno.serve(async (req) => {
 ${code
   ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
   : `It's a "${kit.name}" made from a few settings (no code). To change it, call change_project with only the settings that change, within their bounds. If they ask for something the settings can't do, say so kindly and suggest what you can do, or remixing it as a code project in Developer mode.`}
-Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
+${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
   const content = code
     ? `The files:\n${Object.entries(files!).map(([k, s]) => `--- ${k}\n${s}`).join('\n')}\n${logs ? `\nThe preview's console:\n${logs}\n` : ''}\nThey ask: ${ask}`
     : `The project "${p.name}" now: ${JSON.stringify(v.params)}\n\nThey ask: ${ask}`;
@@ -140,7 +142,7 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, system, max_tokens: code ? 8000 : 800, messages: [{ role: 'user', content }], tools: canBuild ? [tool] : [] }),
+    body: JSON.stringify({ model: MODEL, system, max_tokens: code ? 8000 : 800, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? [tool] : [] }),
   });
   if (!r.ok) { console.error('anthropic', r.status, (await r.text()).slice(0, 300)); return json({ error: 'Claude couldn’t answer just now. Try again.' }, 502); }
   const d = await r.json();
