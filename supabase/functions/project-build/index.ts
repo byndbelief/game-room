@@ -13,7 +13,7 @@
 //   logs:    the last console lines from the preview, for "why is it broken?"
 //   image:   a JPEG data URL: the full-screen preview with the person's red marks drawn on it
 //   html:    a kit project's page as the kit builds it now, for rebuilding it as code
-// POST { project, explain: { file, src } } -> { help: [{ n, text }], left }
+// POST { project, explain: { file, src } } -> { help: [{ n, text, terms }], glossary: [{ term, means, example }], left }
 //   💡 Help on the code bench: a short note for the lines worth explaining. A question, not a build.
 //
 // Kids get 8 builds a day (a build = Claude changed something) and 30 answers; parents, no cap.
@@ -120,9 +120,11 @@ Deno.serve(async (req) => {
     const er = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 3000,
-        system: `You help ${role === 'parent' ? 'a parent' : 'a teen'} learn to code by explaining their file line by line, like a friendly tutor sitting beside them. For each line or small group of lines that does something worth knowing, write one short plain-words note (under 20 words) on what it does and why; skip blank lines, closing brackets and lines that repeat an idea already explained. Put a group's note on its first line. Always answer by calling explain_lines.`,
-        tools: [{ name: 'explain_lines', description: 'The notes, by line number.', input_schema: { type: 'object', required: ['lines'], properties: { lines: { type: 'array', items: { type: 'object', required: ['n', 'text'], properties: { n: { type: 'integer' }, text: { type: 'string' } } } } } } }],
+      body: JSON.stringify({ model: MODEL, max_tokens: 6000,
+        system: `You help ${role === 'parent' ? 'a parent' : 'a teen'} learn to code by explaining their file line by line, like a friendly tutor sitting beside them. For each line or small group of lines that does something worth knowing, write one short plain-words note (under 20 words) on what it does and why; skip blank lines, closing brackets and lines that repeat an idea already explained. Put a group's note on its first line. In each note, list the key words a beginner might not know (exactly as they appear in the note, like "variable", "console", "event listener"), and give each key word once in the glossary: what it means in one or two plain sentences, and a tiny code example. Always answer by calling explain_lines.`,
+        tools: [{ name: 'explain_lines', description: 'The notes, by line number.', input_schema: { type: 'object', required: ['lines', 'glossary'], properties: {
+          lines: { type: 'array', items: { type: 'object', required: ['n', 'text'], properties: { n: { type: 'integer' }, text: { type: 'string' }, terms: { type: 'array', items: { type: 'string' }, description: 'key words in this note, as written in it' } } } },
+          glossary: { type: 'array', items: { type: 'object', required: ['term', 'means'], properties: { term: { type: 'string' }, means: { type: 'string' }, example: { type: 'string', description: 'a tiny code example, a line or two' } } } } } } }],
         messages: [{ role: 'user', content: `${file}:\n${numbered}` }] }),
     });
     if (!er.ok) { console.error('anthropic', er.status, (await er.text()).slice(0, 300)); return json({ error: 'Claude couldn’t read it just now. Try again.' }, 502); }
@@ -132,9 +134,12 @@ Deno.serve(async (req) => {
     const said = (ed.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('\n');
     const fromText = [...said.matchAll(/^\s*(?:line\s*)?(\d+)\s*[:|.)-]\s*(.+)$/gim)].map((m) => ({ n: +m[1], text: m[2].trim() }));
     const help = (tu?.input?.lines ?? fromText).filter((x: { n?: number; text?: string }) => Number.isInteger(x?.n) && x.n! >= 1 && x.n! <= max && typeof x.text === 'string')
-      .slice(0, 400).map((x: { n: number; text: string }) => ({ n: x.n, text: x.text.slice(0, 240) }));
+      .slice(0, 400).map((x: { n: number; text: string; terms?: unknown }) => ({ n: x.n, text: x.text.slice(0, 240),
+        terms: Array.isArray(x.terms) ? x.terms.filter((t) => typeof t === 'string' && t.trim()).slice(0, 6).map((t: string) => t.trim().slice(0, 40)) : [] }));
+    const glossary = (Array.isArray(tu?.input?.glossary) ? tu.input.glossary : []).filter((g: { term?: unknown; means?: unknown }) => typeof g?.term === 'string' && typeof g?.means === 'string')
+      .slice(0, 80).map((g: { term: string; means: string; example?: unknown }) => ({ term: g.term.trim().slice(0, 40), means: g.means.slice(0, 400), example: typeof g.example === 'string' ? g.example.slice(0, 300) : '' }));
     await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: 'ask' });
-    return json({ help, left: leftOf(builds) });
+    return json({ help, glossary, left: leftOf(builds) });
   }
   if (!mayChange) return json({ error: 'Remix it to change it.' }, 403);
   const ask = String(body.ask ?? '').trim().slice(0, 1000);
