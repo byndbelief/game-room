@@ -1,14 +1,18 @@
 // Claude on the workbench (r4box.com/projects.html): someone asks for a change to a project
 // and Claude makes it. A kit project is built from a few settings (colours, speed, emoji,
-// lines, panels…), so Claude returns new settings; a code project is real files, so Claude
-// returns the files it changed. The page turns either into a new version. Claude can also
-// just answer ("explain main.js", "why is it broken?") without changing anything.
+// lines, panels…), so Claude returns new settings; when the settings can't do what they want
+// (a lap counter on a timer, a second player…), Claude rebuilds it as real code, and from then
+// on it's a code project: a project grows past its kit instead of hitting a wall. A code
+// project is real files, so Claude returns the files it changed, or new ones for something
+// completely different. The page turns any of these into a new version. Claude can also just
+// answer ("explain main.js", "why is it broken?") without changing anything.
 //
-// POST { project, ask, files?, logs?, image? } -> { say, note?, change?, files?, left }
+// POST { project, ask, files?, logs?, image?, html? } -> { say, note?, change?, files?, name?, left }
 //   project: its id; only its maker or a helper may ask (projects.collab, 110)
 //   files:   a code project's unsaved draft, if the person is editing (else its current version)
 //   logs:    the last console lines from the preview, for "why is it broken?"
 //   image:   a JPEG data URL: the full-screen preview with the person's red marks drawn on it
+//   html:    a kit project's page as the kit builds it now, for rebuilding it as code
 //
 // Kids get 8 builds a day (a build = Claude changed something) and 30 answers; parents, no cap.
 // Each one is a project_builds row. What Claude writes always runs in a sandboxed frame.
@@ -90,7 +94,7 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: 'Sign in first.' }, 401);
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
-  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown };
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // How many builds are left today (also what the page asks with no project).
@@ -110,52 +114,59 @@ Deno.serve(async (req) => {
   const canBuild = role === 'parent' || builds < CAP;
 
   const v = p.versions[p.cur] ?? p.versions[p.versions.length - 1];
-  const code = p.kit === 'code';
+  const code = p.kit === 'code' || !!v.files;   // a version with files: it already outgrew its kit
   const kit = KITS[p.kit];
   const files = code ? (cleanFiles(body.files) ?? v.files ?? {}) : null;
   const logs = Array.isArray(body.logs) ? body.logs.slice(-12).map((l) => (Array.isArray(l) ? `${l[0]}: ${String(l[1]).slice(0, 300)}` : '')).join('\n') : '';
   const img = typeof body.image === 'string' ? body.image.match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]{100,2000000})$/) : null;
   const who = role === 'parent' ? 'a parent' : 'a kid (a teen, around 14 to 18)';
 
-  const tool = code
-    ? { name: 'write_files', description: 'Change the project: give every file you change, whole (not a diff). Only when they asked for a change.',
-        input_schema: { type: 'object', required: ['note', 'files'], properties: {
-          note: { type: 'string', description: 'what changed, a few words, like a commit message' },
-          files: { type: 'object', description: 'file name -> its whole new content', additionalProperties: { type: 'string' } } } } }
-    : { name: 'change_project', description: 'Change the project: give only the settings that change.',
+  const kitHtml = !code && typeof body.html === 'string' ? body.html.slice(0, 60_000) : '';
+  const NAME = { type: 'string', description: 'a new name, only if it became something different' };
+  const write = { name: 'write_files', description: 'Change the project: give every file you change, whole (not a diff). Only when they asked for a change.',
+    input_schema: { type: 'object', required: ['note', 'files'], properties: {
+      note: { type: 'string', description: 'what changed, a few words, like a commit message' },
+      files: { type: 'object', description: 'file name -> its whole new content', additionalProperties: { type: 'string' } }, name: NAME } } };
+  const rebuild = { name: 'rebuild_as_code', description: 'When the settings can\'t do what they ask: rebuild the project as real code that does everything it does now plus what they asked. It becomes a code project from then on.',
+    input_schema: { type: 'object', required: ['note', 'files'], properties: {
+      note: { type: 'string', description: 'what changed, a few words, like "Added a lap counter"' },
+      files: { type: 'object', description: 'index.html (the page, without its own script), style.css and main.js (runs after the page)', additionalProperties: { type: 'string' } }, name: NAME } } };
+  const tools = code ? [write] : [{ name: 'change_project', description: 'Change the project: give only the settings that change.',
         input_schema: { type: 'object', required: ['note', 'change'], properties: {
           note: { type: 'string', description: 'what changed, a few words, like "Faster, red background"' },
           change: { type: 'object', properties: Object.fromEntries(Object.entries(kit.fields).map(([k, f]) => [k,
             f.t === 'lines' ? { type: 'array', items: { type: 'string' }, description: f.d }
             : f.t === 'panels' ? { type: 'array', items: { type: 'object', properties: { e: { type: 'string' }, t: { type: 'string' } } }, description: f.d }
-            : { type: f.t === 'bool' ? 'boolean' : f.t === 'num' || f.t === 'int' ? 'number' : 'string', description: f.d + (f.min != null ? ` (${f.min} to ${f.max})` : '') }])) } } } };
+            : { type: f.t === 'bool' ? 'boolean' : f.t === 'num' || f.t === 'int' ? 'number' : 'string', description: f.d + (f.min != null ? ` (${f.min} to ${f.max})` : '') }])) } } } }, ...(kitHtml ? [rebuild] : [])];
 
   const system = `You help ${who} make things on their family's home app r4box. They're on the workbench of a project and asked you something. Reply in one or two short, friendly sentences, plain text.
 ${code
-  ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
-  : `It's a "${kit.name}" made from a few settings (no code). To change it, call change_project with only the settings that change, within their bounds. If they ask for something the settings can't do, say so kindly and suggest what you can do, or remixing it as a code project in Developer mode.`}
+  ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
+  : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
 ${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
   const content = code
     ? `The files:\n${Object.entries(files!).map(([k, s]) => `--- ${k}\n${s}`).join('\n')}\n${logs ? `\nThe preview's console:\n${logs}\n` : ''}\nThey ask: ${ask}`
-    : `The project "${p.name}" now: ${JSON.stringify(v.params)}\n\nThey ask: ${ask}`;
+    : `The project "${p.name}" now: ${JSON.stringify(v.params)}${kitHtml ? `\n\nIts page as the kit builds it:\n${kitHtml}` : ''}\n\nThey ask: ${ask}`;
 
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, system, max_tokens: code ? 8000 : 800, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? [tool] : [] }),
+    body: JSON.stringify({ model: MODEL, system, max_tokens: code || kitHtml ? 12000 : 800, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? tools : [] }),
   });
   if (!r.ok) { console.error('anthropic', r.status, (await r.text()).slice(0, 300)); return json({ error: 'Claude couldn’t answer just now. Try again.' }, 502); }
   const d = await r.json();
   const say = (d.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('').trim();
   const use = (d.content ?? []).find((b: { type: string; name?: string }) => b.type === 'tool_use');
-  let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '';
+  let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '', name = '';
   if (use && canBuild) {
     note = String(use.input?.note ?? '').trim().slice(0, 80);
-    if (code) { const f = cleanFiles(use.input?.files); if (f) newFiles = { ...files!, ...f }; }
+    name = typeof use.input?.name === 'string' ? use.input.name.trim().slice(0, 60) : '';
+    if (use.name === 'write_files') { const f = cleanFiles(use.input?.files); if (f) newFiles = { ...files!, ...f }; }
+    else if (use.name === 'rebuild_as_code') { const f = cleanFiles(use.input?.files); if (f && f['index.html'] != null) newFiles = { 'style.css': '', 'main.js': '', ...f }; }
     else { const c = clean(p.kit, use.input?.change ?? {}); if (Object.keys(c).length) change = c; }
   }
   const built = !!(change || newFiles);
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? 'build' : 'ask' });
   return json({ say: say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?'),
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, left: leftOf(builds + (built ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, left: leftOf(builds + (built ? 1 : 0)) });
 });
