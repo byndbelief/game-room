@@ -7,7 +7,7 @@
 // completely different. The page turns any of these into a new version. Claude can also just
 // answer ("explain main.js", "why is it broken?") without changing anything.
 //
-// POST { project, ask, files?, logs?, image?, html?, chat? } -> { say, note?, change?, files?, name?, next?, left }
+// POST { project, ask, files?, logs?, image?, html?, chat? } -> { say, note?, change?, files?, name?, next?, brief?, left }
 //   project: its id; only its maker or a helper may ask (projects.collab, 110)
 //   files:   a code project's unsaved draft, if the person is editing (else its current version)
 //   logs:    the last console lines from the preview, for "why is it broken?"
@@ -15,7 +15,9 @@
 //   html:    a kit project's page as the kit builds it now, for rebuilding it as code
 //   chat:    the ✦ Vibes chat so far ([{ me, t }], last 10), so Claude doesn't repeat itself
 //   next:    two or three short things to ask next, for where the project is (the page's chips)
-// Claude also reads the project's commit notes, so it knows how far along it is.
+//   brief:   the project's brief, when Claude rewrote it (projects.brief, 112)
+// Claude also reads the project's commit notes and its brief (its own running note on the project:
+// what it is, what's done, ideas and decisions, what's next), so any visit picks up where it left off.
 // POST { project, explain: { file, src } } -> { help: [{ n, text, terms }], glossary: [{ term, means, example }], left }
 //   💡 Help on the code bench: a short note for the lines worth explaining. A question, not a build.
 //
@@ -183,22 +185,27 @@ ${code
   ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
   : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
 ${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
+The project's brief is your own running note on it, so you pick up where you left off next time. When this exchange adds something worth remembering (what it is or is becoming, a feature done, an idea or decision, what they want next), or there's no brief yet, rewrite the whole brief inside <brief></brief>: a few short lines, under 120 words, plain words, about the project (never about the person). Otherwise leave it out.
 Then, on its own last line, write NEXT: and two or three short things they could ask you next (each under 6 words, separated by |), right for where this project is now: a new one might want to understand it or make it theirs; a broken one, a fix; a working one, the next feature or polish that fits what it is. Like: NEXT: add a score | make it faster
+Write all of that (your words, any brief, the NEXT line) before you call a tool.
 Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
-  const content = `The project "${p.name}", ${p.versions.length} version${p.versions.length === 1 ? '' : 's'} so far:\n${history}\n${chat ? `\nThe chat so far:\n${chat}\n` : ''}\n` + (code
+  const content = `The project "${p.name}", ${p.versions.length} version${p.versions.length === 1 ? '' : 's'} so far:\n${history}\n\nThe brief: ${p.brief ? `\n${String(p.brief).slice(0, 1500)}` : '(none yet)'}\n${chat ? `\nThe chat so far:\n${chat}\n` : ''}\n` + (code
     ? `The files:\n${Object.entries(files!).map(([k, s]) => `--- ${k}\n${s}`).join('\n')}\n${logs ? `\nThe preview's console:\n${logs}\n` : ''}\nThey ask: ${ask}`
     : `The project "${p.name}" now: ${JSON.stringify(v.params)}${kitHtml ? `\n\nIts page as the kit builds it:\n${kitHtml}` : ''}\n\nThey ask: ${ask}`);
 
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, system, max_tokens: code || kitHtml ? 12000 : 800, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? tools : [] }),
+    body: JSON.stringify({ model: MODEL, system, max_tokens: code || kitHtml ? 12000 : 1200, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? tools : [] }),
   });
   if (!r.ok) { console.error('anthropic', r.status, (await r.text()).slice(0, 300)); return json({ error: 'Claude couldn’t answer just now. Try again.' }, 502); }
   const d = await r.json();
   const said = (d.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('').trim();
-  const nm = said.match(/\n?\s*NEXT:\s*(.+)\s*$/i);
-  const say = (nm ? said.slice(0, nm.index) : said).trim();
+  const bm = said.match(/<brief>([\s\S]*?)<\/brief>/i);
+  const brief = bm ? bm[1].trim().slice(0, 1200) : '';
+  const words = said.replace(/\s*<brief>[\s\S]*?(<\/brief>|$)\s*/gi, '\n').trim();
+  const nm = words.match(/\n?\s*NEXT:\s*(.+)\s*$/i);
+  const say = (nm ? words.slice(0, nm.index) : words).trim();
   const next = nm ? nm[1].split('|').map((x) => x.trim().replace(/^["'`]+|["'`.]+$/g, '')).filter((x) => x && x.length <= 40).slice(0, 3) : [];
   const use = (d.content ?? []).find((b: { type: string; name?: string }) => b.type === 'tool_use');
   let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '', name = '';
@@ -210,7 +217,8 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
     else { const c = clean(p.kit, use.input?.change ?? {}); if (Object.keys(c).length) change = c; }
   }
   const built = !!(change || newFiles);
+  if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? 'build' : 'ask' });
   return json({ say: say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?'),
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, left: leftOf(builds + (built ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built ? 1 : 0)) });
 });
