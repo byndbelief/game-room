@@ -9,7 +9,8 @@
 // POST { text?, image?, ref?, reply? } -> { id, claude: 'asked' | 'closed' | 'limit' | null, left }
 // POST { call: true, to? } -> { id }: someone started a video call (a card, and a ring for `to`, or everyone).
 //   image: a path the page uploaded to the family-chat bucket, "<user id>/<name>"
-//   ref: { type: 'item' | 'poll', id }: share a trip item or poll into the chat; the
+//   ref: { type: 'item' | 'poll' | 'project', id }: share a trip item or poll, or a project
+//        (one the sender may see: theirs, one they help on, or published), into the chat; the
 //        card's title, picture and trip are read from the database here.
 //   reply: a message id: this goes in that message's thread (109); Claude answers there too.
 //
@@ -50,7 +51,7 @@ const ADD_TOOL = {
 };
 
 // A trip item or poll, as a card in the chat: built from the database, never from what the page sent.
-async function refFor(r: { type?: string; id?: unknown }) {
+async function refFor(r: { type?: string; id?: unknown }, uid: string) {
   if (r?.type === 'item' && typeof r.id === 'string') {
     const { data: it } = await admin.from('trip_items').select('id, trip, title, topic, kind, preview, video, trips(name)').eq('id', r.id).maybeSingle();
     if (!it) return null;
@@ -62,8 +63,15 @@ async function refFor(r: { type?: string; id?: unknown }) {
     if (!p) return null;
     return { type: 'poll', trip: p.trip, trip_name: (p as { trips?: { name?: string } }).trips?.name ?? 'the trip', id: p.id, item: p.item, question: p.question };
   }
+  if (r?.type === 'project' && typeof r.id === 'string') {
+    const { data: p } = await admin.from('projects').select('id, owner, kit, name, published, collab, versions, cur').eq('id', r.id).maybeSingle();
+    if (!p || !(p.published || p.owner === uid || (p.collab ?? []).includes(uid))) return null;
+    const [em, kind] = PROJECT_KIND[p.kit] ?? ['⚒', 'Project'];
+    return { type: 'project', id: p.id, owner: p.owner, name: p.name, kind, emoji: p.versions?.[p.cur]?.params?.sprite || em };
+  }
   return null;
 }
+const PROJECT_KIND: Record<string, [string, string]> = { catch: ['🎮', 'Game'], timer: ['⏱', 'App'], page: ['🌐', 'Page'], comic: ['📖', 'Story'], drums: ['🥁', 'Art & music toy'], code: ['⌨', 'Code'] };
 // Someone whose chat page reported in this recently is reading: no push for them.
 const PRESENT_MS = 45_000;
 
@@ -235,8 +243,8 @@ Deno.serve(async (req) => {
   const text = String(body.text ?? '').trim().slice(0, 4000) || null;
   // A photo must be one this person uploaded: their own folder in the bucket.
   const image = typeof body.image === 'string' && new RegExp(`^${user.id}/[\\w-]{1,80}\\.(jpg|png|webp)$`).test(body.image) ? body.image : null;
-  const ref = body.ref ? await refFor(body.ref) : null;
-  if (body.ref && !ref) return json({ error: 'That is no longer in the trip.' }, 404);
+  const ref = body.ref ? await refFor(body.ref, user.id) : null;
+  if (body.ref && !ref) return json({ error: body.ref.type === 'project' ? 'That project isn’t shared.' : 'That is no longer in the trip.' }, 404);
   if (!text && !image && !ref) return json({ error: 'Type a message first.' }, 400);
   const asks = !!text && ASKS.test(text);
   // A reply goes under the thread's first message (never a reply to a reply).
@@ -273,12 +281,12 @@ Deno.serve(async (req) => {
   }
 
   const { data: msg, error } = await admin.from('chat_messages')
-    .insert({ author: user.id, body: text ?? (ref ? (ref.type === 'poll' ? `📊 ${ref.question}` : `📍 ${ref.title}`) : null), image, ref, asks_claude: claude === 'asked', reply_to: root }).select('id').single();
+    .insert({ author: user.id, body: text ?? (ref ? (ref.type === 'poll' ? `📊 ${ref.question}` : ref.type === 'project' ? `⚒ ${ref.name}` : `📍 ${ref.title}`) : null), image, ref, asks_claude: claude === 'asked', reply_to: root }).select('id').single();
   if (error) { console.error(error); return json({ error: 'Could not send. Try again.' }, 500); }
 
   const others = fam.filter((f) => f.id !== user.id).map((f) => f.id);
   EdgeRuntime.waitUntil((async () => {
-    await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.title}`) : '📷 Photo'));
+    await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.type === 'project' ? ref.name : ref.title}`) : '📷 Photo'));
     if (claude !== 'asked') return;
     let reply: string, cref: Record<string, unknown> | null = null;
     let ok = false;

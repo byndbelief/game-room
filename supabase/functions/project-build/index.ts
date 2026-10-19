@@ -1,0 +1,159 @@
+// Claude on the workbench (r4box.com/projects.html): someone asks for a change to a project
+// and Claude makes it. A kit project is built from a few settings (colours, speed, emoji,
+// lines, panels…), so Claude returns new settings; a code project is real files, so Claude
+// returns the files it changed. The page turns either into a new version. Claude can also
+// just answer ("explain main.js", "why is it broken?") without changing anything.
+//
+// POST { project, ask, files?, logs? } -> { say, note?, change?, files?, left }
+//   project: its id; only its maker or a helper may ask (projects.collab, 110)
+//   files:   a code project's unsaved draft, if the person is editing (else its current version)
+//   logs:    the last console lines from the preview, for "why is it broken?"
+//
+// Kids get 8 builds a day (a build = Claude changed something) and 30 answers; parents, no cap.
+// Each one is a project_builds row. What Claude writes always runs in a sandboxed frame.
+//
+// Secrets: ANTHROPIC_API_KEY. SUPABASE_* are automatic.
+
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
+
+const MODEL = 'claude-sonnet-5-5';
+const CAP = 8, ASK_CAP = 30;
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+// What each kit is built from, and the bounds the page's builder expects.
+type Field = { t: 'str' | 'emoji' | 'color' | 'num' | 'int' | 'bool' | 'lines' | 'panels'; min?: number; max?: number; d: string };
+const COMMON: Record<string, Field> = {
+  title: { t: 'str', max: 40, d: 'the name shown at the top' },
+  color: { t: 'color', d: 'the main colour, #rrggbb' },
+  bg: { t: 'color', d: 'the background colour, #rrggbb' },
+  size: { t: 'num', min: 0.6, max: 2, d: 'how big everything is (1 = normal)' },
+  sound: { t: 'bool', d: 'sound on or off' },
+};
+const KITS: Record<string, { name: string; fields: Record<string, Field> }> = {
+  catch: { name: 'Catch game (move to catch falling things)', fields: { ...COMMON, sprite: { t: 'emoji', d: 'the player, one emoji' }, item: { t: 'emoji', d: 'what falls, one emoji' }, speed: { t: 'num', min: 0.3, max: 4, d: 'how fast things fall (1 = normal)' } } },
+  timer: { name: 'Timer app (a countdown with a big button)', fields: { ...COMMON, minutes: { t: 'int', min: 1, max: 120, d: 'minutes to count down' } } },
+  page: { name: 'About-me page', fields: { ...COMMON, sprite: { t: 'emoji', d: 'the big emoji at the top' }, lines: { t: 'lines', max: 12, d: 'the lines on the page, each up to 80 characters' } } },
+  comic: { name: 'Comic strip', fields: { ...COMMON, panels: { t: 'panels', max: 12, d: 'the panels in order, each { e: one emoji, t: its line up to 80 characters }' } } },
+  drums: { name: 'Drum pad', fields: { ...COMMON, pads: { t: 'int', min: 2, max: 8, d: 'how many pads (an even number)' } } },
+};
+
+const clamp = (n: number, a: number, b: number) => Math.min(b, Math.max(a, n));
+const oneEmoji = (s: unknown) => { const m = String(s ?? '').match(/\p{Extended_Pictographic}(️|‍\p{Extended_Pictographic}|\p{Emoji_Modifier})*/u); return m ? m[0] : null; };
+function clean(kit: string, change: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const [k, f] of Object.entries(KITS[kit].fields)) {
+    if (!(k in change)) continue;
+    const v = change[k];
+    if (f.t === 'str' && typeof v === 'string' && v.trim()) out[k] = v.trim().slice(0, f.max ?? 80);
+    if (f.t === 'emoji') { const e = oneEmoji(v); if (e) out[k] = e; }
+    if (f.t === 'color' && typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) out[k] = v;
+    if (f.t === 'num' && Number.isFinite(+v!)) out[k] = +clamp(+v!, f.min!, f.max!).toFixed(2);
+    if (f.t === 'int' && Number.isFinite(+v!)) { let n = Math.round(clamp(+v!, f.min!, f.max!)); if (k === 'pads') n = n % 2 ? n + 1 : n; out[k] = clamp(n, f.min!, f.max!); }
+    if (f.t === 'bool' && typeof v === 'boolean') out[k] = v;
+    if (f.t === 'lines' && Array.isArray(v)) out[k] = v.filter((x) => typeof x === 'string' && x.trim()).slice(0, f.max).map((x) => x.trim().slice(0, 80));
+    if (f.t === 'panels' && Array.isArray(v)) out[k] = v.filter((x) => x && typeof x.t === 'string').slice(0, f.max).map((x) => ({ e: oneEmoji(x.e) ?? '✨', t: String(x.t).trim().slice(0, 80) }));
+  }
+  if (Array.isArray(out.lines) && !out.lines.length) delete out.lines;
+  if (Array.isArray(out.panels) && !out.panels.length) delete out.panels;
+  return out;
+}
+const FILE = /^[\w.-]{1,40}$/;
+function cleanFiles(files: unknown) {
+  if (!files || typeof files !== 'object') return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(files as Record<string, unknown>).slice(0, 8)) if (FILE.test(k) && typeof v === 'string') out[k] = v.slice(0, 60_000);
+  return Object.keys(out).length ? out : null;
+}
+
+function local(tz: string) {
+  const now = new Date();
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(now).map((x) => [x.type, x.value]));
+  const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  const offset = asUtc - Math.floor(now.getTime() / 1000) * 1000;
+  return new Date(Date.UTC(+p.year, +p.month - 1, +p.day) - offset);
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer /, '');
+  const { data: { user } } = await admin.auth.getUser(token);
+  if (!user) return json({ error: 'Sign in first.' }, 401);
+  const role = user.app_metadata?.r4_role;
+  if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown };
+  try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
+
+  // How many builds are left today (also what the page asks with no project).
+  const { data: set } = await admin.from('tutor_settings').select('tz').eq('kid', user.id).maybeSingle();
+  const since = local(set?.tz ?? 'America/New_York').toISOString();
+  const { data: today } = await admin.from('project_builds').select('kind').eq('user_id', user.id).gte('at', since);
+  const builds = (today ?? []).filter((b) => b.kind === 'build').length, asks = (today ?? []).length - builds;
+  const leftOf = (b: number) => (role === 'parent' ? null : Math.max(0, CAP - b));
+  if (!body.project) return json({ left: leftOf(builds) });
+
+  const ask = String(body.ask ?? '').trim().slice(0, 1000);
+  if (!ask) return json({ error: 'Say what to change.' }, 400);
+  const { data: p } = await admin.from('projects').select('*').eq('id', String(body.project)).maybeSingle();
+  if (!p || (p.owner !== user.id && !(p.collab ?? []).includes(user.id))) return json({ error: 'Remix it to change it.' }, 403);
+  if (!Deno.env.get('ANTHROPIC_API_KEY')) return json({ error: 'Claude is not set up.' }, 503);
+  if (role === 'kid' && asks >= ASK_CAP + CAP) return json({ say: 'That’s enough questions for today. Back tomorrow!', left: leftOf(builds) });
+  const canBuild = role === 'parent' || builds < CAP;
+
+  const v = p.versions[p.cur] ?? p.versions[p.versions.length - 1];
+  const code = p.kit === 'code';
+  const kit = KITS[p.kit];
+  const files = code ? (cleanFiles(body.files) ?? v.files ?? {}) : null;
+  const logs = Array.isArray(body.logs) ? body.logs.slice(-12).map((l) => (Array.isArray(l) ? `${l[0]}: ${String(l[1]).slice(0, 300)}` : '')).join('\n') : '';
+  const who = role === 'parent' ? 'a parent' : 'a kid (a teen, around 14 to 18)';
+
+  const tool = code
+    ? { name: 'write_files', description: 'Change the project: give every file you change, whole (not a diff). Only when they asked for a change.',
+        input_schema: { type: 'object', required: ['note', 'files'], properties: {
+          note: { type: 'string', description: 'what changed, a few words, like a commit message' },
+          files: { type: 'object', description: 'file name -> its whole new content', additionalProperties: { type: 'string' } } } } }
+    : { name: 'change_project', description: 'Change the project: give only the settings that change.',
+        input_schema: { type: 'object', required: ['note', 'change'], properties: {
+          note: { type: 'string', description: 'what changed, a few words, like "Faster, red background"' },
+          change: { type: 'object', properties: Object.fromEntries(Object.entries(kit.fields).map(([k, f]) => [k,
+            f.t === 'lines' ? { type: 'array', items: { type: 'string' }, description: f.d }
+            : f.t === 'panels' ? { type: 'array', items: { type: 'object', properties: { e: { type: 'string' }, t: { type: 'string' } } }, description: f.d }
+            : { type: f.t === 'bool' ? 'boolean' : f.t === 'num' || f.t === 'int' ? 'number' : 'string', description: f.d + (f.min != null ? ` (${f.min} to ${f.max})` : '') }])) } } } };
+
+  const system = `You help ${who} make things on their family's home app r4box. They're on the workbench of a project and asked you something. Reply in one or two short, friendly sentences, plain text.
+${code
+  ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
+  : `It's a "${kit.name}" made from a few settings (no code). To change it, call change_project with only the settings that change, within their bounds. If they ask for something the settings can't do, say so kindly and suggest what you can do, or remixing it as a code project in Developer mode.`}
+Keep everything family friendly; decline anything unkind, scary or inappropriate, kindly. You can only change this project.${canBuild ? '' : ' They have no builds left today: answer, but do not change anything; say they can use the parts shelf, or ask again tomorrow.'}`;
+  const content = code
+    ? `The files:\n${Object.entries(files!).map(([k, s]) => `--- ${k}\n${s}`).join('\n')}\n${logs ? `\nThe preview's console:\n${logs}\n` : ''}\nThey ask: ${ask}`
+    : `The project "${p.name}" now: ${JSON.stringify(v.params)}\n\nThey ask: ${ask}`;
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: MODEL, system, max_tokens: code ? 8000 : 800, messages: [{ role: 'user', content }], tools: canBuild ? [tool] : [] }),
+  });
+  if (!r.ok) { console.error('anthropic', r.status, (await r.text()).slice(0, 300)); return json({ error: 'Claude couldn’t answer just now. Try again.' }, 502); }
+  const d = await r.json();
+  const say = (d.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('').trim();
+  const use = (d.content ?? []).find((b: { type: string; name?: string }) => b.type === 'tool_use');
+  let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '';
+  if (use && canBuild) {
+    note = String(use.input?.note ?? '').trim().slice(0, 80);
+    if (code) { const f = cleanFiles(use.input?.files); if (f) newFiles = { ...files!, ...f }; }
+    else { const c = clean(p.kit, use.input?.change ?? {}); if (Object.keys(c).length) change = c; }
+  }
+  const built = !!(change || newFiles);
+  await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? 'build' : 'ask' });
+  return json({ say: say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?'),
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, left: leftOf(builds + (built ? 1 : 0)) });
+});
