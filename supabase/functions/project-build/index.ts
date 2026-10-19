@@ -13,6 +13,8 @@
 //   logs:    the last console lines from the preview, for "why is it broken?"
 //   image:   a JPEG data URL: the full-screen preview with the person's red marks drawn on it
 //   html:    a kit project's page as the kit builds it now, for rebuilding it as code
+// POST { project, explain: { file, src } } -> { help: [{ n, text }], left }
+//   💡 Help on the code bench: a short note for the lines worth explaining. A question, not a build.
 //
 // Kids get 8 builds a day (a build = Claude changed something) and 30 answers; parents, no cap.
 // Each one is a project_builds row. What Claude writes always runs in a sandboxed frame.
@@ -94,7 +96,7 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: 'Sign in first.' }, 401);
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
-  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown };
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; explain?: { file?: unknown; src?: unknown } };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // How many builds are left today (also what the page asks with no project).
@@ -105,12 +107,35 @@ Deno.serve(async (req) => {
   const leftOf = (b: number) => (role === 'parent' ? null : Math.max(0, CAP - b));
   if (!body.project) return json({ left: leftOf(builds) });
 
+  const { data: p } = await admin.from('projects').select('*').eq('id', String(body.project)).maybeSingle();
+  // Reading a project (💡 Help) is for anyone who can see it; changing it, its maker and helpers.
+  const mayChange = !!p && (p.owner === user.id || (p.collab ?? []).includes(user.id));
+  if (!p || !(mayChange || (body.explain && p.published))) return json({ error: 'Remix it to change it.' }, 403);
+  if (!Deno.env.get('ANTHROPIC_API_KEY')) return json({ error: 'Claude is not set up.' }, 503);
+  if (role === 'kid' && asks >= ASK_CAP + CAP) return json({ say: 'That’s enough questions for today. Back tomorrow!', error: 'That’s enough questions for today. Back tomorrow!', left: leftOf(builds) }, body.explain ? 429 : 200);
+
+  if (body.explain) {
+    const file = String(body.explain.file ?? 'main.js').slice(0, 40), src = String(body.explain.src ?? '').slice(0, 30_000);
+    const numbered = src.split('\n').map((l, i) => `${i + 1}| ${l}`).join('\n');
+    const er = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, max_tokens: 3000, tool_choice: { type: 'tool', name: 'explain_lines' },
+        system: `You help ${role === 'parent' ? 'a parent' : 'a teen'} learn to code by explaining their file line by line, like a friendly tutor sitting beside them. For each line or small group of lines that does something worth knowing, write one short plain-words note (under 20 words) on what it does and why; skip blank lines, closing brackets and lines that repeat an idea already explained. Put a group's note on its first line.`,
+        tools: [{ name: 'explain_lines', description: 'The notes, by line number.', input_schema: { type: 'object', required: ['lines'], properties: { lines: { type: 'array', items: { type: 'object', required: ['n', 'text'], properties: { n: { type: 'integer' }, text: { type: 'string' } } } } } } }],
+        messages: [{ role: 'user', content: `${file}:\n${numbered}` }] }),
+    });
+    if (!er.ok) { console.error('anthropic', er.status, (await er.text()).slice(0, 300)); return json({ error: 'Claude couldn’t read it just now. Try again.' }, 502); }
+    const ed = await er.json(), tu = (ed.content ?? []).find((b: { type: string }) => b.type === 'tool_use');
+    const max = src.split('\n').length;
+    const help = (tu?.input?.lines ?? []).filter((x: { n?: number; text?: string }) => Number.isInteger(x?.n) && x.n! >= 1 && x.n! <= max && typeof x.text === 'string')
+      .slice(0, 400).map((x: { n: number; text: string }) => ({ n: x.n, text: x.text.slice(0, 240) }));
+    await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: 'ask' });
+    return json({ help, left: leftOf(builds) });
+  }
+  if (!mayChange) return json({ error: 'Remix it to change it.' }, 403);
   const ask = String(body.ask ?? '').trim().slice(0, 1000);
   if (!ask) return json({ error: 'Say what to change.' }, 400);
-  const { data: p } = await admin.from('projects').select('*').eq('id', String(body.project)).maybeSingle();
-  if (!p || (p.owner !== user.id && !(p.collab ?? []).includes(user.id))) return json({ error: 'Remix it to change it.' }, 403);
-  if (!Deno.env.get('ANTHROPIC_API_KEY')) return json({ error: 'Claude is not set up.' }, 503);
-  if (role === 'kid' && asks >= ASK_CAP + CAP) return json({ say: 'That’s enough questions for today. Back tomorrow!', left: leftOf(builds) });
   const canBuild = role === 'parent' || builds < CAP;
 
   const v = p.versions[p.cur] ?? p.versions[p.versions.length - 1];
