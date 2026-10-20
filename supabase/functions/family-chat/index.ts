@@ -9,9 +9,10 @@
 // POST { text?, image?, ref?, reply? } -> { id, claude: 'asked' | 'closed' | 'limit' | null, left }
 // POST { call: true, to? } -> { id }: someone started a video call (a card, and a ring for `to`, or everyone).
 //   image: a path the page uploaded to the family-chat bucket, "<user id>/<name>"
-//   ref: { type: 'item' | 'poll' | 'project', id }: share a trip item or poll, or a project
+//   ref: { type: 'item' | 'poll' | 'project' | 'trip', id }: share a trip item or poll, a project, or a whole trip
 //        (one the sender may see: theirs, one they help on, or published), into the chat; the
-//        card's title, picture and trip are read from the database here.
+//        card's title, picture and trip are read from the database here. A trip card's thread
+//        is the chat about that trip: Claude answers there knowing the trip's plan.
 //   reply: a message id: this goes in that message's thread (109); Claude answers there too.
 //
 // Flowers: when a kid's @claude question is a real curiosity (not trip logistics or the
@@ -62,6 +63,12 @@ async function refFor(r: { type?: string; id?: unknown }, uid: string) {
     const { data: p } = await admin.from('trip_polls').select('id, trip, item, question, trips(name)').eq('id', Number(r.id)).maybeSingle();
     if (!p) return null;
     return { type: 'poll', trip: p.trip, trip_name: (p as { trips?: { name?: string } }).trips?.name ?? 'the trip', id: p.id, item: p.item, question: p.question };
+  }
+  // A whole trip, thrown into the chat: its card's thread is that trip's conversation.
+  if (r?.type === 'trip' && typeof r.id === 'string') {
+    const { data: t } = await admin.from('trips').select('id, name, place, starts, ends').eq('id', r.id).maybeSingle();
+    if (!t) return null;
+    return { type: 'trip', id: t.id, trip: t.id, name: t.name, place: t.place, starts: t.starts, ends: t.ends };
   }
   if (r?.type === 'project' && typeof r.id === 'string') {
     const { data: p } = await admin.from('projects').select('id, owner, kit, name, published, collab, versions, cur').eq('id', r.id).maybeSingle();
@@ -118,7 +125,7 @@ async function push(to: string[], title: string, body: string, opt: { url?: stri
 
 async function answer(fam: Member[], asker: Member, askId: number, root: number | null): Promise<{ reply: string; ref: Record<string, unknown> | null }> {
   // In a thread, the thread is the conversation: its first message and the replies so far.
-  const q = admin.from('chat_messages').select('id, author, is_claude, body, image, created_at').lte('id', askId);
+  const q = admin.from('chat_messages').select('id, author, is_claude, body, image, ref, created_at').lte('id', askId);
   const { data: past } = await (root ? q.or(`id.eq.${root},reply_to.eq.${root}`) : q.is('reply_to', null)).order('id', { ascending: false }).limit(30);
   const msgs = (past ?? []).reverse();
   const nameOf = (m: { author: string | null; is_claude: boolean }) => (m.is_claude ? 'Claude' : fam.find((f) => f.id === m.author)?.username ?? 'someone');
@@ -132,6 +139,15 @@ async function answer(fam: Member[], asker: Member, askId: number, root: number 
   content.push({ type: 'text', text: `${before ? 'The chat so far:\n' + before + '\n\n' : ''}${asker.username} asks you: ${ask.body ?? '(a photo)'}` });
 
   const { data: trips } = await admin.from('trips').select('id, name, place, starts, ends, created_by').order('starts', { ascending: true, nullsFirst: false });
+  // A thread under a trip's card (or one of its items or polls) is about that trip: Claude gets what's in it.
+  const rootRef = root ? ((await admin.from('chat_messages').select('ref').eq('id', root).maybeSingle()).data?.ref as { type?: string; trip?: string } | null) : null;
+  const about = rootRef?.trip ? (trips ?? []).find((t) => t.id === rootRef.trip) : null;
+  let focus = '';
+  if (about) {
+    const { data: its } = await admin.from('trip_items').select('kind, title, topic, day, chosen, notes').eq('trip', about.id).order('created_at').limit(80);
+    focus = `\n\nThis conversation is all about one trip: [${about.id.slice(0, 8)}] ${about.name}${about.place ? ', ' + about.place : ''}${about.starts ? `, ${about.starts} to ${about.ends ?? '?'}` : ''}. Answer about this trip unless they clearly mean another, and add things to it. What's in its planner so far:\n`
+      + ((its ?? []).map((i) => `- ${i.kind}${i.topic ? '/' + i.topic : ''}${i.day ? ' ' + i.day : ''}${i.chosen ? ' (chosen)' : ''}: ${i.title}${i.notes ? ' — ' + String(i.notes).slice(0, 120) : ''}`).join('\n') || '(nothing yet)');
+  }
   const tripList = (trips ?? []).map((t) => `- [${t.id.slice(0, 8)}] ${t.name}${t.place ? ', ' + t.place : ''}${t.starts ? `, ${t.starts} to ${t.ends ?? '?'}` : ''}`).join('\n') || '(no trips yet)';
   const system = `You are Claude, in a family's private group chat on their home app. Everyone in the family reads what you write. The family: ${fam.map((f) => `${f.username} (${f.role === 'parent' ? 'dad' : 'teen'})`).join(', ')}. Today is ${new Date().toISOString().slice(0, 10)}.
 
@@ -140,7 +156,7 @@ Keep everything family friendly: the teens are around 14 to 18. Decline anything
 
 The family's trips (id in brackets):
 ${tripList}
-When someone asks to add something to a trip ("add churros to the Mexico trip", "put the museum on Saturday"), use add_to_trip on the right trip: ideas for suggestions (for dates, flights, stay, tickets and transport these are options the family chooses between), plans for something on a day, packing lines for things to bring. Give each a topic, and useful notes (why, price as "about $X", hours). If it isn't clear which trip, ask. For big planning (a whole breakdown of dates, flights and hotels), point them to the trip page's ✦ Ask box. Never add bookings.`;
+When someone asks to add something to a trip ("add churros to the Mexico trip", "put the museum on Saturday"), use add_to_trip on the right trip: ideas for suggestions (for dates, flights, stay, tickets and transport these are options the family chooses between), plans for something on a day, packing lines for things to bring. Give each a topic, and useful notes (why, price as "about $X", hours). If it isn't clear which trip, ask. For big planning (a whole breakdown of dates, flights and hotels), point them to the trip page's ✦ Ask box. Never add bookings.${focus}`;
 
   const messages: { role: string; content: unknown }[] = [{ role: 'user', content }];
   let reply = '';
@@ -281,12 +297,12 @@ Deno.serve(async (req) => {
   }
 
   const { data: msg, error } = await admin.from('chat_messages')
-    .insert({ author: user.id, body: text ?? (ref ? (ref.type === 'poll' ? `📊 ${ref.question}` : ref.type === 'project' ? `⚒ ${ref.name}` : `📍 ${ref.title}`) : null), image, ref, asks_claude: claude === 'asked', reply_to: root }).select('id').single();
+    .insert({ author: user.id, body: text ?? (ref ? (ref.type === 'poll' ? `📊 ${ref.question}` : ref.type === 'project' ? `⚒ ${ref.name}` : ref.type === 'trip' ? `✈️ ${ref.name}` : `📍 ${ref.title}`) : null), image, ref, asks_claude: claude === 'asked', reply_to: root }).select('id').single();
   if (error) { console.error(error); return json({ error: 'Could not send. Try again.' }, 500); }
 
   const others = fam.filter((f) => f.id !== user.id).map((f) => f.id);
   EdgeRuntime.waitUntil((async () => {
-    await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.type === 'project' ? ref.name : ref.title}`) : '📷 Photo'));
+    await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.type === 'project' || ref.type === 'trip' ? ref.name : ref.title}`) : '📷 Photo'));
     if (claude !== 'asked') return;
     let reply: string, cref: Record<string, unknown> | null = null;
     let ok = false;
