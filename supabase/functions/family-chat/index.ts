@@ -105,17 +105,37 @@ async function family(): Promise<Member[]> {
     .map((u) => ({ id: u.id, username: (prof ?? []).find((p) => p.id === u.id)?.username ?? '?', role: u.app_metadata!.r4_role }));
 }
 
-async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean } = {}) {
+// Unread chat messages from others in the last 10 minutes fold into one quiet alert.
+const GROUP_MS = 10 * 60_000;
+
+// opt.topic: which Settings switch lets it through (117). opt.group: the new message's id; messages
+// from others since you last read the chat (within GROUP_MS) fold into one quiet alert.
+async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean; topic?: 'chat' | 'calls'; group?: number } = {}) {
   try {
-    const since = new Date(Date.now() - PRESENT_MS).toISOString();
-    const { data: here } = await admin.from('chat_reads').select('user_id').in('user_id', to).gte('seen_at', since);
-    const away = to.filter((id) => !(here ?? []).some((r) => r.user_id === id));
+    const now = Date.now();
+    const { data: reads } = await admin.from('chat_reads').select('user_id, seen_at, read_at').in('user_id', to);
+    const row = (id: string) => (reads ?? []).find((r) => r.user_id === id);
+    const seen = (id: string) => row(id)?.seen_at ?? null;
+    const away = to.filter((id) => { const t = seen(id); return !t || now - Date.parse(t) > PRESENT_MS; });
     if (!away.length) return;
+    let earlier: { author: string | null; created_at: string }[] = [];
+    if (opt.group != null) {
+      const { data } = await admin.from('chat_messages').select('author, created_at, ref').lt('id', opt.group).eq('is_claude', false)
+        .gte('created_at', new Date(now - GROUP_MS).toISOString());
+      earlier = (data ?? []).filter((m) => (m.ref as { type?: string } | null)?.type !== 'call');
+    }
     webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') ?? 'mailto:alerts@example.com', Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!);
-    const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', away);
-    const payload = JSON.stringify({ title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring });
+    const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', away).contains('topics', [opt.topic ?? 'chat']);
+    const payloads = new Map<string, string>();
+    for (const id of away) {
+      const t = row(id)?.read_at ?? null;
+      const n = 1 + earlier.filter((m) => m.author !== id && (!t || Date.parse(m.created_at) > Date.parse(t))).length;
+      payloads.set(id, JSON.stringify(n > 1
+        ? { title: `💬 ${n} new messages`, body: `${title}: ${body}`.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', silent: true }
+        : { title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring }));
+    }
     await Promise.all((subs ?? []).map((s) =>
-      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload)
+      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payloads.get(s.user_id)!)
         .catch((e: { statusCode?: number }) => {
           // The browser dropped this subscription: forget it.
           if (e.statusCode === 404 || e.statusCode === 410) return admin.from('push_subscriptions').delete().eq('endpoint', s.endpoint);
@@ -253,7 +273,7 @@ Deno.serve(async (req) => {
       .insert({ author: user.id, body: to ? `📹 Called ${to.username}` : '📹 Started a video call', ref: to ? { type: 'call', to: to.id } : { type: 'call' } }).select('id').single();
     if (error) { console.error(error); return json({ error: 'Could not start the call. Try again.' }, 500); }
     EdgeRuntime.waitUntil(push(to ? [to.id] : fam.filter((f) => f.id !== user.id).map((f) => f.id), `📹 ${me.username} is calling${to ? ' you' : ''}`, 'Tap to join the video call',
-      { url: 'https://r4box.com/chat.html#call', tag: 'family-call', ring: true }));
+      { url: 'https://r4box.com/chat.html#call', tag: 'family-call', ring: true, topic: 'calls' }));
     return json({ id: msg.id, claude: null, left: null });
   }
   const text = String(body.text ?? '').trim().slice(0, 4000) || null;
@@ -302,7 +322,7 @@ Deno.serve(async (req) => {
 
   const others = fam.filter((f) => f.id !== user.id).map((f) => f.id);
   EdgeRuntime.waitUntil((async () => {
-    await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.type === 'project' || ref.type === 'trip' ? ref.name : ref.title}`) : '📷 Photo'));
+    await push(others, me.username, text ?? (ref ? (ref.type === 'poll' ? `📊 Poll: ${ref.question}` : `shared ${ref.type === 'project' || ref.type === 'trip' ? ref.name : ref.title}`) : '📷 Photo'), { group: msg.id });
     if (claude !== 'asked') return;
     let reply: string, cref: Record<string, unknown> | null = null;
     let ok = false;
@@ -310,7 +330,8 @@ Deno.serve(async (req) => {
     catch (e) { console.error(e); reply = "Sorry, I couldn't answer just now. Try @claude again in a minute."; }
     if (ok && !cref && role === 'kid') try { cref = await flower(me, text!, reply); } catch (e) { console.error('flower', e); }
     await admin.from('chat_messages').insert({ author: null, is_claude: true, body: reply.slice(0, 4000), ref: cref, reply_to: root });
-    await push(fam.map((f) => f.id), '✦ Claude', reply);
+    // Only the asker hears about the answer; everyone else sees it in the chat.
+    await push([user.id], '✦ Claude', reply, { tag: 'claude-answer' });
   })());
 
   return json({ id: msg.id, claude, left });

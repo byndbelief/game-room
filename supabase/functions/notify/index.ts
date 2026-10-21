@@ -113,7 +113,8 @@ async function otherGame(kind: string, gameId: string, callerId: string, caller:
 async function send(recipients: string[], title: string, body: string, url: string, gameId: string) {
   if (!recipients.length) return json({ sent: 0 });
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', recipients);
+  // Only devices that keep game alerts on (Settings, 117).
+  const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', recipients).contains('topics', ['games']);
   const payload = JSON.stringify({ title, body, url, tag: `game-${gameId}` });
   let sent = 0;
   await Promise.all((subs ?? []).map(async (s) => {

@@ -23,7 +23,9 @@ self.addEventListener('push', (e) => {
   e.waitUntil(self.registration.showNotification(d.title || 'Family Game Room', {
     body: d.body || '',
     tag: d.tag,
-    renotify: true,
+    // A grouped chat alert replaces the last one without buzzing again.
+    renotify: !d.silent,
+    silent: !!d.silent,
     icon: 'icon-192.png',
     badge: 'icon-192.png',
     data: { url: d.url || './' },

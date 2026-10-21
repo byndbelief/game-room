@@ -1305,7 +1305,7 @@ export async function openSettings() {
       ${uid ? `<div class="setgroup">
         <div class="setrow"><div><strong>🌀 Route to Chaos length</strong><span>Picked for you when you start one</span></div>
           <div class="setseg" role="radiogroup" aria-label="Route to Chaos length">${[3, 5, 7].map((r) => `<button type="button" role="radio" aria-checked="${gauntletRounds() === r}" data-rounds="${r}">${r}</button>`).join('')}</div></div>
-        <div class="setrow" id="alertRow"><div><strong>🔔 Turn alerts</strong><span id="alertHint">Checking…</span></div><span id="alertCtl"></span></div>
+        <div class="setrow" id="alertRow"><div><strong>🔔 Alerts on this device</strong><span id="alertHint">Checking…</span></div><span id="alertCtl"></span></div>
         <a class="setrow link" href="./#player=${uid}"><div><strong>🏅 My trophies</strong><span>Your trophy case and badges</span></div><span class="setgo">›</span></a>
       </div>
       <div class="setgroup">
@@ -1424,9 +1424,29 @@ export async function disableAlerts() {
   if (sub) { await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
   return 'off';
 }
+// What this device gets alerts for (117): games, chat, calls. Kept on its push_subscriptions row.
+const TOPICS = [['games', '🎮 Games', 'Your turn, game over, the next Chaos round'],
+  ['chat', '💬 Family chat', 'New messages (a burst is one alert) and Claude\'s answers to you'],
+  ['calls', '📹 Calls', 'Someone starts a video call']];
+async function mySub() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg?.pushManager.getSubscription();
+}
+async function alertTopics() {
+  const sub = await mySub();
+  if (!sub) return null;
+  const { data } = await sb.from('push_subscriptions').select('topics').eq('endpoint', sub.endpoint).maybeSingle();
+  return data?.topics ?? ['games', 'chat', 'calls'];
+}
+async function setAlertTopic(topic, on) {
+  const sub = await mySub(), now = (await alertTopics()) ?? [];
+  const topics = on ? [...new Set([...now, topic])] : now.filter((t) => t !== topic);
+  const { error } = await sb.from('push_subscriptions').update({ topics }).eq('endpoint', sub.endpoint);
+  if (error) throw error;
+}
 const ALERT_HINT = {
-  on: "You'll get a notification when it's your turn, even with the game closed.",
-  off: 'Get a notification when it\'s your turn, even with the game closed.',
+  on: 'On. Pick what you hear about below.',
+  off: 'Get a notification when it\'s your turn or the family writes, even with r4box closed.',
   blocked: "Notifications are blocked for this site. Allow them in your browser's site settings, then come back.",
   'ios-install': 'On iPhone or iPad: tap Share → Add to Home Screen, open r4box from there, then turn alerts on here.',
   unsupported: "This browser can't show alerts. Games still update live while they're open.",
@@ -1444,6 +1464,20 @@ async function paintAlerts(wrap) {
     catch (e) { hint.textContent = `Couldn't change alerts: ${friendly(e)}`; b.disabled = false; return; }
     paintAlerts(wrap);
   };
+  // With alerts on: a switch per kind, right under it.
+  wrap.querySelectorAll('.setrow.topic').forEach((r) => r.remove());
+  const topics = st === 'on' ? await alertTopics() : null;
+  if (!topics) return;
+  wrap.querySelector('#alertRow').insertAdjacentHTML('afterend', TOPICS.map(([k, label, hint]) =>
+    `<div class="setrow topic"><div><strong>${label}</strong><span>${hint}</span></div>
+      <button type="button" class="switch" role="switch" aria-checked="${topics.includes(k)}" data-topic="${k}" aria-label="${label} alerts"><i></i></button></div>`).join(''));
+  wrap.querySelectorAll('[data-topic]').forEach((t) => { t.onclick = async () => {
+    const on = t.getAttribute('aria-checked') !== 'true';
+    t.setAttribute('aria-checked', String(on)); t.disabled = true;
+    try { await setAlertTopic(t.dataset.topic, on); }
+    catch (e) { t.setAttribute('aria-checked', String(!on)); hint.textContent = `Couldn't change alerts: ${friendly(e)}`; }
+    t.disabled = false;
+  }; });
 }
 
 // Every page gets the toolbar (with ⚙️ Settings) as soon as it loads.

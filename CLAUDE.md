@@ -458,6 +458,12 @@ username. A new account only becomes a robot once it's in `public.bots`.
   others wait up to ~6 s to join, so both screens land in the same single new game. Only the first time a device sees a game end, and only
   within 10 minutes of it ending, so opening an old result never bounces you away.
 - Sound effects are synthesized (`web/sfx.js`, no audio files).
+- **Alerts per kind** (`117_push_topics.sql`): each device's `push_subscriptions.topics` (default games, chat,
+  calls) is set by three switches under "🔔 Alerts on this device" in ⚙️ Settings (common.js `TOPICS`) and the
+  same three in the chat's Settings (r4box-home `chat.html`). `notify` sends only to `games` devices,
+  `family-chat` to `chat` / `calls`; tutor flags and the admin's test push ignore topics. In the chat, Claude's
+  answer alerts only the asker, and unread messages from others within 10 minutes fold into one silent alert
+  (`silent: true` in the payload; both service workers then skip `renotify`).
 - **Settings** (⚙️ in the corner of every page, `openSettings` in `common.js`): per-device
   switches for Sound, Vibration (every `navigator.vibrate` goes through it) and Big moments
   (`dramaOn()`: off turns splashes into quick notes and drops the danger pulse and slow motion),
