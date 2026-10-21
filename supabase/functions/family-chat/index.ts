@@ -110,7 +110,7 @@ const GROUP_MS = 10 * 60_000;
 
 // opt.topic: which Settings switch lets it through (117). opt.group: the new message's id; messages
 // from others since you last read the chat (within GROUP_MS) fold into one quiet alert.
-async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean; topic?: 'chat' | 'calls'; group?: number } = {}) {
+async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean; topic?: 'chat' | 'calls'; group?: number; kind?: 'chat' | 'claude' | 'call' } = {}) {
   try {
     const now = Date.now();
     const { data: reads } = await admin.from('chat_reads').select('user_id, seen_at, read_at').in('user_id', to);
@@ -131,8 +131,8 @@ async function push(to: string[], title: string, body: string, opt: { url?: stri
       const t = row(id)?.read_at ?? null;
       const n = 1 + earlier.filter((m) => m.author !== id && (!t || Date.parse(m.created_at) > Date.parse(t))).length;
       payloads.set(id, JSON.stringify(n > 1
-        ? { title: `💬 ${n} new messages`, body: `${title}: ${body}`.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', silent: true }
-        : { title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring }));
+        ? { title: `💬 ${n} new messages`, body: `${title}: ${body}`.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', silent: true, kind: 'chat' }
+        : { title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring, kind: opt.kind ?? (opt.ring ? 'call' : 'chat') }));
     }
     await Promise.all((subs ?? []).map((s) =>
       webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payloads.get(s.user_id)!)
@@ -331,7 +331,7 @@ Deno.serve(async (req) => {
     if (ok && !cref && role === 'kid') try { cref = await flower(me, text!, reply); } catch (e) { console.error('flower', e); }
     await admin.from('chat_messages').insert({ author: null, is_claude: true, body: reply.slice(0, 4000), ref: cref, reply_to: root });
     // Only the asker hears about the answer; everyone else sees it in the chat.
-    await push([user.id], '✦ Claude', reply, { tag: 'claude-answer' });
+    await push([user.id], '✦ Claude', reply, { tag: 'claude-answer', kind: 'claude' });
   })());
 
   return json({ id: msg.id, claude, left });

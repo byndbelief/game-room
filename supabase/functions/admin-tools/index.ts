@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
     const { data: subs } = await admin.from('push_subscriptions').select('*').eq('user_id', String(body.user ?? ''));
     if (!subs?.length) return json({ sent: 0, failed: 0 });
     webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') ?? 'mailto:alerts@example.com', Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!);
-    const payload = JSON.stringify({ title: 'r4box', body: 'Test alert from the admin page. Alerts work on this device.', url: 'https://r4box.com/', tag: 'test' });
+    const payload = JSON.stringify({ title: 'r4box', body: 'Test alert from the admin page. Alerts work on this device.', url: 'https://r4box.com/', tag: 'test', kind: 'turn' });
     let sent = 0, failed = 0;
     await Promise.all(subs.map((s) => webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload)
       .then(() => { sent++; })

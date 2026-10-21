@@ -875,9 +875,14 @@ function boxHero(cv) {
 }
 
 // The Your move strip: one big card per game waiting on you, swipe (or ‹ ›) through them.
+// A game that joins it while the lobby is open chimes (and buzzes, on Android); the first paint doesn't.
+let upKnown = null;
 function renderUpStrip(mine, cards, myFleets, atMe) {
   const sec = document.getElementById('upSec'), strip = document.getElementById('upStrip');
   if (!sec) return;
+  const ids = new Set(mine.map((c) => c.g.id));
+  if (upKnown && [...ids].some((id) => !upKnown.has(id))) { sfx('yourTurn'); navigator.vibrate?.([120, 80, 120]); }
+  upKnown = ids;
   document.title = (mine.length ? `(${mine.length}) ` : '') + 'r4box';
   sec.hidden = !mine.length;
   if (!mine.length) { strip.innerHTML = ''; return; }

@@ -45,7 +45,8 @@ Deno.serve(async (req) => {
   if (kind === 'golf' || kind === 'duel' || kind === 'cards' || kind === 'war') return otherGame(kind, gameId, user.id, caller);
   const { data: game } = await caller.from('games').select('*').eq('id', gameId).maybeSingle();
   if (!game) return json({ error: 'Game not found' }, 404);
-  if (game.status === 'over' && game.gauntlet_id) await gauntletNudge(game.gauntlet_id, user.id);
+  // A Chaos round just ended: whoever opens the next one hears about it in a single alert.
+  const nudged = game.status === 'over' && game.gauntlet_id ? await gauntletNudge(game.gauntlet_id, user.id) : null;
 
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: profiles } = await admin.from('profiles').select('id, username').in('id', game.players);
@@ -53,11 +54,11 @@ Deno.serve(async (req) => {
   const me = name(user.id);
   const others = (game.players as string[]).filter((id) => id !== user.id);
 
-  let recipients: string[] = [];
+  let recipients: string[] = [], over = false;
   let title = 'Family Battleship';
   let body = '';
   if (game.status === 'over') {
-    recipients = others;
+    recipients = others; over = true;
     title = `${name(game.winner)} won!`;
     body = `The game is over. Tap to see every fleet.`;
   } else if (game.status === 'playing') {
@@ -74,7 +75,8 @@ Deno.serve(async (req) => {
     title = 'New game';
     body = `${me} started a game with you. Place your ships.`;
   }
-  return send(recipients, title, body, `./#game=${gameId}`, gameId);
+  if (over) return overAlert(recipients, nudged, title, body, `./#game=${gameId}`, gameId);
+  return send(recipients, title, body, `./#game=${gameId}`, { tag: `game-${gameId}`, kind: 'turn' });
 });
 
 // Putt Post, Hilltop Duel, Chaos Cards and War: tell whoever is up next.
@@ -83,7 +85,7 @@ const LABEL: Record<string, string> = { golf: 'Putt Post', duel: 'Hilltop Duel',
 async function otherGame(kind: string, gameId: string, callerId: string, caller: ReturnType<typeof createClient>) {
   const { data: game } = await caller.from(TABLE[kind]).select('*').eq('id', gameId).maybeSingle();
   if (!game) return json({ error: 'Game not found' }, 404);
-  if (game.status === 'over' && game.gauntlet_id) await gauntletNudge(game.gauntlet_id, callerId);
+  const nudged = game.status === 'over' && game.gauntlet_id ? await gauntletNudge(game.gauntlet_id, callerId) : null;
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: profiles } = await admin.from('profiles').select('id, username').in('id', game.players);
   const name = (id: string) => profiles?.find((p) => p.id === id)?.username ?? 'Someone';
@@ -95,6 +97,7 @@ async function otherGame(kind: string, gameId: string, callerId: string, caller:
     title = `${label}: game over`;
     body = kind === 'duel' ? `${name(game.winner)} took the hill. Tap to see.` : kind === 'cards' ? `${name(game.winner)} emptied their hand. Tap to see.`
       : kind === 'war' ? `${name(game.winner)} won the war. Tap to see.` : 'The round is over. Tap for the final scores.';
+    return overAlert(recipients, nudged, title, body, `./${kind}.html#game=${gameId}`, gameId);
   } else if (kind === 'war') {
     // Everyone still to flip this battle (robots flip by themselves), except whoever just flipped.
     recipients = (game.players as string[]).filter((id, s) => game.flips[s] === '' && id !== callerId);
@@ -107,15 +110,26 @@ async function otherGame(kind: string, gameId: string, callerId: string, caller:
     body = kind === 'golf' ? `Hole ${game.start + Math.floor(game.t / game.players.length) + 1} is waiting. ${name(callerId)} just played.`
       : kind === 'cards' ? `${name(callerId)} just played. Your cards.` : `${name(callerId)} just fired. Your shot.`;
   }
-  return send(recipients, title, body, `./${kind}.html#game=${gameId}`, gameId);
+  return send(recipients, title, body, `./${kind}.html#game=${gameId}`, { tag: `game-${gameId}`, kind: 'turn' });
 }
 
-async function send(recipients: string[], title: string, body: string, url: string, gameId: string) {
+// Game over is news, not a call to play: a quiet alert (no sound, no buzz). In a Chaos round the people
+// the next round's alert already reached hear nothing more, and the rest get it under the Chaos's tag,
+// so a phone shows one alert for the round change, not two.
+type Nudged = { gauntletId: string; to: string[]; over: boolean };
+function overAlert(recipients: string[], nudged: Nudged | null, title: string, body: string, url: string, gameId: string) {
+  if (!nudged) return send(recipients, title, body, url, { tag: `game-${gameId}`, kind: 'over', silent: true });
+  if (nudged.over) return json({ sent: 0 });   // the Chaos's own "who's champion" alert went to everyone
+  return send(recipients.filter((p) => !nudged.to.includes(p)), title, body, url, { tag: `chaos-${nudged.gauntletId}`, kind: 'over', silent: true });
+}
+
+// opt.kind tells the service worker which buzz to use (sw.js BUZZ); opt.silent makes it quiet.
+async function send(recipients: string[], title: string, body: string, url: string, opt: { tag: string; kind: string; silent?: boolean }) {
   if (!recipients.length) return json({ sent: 0 });
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   // Only devices that keep game alerts on (Settings, 117).
   const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', recipients).contains('topics', ['games']);
-  const payload = JSON.stringify({ title, body, url, tag: `game-${gameId}` });
+  const payload = JSON.stringify({ title, body, url, tag: opt.tag, kind: opt.kind, silent: !!opt.silent });
   let sent = 0;
   await Promise.all((subs ?? []).map(async (s) => {
     try {
@@ -130,24 +144,34 @@ async function send(recipients: string[], title: string, body: string, url: stri
   return json({ sent });
 }
 
-// A Gauntlet round just ended: tell whoever opens the next round.
-async function gauntletNudge(gauntletId: string, callerId: string) {
+// A Chaos (Gauntlet) round just ended: tell whoever opens the next round, with who won this one.
+// Returns who was told, so the round's game-over alert can leave them out.
+async function gauntletNudge(gauntletId: string, callerId: string): Promise<Nudged | null> {
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: gt } = await admin.from('gauntlets').select('*').eq('id', gauntletId).maybeSingle();
-  if (!gt) return;
+  if (!gt) return null;
+  const players = gt.players as string[];
+  const { data: profiles } = await admin.from('profiles').select('id, username').in('id', players);
+  const name = (id: string) => profiles?.find((p) => p.id === id)?.username ?? 'Someone';
+  const tag = `chaos-${gauntletId}`;
   if (gt.status === 'over') {
-    await send((gt.players as string[]).filter((p) => p !== callerId), 'The Gauntlet is over', 'Tap to see who took the crown.', './', gauntletId);
-    return;
+    // One quiet alert for everyone: the round's own game-over alert is folded into it.
+    const top = Math.max(...(gt.scores as number[])), champs = players.filter((_, i) => gt.scores[i] === top);
+    const to = players.filter((p) => p !== callerId);
+    await send(to, `🌀 ${champs.map(name).join(' & ')} won the Chaos!`, 'Tap to see the final scores.', './', { tag, kind: 'over', silent: true });
+    return { gauntletId, to, over: true };
   }
   const kind = gt.current_kind as string;
-  const table = TABLE[kind];
-  const { data: g } = await admin.from(table).select('*').eq('id', gt.current_game).maybeSingle();
-  if (!g) return;
+  const { data: g } = await admin.from(TABLE[kind]).select('*').eq('id', gt.current_game).maybeSingle();
+  if (!g) return null;
   // Battleship starts with everyone placing ships; the other games have a first player.
   const recipients = kind === 'battleship' ? (g.players as string[])
     : kind === 'war' ? (g.players as string[]).filter((_, s) => g.flips[s] === '')
     : [kind === 'golf' ? g.players[g.t % g.players.length] : g.players[g.turn]];
-  const label = LABEL[kind];
+  const last = (gt.history as { kind: string; winners?: string[] }[] | null)?.at(-1);
+  const won = last?.winners?.length ? `${last.winners.map(name).join(' & ')} took the ${LABEL[last.kind] ?? 'last'} round. ` : '';
   const url = kind === 'battleship' ? `./#game=${g.id}` : `./${kind}.html#game=${g.id}`;
-  await send(recipients.filter((p) => p !== callerId), `🏆 Gauntlet round ${gt.round} of ${gt.rounds}`, `${label} is up. Your move!`, url, g.id);
+  const to = recipients.filter((p) => p !== callerId);
+  await send(to, `🌀 Chaos round ${gt.round} of ${gt.rounds}`, `${won}${LABEL[kind]} is up. Your move!`, url, { tag, kind: 'round' });
+  return { gauntletId, to, over: false };
 }

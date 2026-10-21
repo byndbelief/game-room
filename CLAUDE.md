@@ -464,6 +464,18 @@ username. A new account only becomes a robot once it's in `public.bots`.
   `family-chat` to `chat` / `calls`; tutor flags and the admin's test push ignore topics. In the chat, Claude's
   answer alerts only the asker, and unread messages from others within 10 minutes fold into one silent alert
   (`silent: true` in the payload; both service workers then skip `renotify`).
+- **Alert sounds and buzzes** (2026-10-21): every push carries `kind` (`turn`, `round`, `over`, `chat`, `claude`,
+  `call`, `tutor`) and both service workers (`web/sw.js`, r4box-home `sw.js`, kept identical in their push handler) map
+  it to a buzz in `BUZZ` (Android only; iPhones ignore vibration and no web push can choose its sound). `silent` never
+  goes with a `vibrate` (Chrome throws), `renotify` only with a tag; `call` (or the old `ring`) stays up. Game over is
+  quiet (`overAlert` in notify); a Chaos round change is one alert: `gauntletNudge` tells the next round's players
+  (`🌀 Chaos round n of m`, with who took the last round) and returns them, and the round's game-over leaves them out
+  and goes under the tag `chaos-<id>`; a finished Chaos is one quiet "won the Chaos" to everyone. In pages: the lobby
+  chimes `sfx('yourTurn')` + buzz when a game joins Your move (not on first paint, `upKnown`), a game page a soft
+  `sfx('nudge')` when the ▶ Next chip gains a game (`nextKnown`); the chat (r4box-home) synthesizes a message chime
+  and a call ringtone (looping until Join / Not now / the call ends, 40 s at most), switch 🔊 Sounds in its Settings
+  (`r4.chatSound`). Test (scratch): `t_turnchime`; the service workers via CDP `ServiceWorker.deliverPushMessage`
+  (needs `channel: 'chromium'` plus both `grantPermissions` and `Browser.setPermission`).
 - **Settings** (⚙️ in the corner of every page, `openSettings` in `common.js`): per-device
   switches for Sound, Vibration (every `navigator.vibrate` goes through it) and Big moments
   (`dramaOn()`: off turns splashes into quick notes and drops the danger pulse and slow motion),

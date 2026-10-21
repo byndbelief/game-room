@@ -735,11 +735,14 @@ export async function myTurns(meId) {
 }
 // A chip in the bottom-left corner of a game page: "▶ Next: ⛳ vs Sam +2", linking to the
 // next game waiting on you. Call it again whenever things may have changed.
-let nextBusy = false;
+let nextBusy = false, nextKnown = null;
 export async function nextUpChip(meId, currentId, nameOf) {
   if (nextBusy || !meId) return; nextBusy = true;
   try {
     const list = (await myTurns(meId)).filter((x) => x.id !== currentId);
+    // Another game started waiting on you while you play this one: a soft chime, no buzz (it isn't this game).
+    if (nextKnown && list.some((x) => !nextKnown.has(x.id))) sfx('nudge');
+    nextKnown = new Set(list.map((x) => x.id));
     let chip = document.getElementById('nextUp');
     if (!list.length) { chip?.remove(); return; }
     if (!chip) {

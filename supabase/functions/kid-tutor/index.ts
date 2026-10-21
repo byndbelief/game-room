@@ -77,7 +77,7 @@ async function pushParents(title: string, body: string) {
     const parents = (data?.users ?? []).filter((u) => u.app_metadata?.r4_role === 'parent').map((u) => u.id);
     if (!parents.length) return;
     const { data: subs } = await admin.from('push_subscriptions').select('*').in('user_id', parents);
-    const payload = JSON.stringify({ title, body, url: 'https://r4box.com/#tutor', tag: 'tutor-flag' });
+    const payload = JSON.stringify({ title, body, url: 'https://r4box.com/#tutor', tag: 'tutor-flag', kind: 'tutor' });
     await Promise.all((subs ?? []).map((s) =>
       webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload).catch(() => {})));
   } catch { /* the flag is saved either way */ }
