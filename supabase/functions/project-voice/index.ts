@@ -61,7 +61,15 @@ const KEY = () => KEY_NAMES.map((k) => Deno.env.get(k)?.trim()).find(Boolean) ??
 const lookalikes = () => { try { return Object.keys(Deno.env.toObject()).filter((k) => /eleven|labs|^xi/i.test(k)); } catch { return []; } };
 const el = (path: string, init: RequestInit = {}) =>
   fetch(EL + path, { ...init, headers: { 'xi-api-key': KEY(), ...(init.body && !(init.body instanceof FormData) ? { 'content-type': 'application/json' } : {}), ...(init.headers ?? {}) } });
-const failed = async (what: string, r: Response) => { console.error('elevenlabs', what, r.status, (await r.text()).slice(0, 400)); };
+// logs a failed call; when the key lacks a permission, says which one (ElevenLabs names it), for the person to fix
+let why: string | null = null;
+const failed = async (what: string, r: Response) => {
+  const t = (await r.text()).slice(0, 400);
+  console.error('elevenlabs', what, r.status, t);
+  const perm = t.match(/missing the permission (\w+)/);
+  why = perm ? `The ElevenLabs key needs the ${perm[1]} permission: turn it on for the key in ElevenLabs (Developers › API keys).` : null;
+  return why;
+};
 
 function local(tz: string) {
   const now = new Date();
@@ -104,6 +112,7 @@ async function agentId(): Promise<string | null> {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  why = null;
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer /, '');
   const { data: { user } } = await admin.auth.getUser(token);
@@ -152,7 +161,7 @@ Deno.serve(async (req) => {
     const tts = (keep: boolean) => el(`/v1/text-to-speech/${voice.id}?output_format=mp3_44100_128${keep ? '' : '&enable_logging=false'}`, { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ text, model_id: TTS_MODEL }) });
     let r = await tts(false);
     if (!r.ok && r.status < 500) { await failed('read (zero retention)', r); r = await tts(true); }
-    if (!r.ok) { await failed('read', r); return json({ error: 'Couldn’t read that one out just now.' }, 502); }
+    if (!r.ok) { await failed('read', r); return json({ error: why ?? 'Couldn’t read that one out just now.' }, 502); }
     await admin.from('voice_log').insert({ user_id: user.id, kind: 'read' });
     return new Response(r.body, { headers: { ...cors, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' } });
   }
@@ -177,7 +186,7 @@ Deno.serve(async (req) => {
       : kind === 'sfx'
       ? await el('/v1/sound-generation?output_format=mp3_44100_128', { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ text, prompt_influence: 0.4, ...(secs ? { duration_seconds: secs } : {}) }) })
       : await el('/v1/music?output_format=mp3_44100_128', { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ prompt: text, music_length_ms: secs! * 1000, force_instrumental: true }) });
-    if (!r.ok) { await failed(kind, r); return json({ error: kind === 'music' ? 'Couldn’t make that music just now. Try describing it another way.' : 'Couldn’t make that sound just now. Try again.' }, 502); }
+    if (!r.ok) { await failed(kind, r); return json({ error: why ?? (kind === 'music' ? 'Couldn’t make that music just now. Try describing it another way.' : 'Couldn’t make that sound just now. Try again.') }, 502); }
     const audio = new Uint8Array(await r.arrayBuffer());
     const up = await admin.storage.from('project-audio').upload(path, audio, { contentType: 'audio/mpeg', upsert: true, cacheControl: '31536000' });
     if (up.error) { console.error('storage', up.error.message); return json({ error: 'Couldn’t keep that sound. Try again.' }, 502); }
@@ -192,7 +201,7 @@ Deno.serve(async (req) => {
     if (text.length < 20) return json({ error: 'Say a bit more about the voice (who they are, how they sound).' }, 400);
     if (over('design')) return json({ error: 'That’s all the voice designing for today. Back tomorrow!', left: left() }, 429);
     const r = await el('/v1/text-to-voice/design', { method: 'POST', body: JSON.stringify({ voice_description: `${text}. Family friendly.`, model_id: 'eleven_multilingual_ttv_v2', auto_generate_text: true }) });
-    if (!r.ok) { await failed('design', r); return json({ error: 'Couldn’t make that voice. Try describing it another way.' }, 502); }
+    if (!r.ok) { await failed('design', r); return json({ error: why ?? 'Couldn’t make that voice. Try describing it another way.' }, 502); }
     const d = await r.json();
     await admin.from('voice_log').insert({ user_id: user.id, kind: 'design', detail: text });
     used.design++;
@@ -204,7 +213,7 @@ Deno.serve(async (req) => {
     if (voiceOf(name)) return json({ error: `There’s already a voice called ${name}. Pick another name.` }, 409);
     if (kid && (family ?? []).filter((v) => v.owner === user.id).length >= MY_VOICES) return json({ error: `You can keep ${MY_VOICES} voices. Remove one first.` }, 409);
     const r = await el('/v1/text-to-voice', { method: 'POST', body: JSON.stringify({ voice_name: `r4box · ${name}`, voice_description: text || name, generated_voice_id: gid }) });
-    if (!r.ok) { await failed('keep', r); return json({ error: 'Couldn’t keep that voice. Make it again and pick one?' }, 502); }
+    if (!r.ok) { await failed('keep', r); return json({ error: why ?? 'Couldn’t keep that voice. Make it again and pick one?' }, 502); }
     const voiceId = (await r.json()).voice_id as string;
     // its preview, kept so the Voices page can play it without making anything
     let sample: string | null = null;
@@ -219,7 +228,7 @@ Deno.serve(async (req) => {
     if (!v) return json({ error: 'That voice is gone already.' }, 404);
     if (v.owner !== user.id && role !== 'parent') return json({ error: 'Only whoever made it can remove it.' }, 403);
     const r = await el(`/v1/voices/${v.voice_id}`, { method: 'DELETE' });
-    if (!r.ok && r.status !== 404) { await failed('forget', r); return json({ error: 'Couldn’t remove it just now. Try again.' }, 502); }
+    if (!r.ok && r.status !== 404) { await failed('forget', r); return json({ error: why ?? 'Couldn’t remove it just now. Try again.' }, 502); }
     await admin.from('project_voices').delete().eq('id', v.id);
     return json({ ok: true });
   }
@@ -228,9 +237,9 @@ Deno.serve(async (req) => {
   if (body.talk) {
     if (over('talk')) return json({ error: 'That’s all the talking for today. Back tomorrow!', left: left() }, 429);
     const id = await agentId();
-    if (!id) return json({ error: 'Talking isn’t working just now. Try again later.' }, 502);
+    if (!id) return json({ error: why ?? 'Talking isn’t working just now. Try again later.' }, 502);
     const r = await el(`/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(id)}`);
-    if (!r.ok) { await failed('signed url', r); return json({ error: 'Talking isn’t working just now. Try again.' }, 502); }
+    if (!r.ok) { await failed('signed url', r); return json({ error: why ?? 'Talking isn’t working just now. Try again.' }, 502); }
     const persona = words(body.talk.persona, 400) || 'a friendly helper';
     const voice = voiceOf(body.talk.voice) ?? { name: 'friendly', id: VOICES.friendly };
     const { data: row } = await admin.from('voice_log').insert({ user_id: user.id, kind: 'talk', detail: `${persona} (${voice.name})` }).select('id').single();
