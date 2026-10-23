@@ -7,13 +7,15 @@
 // completely different. The page turns any of these into a new version. Claude can also just
 // answer ("explain main.js", "why is it broken?") without changing anything.
 //
-// POST { project, ask, files?, logs?, image?, html?, chat? } -> { say, note?, change?, files?, name?, next?, brief?, left }
+// POST { project, ask, files?, logs?, image?, html?, chat?, start? } -> { say, note?, change?, files?, name?, next?, brief?, left }
 //   project: its id; only its maker or a helper may ask (projects.collab, 110)
 //   files:   a code project's unsaved draft, if the person is editing (else its current version)
 //   logs:    the last console lines from the preview, for "why is it broken?"
 //   image:   a JPEG data URL: the full-screen preview with the person's red marks drawn on it
 //   html:    a kit project's page as the kit builds it now, for rebuilding it as code
 //   chat:    the ✦ Vibes chat so far ([{ me, t }], last 10), so Claude doesn't repeat itself
+//   start:   a project just started from an idea (still its first version): Claude builds the whole idea;
+//            a kid's first START_FREE of those a day don't use a build (logged as 'start', 120)
 //   next:    two or three short things to ask next, for where the project is (the page's chips)
 //   brief:   the project's brief, when Claude rewrote it (projects.brief, 112)
 // Claude also reads the project's commit notes and its brief (its own running note on the project:
@@ -21,7 +23,7 @@
 // POST { project, explain: { file, src } } -> { help: [{ n, text, terms }], glossary: [{ term, means, example }], left }
 //   💡 Help on the code bench: a short note for the lines worth explaining. A question, not a build.
 //
-// Kids get 8 builds a day (a build = Claude changed something) and 30 answers; parents, no cap.
+// Kids get 8 builds a day (a build = Claude changed something), 3 free starts and 30 answers; parents, no cap.
 // Each one is a project_builds row. What Claude writes always runs in a sandboxed frame.
 //
 // Code projects can talk, play sound effects and music, and hold a conversation (r4.say / r4.sfx / r4.music /
@@ -32,7 +34,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 
 const MODEL = 'claude-sonnet-5-5';
-const CAP = 8, ASK_CAP = 30;
+const CAP = 8, ASK_CAP = 30, START_FREE = 3;
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -104,14 +106,14 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: 'Sign in first.' }, 401);
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
-  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; chat?: unknown; explain?: { file?: unknown; src?: unknown } };
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; chat?: unknown; start?: unknown; explain?: { file?: unknown; src?: unknown } };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // How many builds are left today (also what the page asks with no project).
   const { data: set } = await admin.from('tutor_settings').select('tz').eq('kid', user.id).maybeSingle();
   const since = local(set?.tz ?? 'America/New_York').toISOString();
   const { data: today } = await admin.from('project_builds').select('kind').eq('user_id', user.id).gte('at', since);
-  const builds = (today ?? []).filter((b) => b.kind === 'build').length, asks = (today ?? []).length - builds;
+  const builds = (today ?? []).filter((b) => b.kind === 'build').length, starts = (today ?? []).filter((b) => b.kind === 'start').length, asks = (today ?? []).length - builds - starts;
   const leftOf = (b: number) => (role === 'parent' ? null : Math.max(0, CAP - b));
   if (!body.project) return json({ left: leftOf(builds) });
 
@@ -150,9 +152,12 @@ Deno.serve(async (req) => {
     return json({ help, glossary, left: leftOf(builds) });
   }
   if (!mayChange) return json({ error: 'Remix it to change it.' }, 403);
-  const ask = String(body.ask ?? '').trim().slice(0, 1000);
+  const ask = String(body.ask ?? '').trim().slice(0, 2000);
   if (!ask) return json({ error: 'Say what to change.' }, 400);
-  const canBuild = role === 'parent' || builds < CAP;
+  // a start: the first version of the person's own project, built whole; free for a kid's first few a day
+  const start = !!body.start && p.owner === user.id && (p.versions ?? []).length === 1;
+  const freeStart = start && (role === 'parent' || starts < START_FREE);
+  const canBuild = role === 'parent' || freeStart || builds < CAP;
 
   const v = p.versions[p.cur] ?? p.versions[p.versions.length - 1];
   const code = p.kit === 'code' || !!v.files;   // a version with files: it already outgrew its kit
@@ -190,7 +195,7 @@ ${code
   ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
   : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
 It can talk, make sounds and music, and hold a conversation (all made by ElevenLabs, through the page): \`r4.say(text, voice)\` speaks a line, \`r4.sfx(description, seconds)\` plays a sound effect made from a short description like "cartoon boing" or "crowd cheering" (seconds optional, up to 10), and \`r4.music(description, seconds)\` plays a looping instrumental track like "chill 8-bit adventure" (5 to 60 seconds, default 30) and resolves with its Audio so you can \`.pause()\` it. say and sfx return a promise that resolves when the clip ends. Voices: narrator, friendly, cheerful, announcer, deep, calm, gravelly, playful${voiceNames ? `, and the family's own: ${voiceNames}` : ''}. \`r4.talk({ persona, voice, first, onMessage, onMode })\` starts a live spoken conversation with a character (persona: who it is and how it acts, in a sentence or two; first: its opening line; onMessage gets { who: 'character' | 'me', text } for captions; onMode gets 'speaking' or 'listening', good for a mouth or glow); it resolves with every line when it ends, a talk bar on the page lets them hang up, and \`r4.hangup()\` ends it. Start it from a button they tap. Each new line, sound or track is made once and costs one of their daily new sounds, so keep the wording fixed (no scores or random numbers inside the text; say "Nice catch!" not "Score 12!"), call \`r4.load('sfx', text)\`, \`r4.load('music', text)\` or \`r4.load('say', text, voice)\` at the start for ones played often so they're instant, and only play sounds after the first tap. Use them when they ask for talking, a voice, narration, sound effects, music or a character to talk to; the tone() beep is still there for quick blips.
-${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
+${start ? 'They just started this project from an idea, and its files are only the starter it began from. Build the whole idea they describe as a complete, polished, working thing in one go: write every file new (replace the starter entirely), make it feel finished and fun on a phone (touch controls first, keys too on a computer), give it a clear look with its own colours, and keep the code tidy and readable, with short comments, since they will learn from it and keep growing it. Keep it compact enough to write in one go: under about 350 lines in all, so it fits the time a build has. Say what you built and two or three things they could add next.\n' : ''}${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
 The project's brief is your own running note on it, so you pick up where you left off next time. When this exchange adds something worth remembering (what it is or is becoming, a feature done, an idea or decision, what they want next), or there's no brief yet, rewrite the whole brief inside <brief></brief>: a few short lines, under 120 words, plain words, about the project (never about the person). Otherwise leave it out.
 Then, on its own last line, write NEXT: and two or three short things they could ask you next (each under 6 words, separated by |), right for where this project is now: a new one might want to understand it or make it theirs; a broken one, a fix; a working one, the next feature or polish that fits what it is. Like: NEXT: add a score | make it faster
 Write all of that (your words, any brief, the NEXT line) before you call a tool.
@@ -224,7 +229,7 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   }
   const built = !!(change || newFiles);
   if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
-  await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? 'build' : 'ask' });
+  await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? (freeStart ? 'start' : 'build') : 'ask' });
   return json({ say: say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?'),
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart ? 1 : 0)) });
 });
