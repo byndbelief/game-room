@@ -21,7 +21,7 @@
 // 119): its rules are fixed here, and a project only fills in the character, the first line and
 // the voice, so a project can't talk it out of being family friendly.
 //
-// Secrets: ELEVENLABS_API_KEY. SUPABASE_* are automatic.
+// Secrets: ELEVENLABS_API_KEY (or one of KEY_NAMES). SUPABASE_* are automatic.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 
@@ -54,7 +54,11 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-const KEY = () => Deno.env.get('ELEVENLABS_API_KEY') ?? '';
+// the key, under the name it's meant to have or one it's easy to give it by mistake
+const KEY_NAMES = ['ELEVENLABS_API_KEY', 'ELEVEN_LABS_API_KEY', 'ELEVENLABS_KEY', 'ELEVEN_API_KEY', 'XI_API_KEY'];
+const KEY = () => KEY_NAMES.map((k) => Deno.env.get(k)?.trim()).find(Boolean) ?? '';
+// when it isn't found: the names of any secrets that look like it (never their values), to say what to rename
+const lookalikes = () => { try { return Object.keys(Deno.env.toObject()).filter((k) => /eleven|labs|^xi/i.test(k)); } catch { return []; } };
 const el = (path: string, init: RequestInit = {}) =>
   fetch(EL + path, { ...init, headers: { 'xi-api-key': KEY(), ...(init.body && !(init.body instanceof FormData) ? { 'content-type': 'application/json' } : {}), ...(init.headers ?? {}) } });
 const failed = async (what: string, r: Response) => { console.error('elevenlabs', what, r.status, (await r.text()).slice(0, 400)); };
@@ -132,7 +136,11 @@ Deno.serve(async (req) => {
   };
 
   if (!Object.keys(body).length) return json({ left: left(), voices: [...Object.keys(VOICES).map((name) => ({ name, stock: true })), ...(family ?? []).map((v) => ({ id: v.id, name: v.name, description: v.description, sample: v.sample, mine: v.owner === user.id }))] });
-  if (!KEY()) return json({ error: 'Voices are not set up.' }, 503);
+  if (!KEY()) {
+    const near = lookalikes();
+    console.error('no ElevenLabs key; secrets that look like one:', near.join(', ') || 'none');
+    return json({ error: near.length ? `Voices are not set up: found ${near.join(', ')}, but it needs to be named ELEVENLABS_API_KEY.` : 'Voices are not set up: add the ElevenLabs key as the Edge Function secret ELEVENLABS_API_KEY.' }, 503);
+  }
 
   // ---- read aloud: private words (the family chat, a journal), so the clip goes straight back and isn't kept ----
   if (body.read) {
