@@ -8,6 +8,9 @@
 //
 // POST { text?, image?, ref?, reply? } -> { id, claude: 'asked' | 'closed' | 'limit' | null, left }
 // POST { call: true, to? } -> { id }: someone started a video call (a card, and a ring for `to`, or everyone).
+// POST { ring: id } / { answered: id, by: [user ids] } / { missed: id }: the caller's call page while it waits:
+//   ring again (every 15s for the first minute nobody has picked up: one ring is easy to miss), someone picked up
+//   (the ones still ringing hear, quietly, that it's on), nobody did (the ring becomes "Missed call").
 //   image: a path the page uploaded to the family-chat bucket, "<user id>/<name>"
 //   ref: { type: 'item' | 'poll' | 'project' | 'trip', id }: share a trip item or poll, a project, or a whole trip
 //        (one the sender may see: theirs, one they help on, or published), into the chat; the
@@ -79,6 +82,8 @@ async function refFor(r: { type?: string; id?: unknown }, uid: string) {
   return null;
 }
 const PROJECT_KIND: Record<string, [string, string]> = { catch: ['🎮', 'Game'], timer: ['⏱', 'App'], page: ['🌐', 'Page'], comic: ['📖', 'Story'], drums: ['🥁', 'Art & music toy'], code: ['⌨', 'Code'] };
+// A call's ring opens straight to answering it (call.html; it never starts a new call from there).
+const CALL_URL = 'https://r4box.com/call.html?answer=1&page=%2Fchat.html';
 // Someone whose chat page reported in this recently is reading: no push for them.
 const PRESENT_MS = 45_000;
 
@@ -110,7 +115,7 @@ const GROUP_MS = 10 * 60_000;
 
 // opt.topic: which Settings switch lets it through (117). opt.group: the new message's id; messages
 // from others since you last read the chat (within GROUP_MS) fold into one quiet alert.
-async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean; topic?: 'chat' | 'calls'; group?: number; kind?: 'chat' | 'claude' | 'call' } = {}) {
+async function push(to: string[], title: string, body: string, opt: { url?: string; tag?: string; ring?: boolean; topic?: 'chat' | 'calls'; group?: number; kind?: 'chat' | 'claude' | 'call' | 'missed'; silent?: boolean } = {}) {
   try {
     const now = Date.now();
     const { data: reads } = await admin.from('chat_reads').select('user_id, seen_at, read_at').in('user_id', to);
@@ -132,7 +137,7 @@ async function push(to: string[], title: string, body: string, opt: { url?: stri
       const n = 1 + earlier.filter((m) => m.author !== id && (!t || Date.parse(m.created_at) > Date.parse(t))).length;
       payloads.set(id, JSON.stringify(n > 1
         ? { title: `💬 ${n} new messages`, body: `${title}: ${body}`.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', silent: true, kind: 'chat' }
-        : { title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring, kind: opt.kind ?? (opt.ring ? 'call' : 'chat') }));
+        : { title, body: body.slice(0, 140), url: opt.url ?? 'https://r4box.com/chat.html', tag: opt.tag ?? 'family-chat', ring: !!opt.ring, kind: opt.kind ?? (opt.ring ? 'call' : 'chat'), ...(opt.silent ? { silent: true } : {}) }));
     }
     await Promise.all((subs ?? []).map((s) =>
       webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payloads.get(s.user_id)!)
@@ -256,7 +261,7 @@ Deno.serve(async (req) => {
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
 
-  let body: { text?: string; image?: string; ref?: { type?: string; id?: unknown }; call?: boolean; to?: string; reply?: number };
+  let body: { text?: string; image?: string; ref?: { type?: string; id?: unknown }; call?: boolean; to?: string; reply?: number; ring?: number; answered?: number; missed?: number; by?: string[] };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // Starting a video call (105): a card in the chat, and a ring for everyone not reading it.
@@ -272,9 +277,31 @@ Deno.serve(async (req) => {
     const { data: msg, error } = await admin.from('chat_messages')
       .insert({ author: user.id, body: to ? `📹 Called ${to.username}` : '📹 Started a video call', ref: to ? { type: 'call', to: to.id } : { type: 'call' } }).select('id').single();
     if (error) { console.error(error); return json({ error: 'Could not start the call. Try again.' }, 500); }
-    EdgeRuntime.waitUntil(push(to ? [to.id] : fam.filter((f) => f.id !== user.id).map((f) => f.id), `📹 ${me.username} is calling${to ? ' you' : ''}`, 'Tap to join the video call',
-      { url: 'https://r4box.com/chat.html#call', tag: 'family-call', ring: true, topic: 'calls' }));
+    EdgeRuntime.waitUntil(push(to ? [to.id] : fam.filter((f) => f.id !== user.id).map((f) => f.id), `📹 ${me.username} is calling${to ? ' you' : ''}`, 'Tap to answer',
+      { url: CALL_URL, tag: 'family-call', ring: true, topic: 'calls' }));
     return json({ id: msg.id, claude: null, left: null });
+  }
+  // The caller's page, about a call it started: only its own, and only while it's fresh (a ring for its first
+  // 90 seconds, the rest for 15 minutes).
+  const about = body.ring ?? body.answered ?? body.missed;
+  if (typeof about === 'number') {
+    const { data: c } = await admin.from('chat_messages').select('id, author, ref, created_at').eq('id', about).maybeSingle();
+    const age = c ? Date.now() - Date.parse(c.created_at) : Infinity;
+    if (!c || c.author !== user.id || (c.ref as { type?: string } | null)?.type !== 'call' || age > (body.ring != null ? 90_000 : 15 * 60_000)) return json({ error: 'No such call.' }, 404);
+    const fam = await family();
+    const me = fam.find((f) => f.id === user.id)!, callee = (c.ref as { to?: string }).to ?? null;
+    const rung = callee ? [callee] : fam.filter((f) => f.id !== user.id).map((f) => f.id);
+    if (body.ring != null) {
+      await push(rung, `📹 ${me.username} is calling${callee ? ' you' : ''}`, 'Tap to answer', { url: CALL_URL, tag: 'family-call', ring: true, topic: 'calls' });
+    } else if (body.answered != null) {
+      // Someone picked up an everyone call: the rest stop ringing (the same alert, replaced quietly).
+      const by = Array.isArray(body.by) ? body.by.map(String) : [];
+      const left = rung.filter((id) => !by.includes(id));
+      if (!callee && left.length) await push(left, `📹 ${me.username}’s call is on`, `${by.map((id) => fam.find((f) => f.id === id)?.username).filter(Boolean).join(', ') || 'Someone'} picked up. Tap to join`, { url: CALL_URL, tag: 'family-call', kind: 'chat', topic: 'calls', silent: true });
+    } else {
+      await push(rung, `📹 Missed call from ${me.username}`, 'Tap to call back', { url: `https://r4box.com/chat.html#callback=${user.id}`, tag: 'family-call', kind: 'missed', topic: 'calls', silent: true });
+    }
+    return json({ ok: true });
   }
   const text = String(body.text ?? '').trim().slice(0, 4000) || null;
   // A photo must be one this person uploaded: their own folder in the bucket.
