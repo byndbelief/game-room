@@ -28,6 +28,8 @@
 //
 // Code projects can talk, play sound effects and music, and hold a conversation (r4.say / r4.sfx / r4.music /
 // r4.talk, made by project-voice); the prompt tells Claude how, with the family's own voices by name (project_voices, 119).
+// When no voice fits (Mitsuri: high, sweet, squeaky), Claude names one to make with a description; it's designed
+// and kept through project-voice as the person asking (their daily limits apply), first take, as a family voice.
 //
 // Secrets: ANTHROPIC_API_KEY. SUPABASE_* are automatic.
 
@@ -35,6 +37,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 
 const MODEL = 'claude-sonnet-5-5';
 const CAP = 8, ASK_CAP = 30, START_FREE = 3;
+// What the ready-made voices sound like (keep in step with VOICE_ABOUT in project-voice).
+const STOCK = 'narrator (man, older, British, warm storyteller), friendly (young woman, American, soft and kind), cheerful (young woman, American, lively and expressive), announcer (young man, American, energetic), deep (man, American, deep and smooth), calm (woman, British, warm and calm), gravelly (man, gravelly and intense), playful (young man, Australian, casual), bubbly (young woman, American, upbeat, quirky and bubbly), warm (woman, American, warm and friendly), bright (woman, British, clear and confident), grandpa (old man, American, wise and crackly), newsreader (man, British, crisp and formal)';
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -169,19 +173,23 @@ Deno.serve(async (req) => {
     .map((m) => `${m.me ? 'They' : 'You'}: ${String(m.t).slice(0, 800)}`).join('\n') : '';
   const history = (p.versions ?? []).slice(-20).map((x: { v: number; note?: string }) => `v${x.v}: ${String(x.note ?? '').slice(0, 100)}`).join('\n');
   const who = role === 'parent' ? 'a parent' : 'a kid (a teen, around 14 to 18)';
-  const { data: fv } = await admin.from('project_voices').select('name').order('created_at').limit(30);
-  const voiceNames = (fv ?? []).map((x: { name: string }) => x.name).join(', ');
+  const { data: fv } = await admin.from('project_voices').select('name, description').order('created_at').limit(30);
+  const voiceNames = (fv ?? []).map((x: { name: string; description: string }) => `${x.name}${x.description ? ` (${x.description.slice(0, 80)})` : ''}`).join('; ');
 
   const kitHtml = !code && typeof body.html === 'string' ? body.html.slice(0, 60_000) : '';
   const NAME = { type: 'string', description: 'a new name, only if it became something different' };
+  const VOICES_NEW = { type: 'array', maxItems: 2, description: 'voices to make for this project, only when none of the ready-made or family voices fit what they asked for (a pitch, age, accent or character). Each is made from its description and kept as a family voice; the code uses it by name.',
+    items: { type: 'object', required: ['name', 'description'], properties: {
+      name: { type: 'string', description: 'its name, short, like "Mitsuri"; the code passes this to r4.say / r4.talk' },
+      description: { type: 'string', description: 'how it sounds, for a voice designer, 20 to 400 characters: gender, age, pitch, accent, tone, pace and character, like "A young woman with a high-pitched, sweet, airy voice, bright and a little squeaky, gushing and easily flustered"' } } } };
   const write = { name: 'write_files', description: 'Change the project: give every file you change, whole (not a diff). Only when they asked for a change.',
     input_schema: { type: 'object', required: ['note', 'files'], properties: {
       note: { type: 'string', description: 'what changed, a few words, like a commit message' },
-      files: { type: 'object', description: 'file name -> its whole new content', additionalProperties: { type: 'string' } }, name: NAME } } };
+      files: { type: 'object', description: 'file name -> its whole new content', additionalProperties: { type: 'string' } }, name: NAME, voices: VOICES_NEW } } };
   const rebuild = { name: 'rebuild_as_code', description: 'When the settings can\'t do what they ask: rebuild the project as real code that does everything it does now plus what they asked. It becomes a code project from then on.',
     input_schema: { type: 'object', required: ['note', 'files'], properties: {
       note: { type: 'string', description: 'what changed, a few words, like "Added a lap counter"' },
-      files: { type: 'object', description: 'index.html (the page, without its own script), style.css and main.js (runs after the page)', additionalProperties: { type: 'string' } }, name: NAME } } };
+      files: { type: 'object', description: 'index.html (the page, without its own script), style.css and main.js (runs after the page)', additionalProperties: { type: 'string' } }, name: NAME, voices: VOICES_NEW } } };
   const tools = code ? [write] : [{ name: 'change_project', description: 'Change the project: give only the settings that change.',
         input_schema: { type: 'object', required: ['note', 'change'], properties: {
           note: { type: 'string', description: 'what changed, a few words, like "Faster, red background"' },
@@ -194,7 +202,7 @@ Deno.serve(async (req) => {
 ${code
   ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
   : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
-It can talk, make sounds and music, and hold a conversation (all made by ElevenLabs, through the page): \`r4.say(text, voice)\` speaks a line, \`r4.sfx(description, seconds)\` plays a sound effect made from a short description like "cartoon boing" or "crowd cheering" (seconds optional, up to 10), and \`r4.music(description, seconds)\` plays a looping instrumental track like "chill 8-bit adventure" (5 to 60 seconds, default 30) and resolves with its Audio so you can \`.pause()\` it. say and sfx return a promise that resolves when the clip ends. Voices: narrator, friendly, cheerful, announcer, deep, calm, gravelly, playful${voiceNames ? `, and the family's own: ${voiceNames}` : ''}. \`r4.talk({ persona, voice, first, onMessage, onMode })\` starts a live spoken conversation with a character (persona: who it is and how it acts, in a sentence or two; first: its opening line; onMessage gets { who: 'character' | 'me', text } for captions; onMode gets 'speaking' or 'listening', good for a mouth or glow); it resolves with every line when it ends, a talk bar on the page lets them hang up, and \`r4.hangup()\` ends it. Start it from a button they tap. Each new line, sound or track is made once and costs one of their daily new sounds, so keep the wording fixed (no scores or random numbers inside the text; say "Nice catch!" not "Score 12!"), call \`r4.load('sfx', text)\`, \`r4.load('music', text)\` or \`r4.load('say', text, voice)\` at the start for ones played often so they're instant, and only play sounds after the first tap. Use them when they ask for talking, a voice, narration, sound effects, music or a character to talk to; the tone() beep is still there for quick blips.
+It can talk, make sounds and music, and hold a conversation (all made by ElevenLabs, through the page): \`r4.say(text, voice)\` speaks a line, \`r4.sfx(description, seconds)\` plays a sound effect made from a short description like "cartoon boing" or "crowd cheering" (seconds optional, up to 10), and \`r4.music(description, seconds)\` plays a looping instrumental track like "chill 8-bit adventure" (5 to 60 seconds, default 30) and resolves with its Audio so you can \`.pause()\` it. say and sfx return a promise that resolves when the clip ends. Voices (pick by who's speaking; a voice's gender, age and accent matter): ${STOCK}${voiceNames ? `; and the family's own: ${voiceNames}` : ''}. When none of them fit what they want (a particular pitch, age, accent or a known character), make one: give it under voices in your tool call with a name and a full description of how it sounds, and use that name in the code (the app tells them it made the voice, so you needn't). Delivery tags in square brackets make a line expressive, like r4.say('[gasps] Oh no! [giggles] Just kidding!', 'bubbly'): [excited], [whispers], [laughs], [giggles], [sighs], [gasps], [shouting], [nervous]; use them for characters with big feelings. \`r4.talk({ persona, voice, first, onMessage, onMode })\` starts a live spoken conversation with a character (persona: who it is and how it acts, in a sentence or two; first: its opening line; onMessage gets { who: 'character' | 'me', text } for captions; onMode gets 'speaking' or 'listening', good for a mouth or glow); it resolves with every line when it ends, a talk bar on the page lets them hang up, and \`r4.hangup()\` ends it. Start it from a button they tap. Each new line, sound or track is made once and costs one of their daily new sounds, so keep the wording fixed (no scores or random numbers inside the text; say "Nice catch!" not "Score 12!"), call \`r4.load('sfx', text)\`, \`r4.load('music', text)\` or \`r4.load('say', text, voice)\` at the start for ones played often so they're instant, and only play sounds after the first tap. Use them when they ask for talking, a voice, narration, sound effects, music or a character to talk to; the tone() beep is still there for quick blips.
 ${start ? 'They just started this project from an idea, and its files are only the starter it began from. Build the whole idea they describe as a complete, polished, working thing in one go: write every file new (replace the starter entirely), make it feel finished and fun on a phone (touch controls first, keys too on a computer), give it a clear look with its own colours, and keep the code tidy and readable, with short comments, since they will learn from it and keep growing it. Keep it compact enough to write in one go: under about 350 lines in all, so it fits the time a build has. Say what you built and two or three things they could add next.\n' : ''}${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
 The project's brief is your own running note on it, so you pick up where you left off next time. When this exchange adds something worth remembering (what it is or is becoming, a feature done, an idea or decision, what they want next), or there's no brief yet, rewrite the whole brief inside <brief></brief>: a few short lines, under 120 words, plain words, about the project (never about the person). Otherwise leave it out.
 Then, on its own last line, write NEXT: and two or three short things they could ask you next (each under 6 words, separated by |), right for where this project is now: a new one might want to understand it or make it theirs; a broken one, a fix; a working one, the next feature or polish that fits what it is. Like: NEXT: add a score | make it faster
@@ -228,8 +236,24 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
     else { const c = clean(p.kit, use.input?.change ?? {}); if (Object.keys(c).length) change = c; }
   }
   const built = !!(change || newFiles);
+  // New voices it asked for: designed and kept through project-voice as this person (their limits apply), first take.
+  const made: string[] = [], missed: string[] = [];
+  if (newFiles && Array.isArray(use?.input?.voices)) {
+    const pv = (q: unknown) => fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/project-voice`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(q) }).then((x) => x.json()).catch(() => ({ error: 'Voices aren’t answering just now.' }));
+    const have = new Set((fv ?? []).map((x: { name: string }) => x.name.toLowerCase()));
+    for (const nv of use.input.voices.slice(0, 2)) {
+      const vn = String(nv?.name ?? '').trim().slice(0, 30), vd = String(nv?.description ?? '').trim().slice(0, 400);
+      if (!vn || vd.length < 20 || have.has(vn.toLowerCase())) continue;
+      const dz = await pv({ design: { text: vd } });
+      const t = dz.previews?.[0];
+      const kz = t ? await pv({ keep: { id: t.id, audio: t.audio, name: vn, text: vd } }) : dz;
+      if (kz.voice) made.push(vn); else missed.push(`${vn} (${kz.error ?? 'it didn’t come out'})`);
+    }
+  }
+  const voiceNote = (made.length ? ` I made the voice${made.length > 1 ? 's' : ''} ${made.join(' and ')}: hear or remake ${made.length > 1 ? 'them' : 'it'} in Settings › Voices.` : '')
+    + (missed.length ? ` I couldn’t make the voice ${missed.join(', ')}, so it’ll use the narrator until there is one by that name.` : '');
   if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? (freeStart ? 'start' : 'build') : 'ask' });
-  return json({ say: say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?'),
+  return json({ say: (say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?')) + voiceNote,
     note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart ? 1 : 0)) });
 });

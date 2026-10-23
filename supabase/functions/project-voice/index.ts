@@ -30,16 +30,40 @@ const MY_VOICES = 5;   // voices a kid can keep at once
 const TTS_MODEL = 'eleven_flash_v2_5';
 const EL = 'https://api.elevenlabs.io';
 // Friendly names for ElevenLabs' stock voices; a project picks one by name (or a family voice by its name).
+// VOICE_ABOUT says what each sounds like (project-build tells Claude, the Voices page shows it); keep the two in step.
 const VOICES: Record<string, string> = {
-  narrator: 'JBFqnCBsd6RMkjVDRZzb',   // George: warm storyteller
+  narrator: 'JBFqnCBsd6RMkjVDRZzb',   // George
   friendly: 'EXAVITQu4vr4xnSDxMaL',   // Sarah
   cheerful: 'cgSgspJ2msm6clMCkdW9',   // Jessica
-  announcer: 'TX3LPaxmHKxFdv7VOQHJ',  // Liam: energetic
+  announcer: 'TX3LPaxmHKxFdv7VOQHJ',  // Liam
   deep: 'nPczCjzI2devNBz1zQrb',       // Brian
   calm: 'pFZP5JQG7iQjIQuC4Bku',       // Lily
   gravelly: 'N2lVS1w4EtoT3dr4eOWO',   // Callum
   playful: 'IKne3meq5aSn9XLyUdCD',    // Charlie
+  bubbly: 'FGY2WhTYpPnrIDTdsKH5',     // Laura
+  warm: 'XrExE9yKIg1WjnnlVkGX',       // Matilda
+  bright: 'Xb7hH8MSUJpSxSDYk0k2',     // Alice
+  grandpa: 'pqHfZKP75CyOlSl2ubNM',    // Bill
+  newsreader: 'onwK4e9ZLuTAKqWW03F9', // Daniel
 };
+const VOICE_ABOUT: Record<string, string> = {
+  narrator: 'man, older, British, warm storyteller',
+  friendly: 'young woman, American, soft and kind',
+  cheerful: 'young woman, American, lively and expressive',
+  announcer: 'young man, American, energetic',
+  deep: 'man, American, deep and smooth',
+  calm: 'woman, British, warm and calm',
+  gravelly: 'man, gravelly and intense, a bit gruff',
+  playful: 'young man, Australian, casual and playful',
+  bubbly: 'young woman, American, upbeat, quirky and bubbly',
+  warm: 'woman, American, warm and friendly',
+  bright: 'woman, British, clear and confident',
+  grandpa: 'old man, American, wise and crackly',
+  newsreader: 'man, British, crisp and formal',
+};
+// Lines with delivery tags ("[giggles] Oh wow!") use the expressive model; plain lines the fast one.
+const TTS_V3 = 'eleven_v3';
+const TAGGED = /\[[a-z][a-z ,'-]{1,30}\]/i;
 const AGENT_PROMPT = `You are a character in a little project someone in a family made on their home app, r4box. They talk to you out loud.
 Play this character: {{persona}}
 The project: {{project}}. You're talking with {{who}}.
@@ -144,7 +168,7 @@ Deno.serve(async (req) => {
     return f ? { name: f.name, id: f.voice_id } : null;
   };
 
-  if (!Object.keys(body).length) return json({ left: left(), voices: [...Object.keys(VOICES).map((name) => ({ name, stock: true })), ...(family ?? []).map((v) => ({ id: v.id, name: v.name, description: v.description, sample: v.sample, mine: v.owner === user.id }))] });
+  if (!Object.keys(body).length) return json({ left: left(), voices: [...Object.keys(VOICES).map((name) => ({ name, about: VOICE_ABOUT[name], stock: true })), ...(family ?? []).map((v) => ({ id: v.id, name: v.name, description: v.description, sample: v.sample, mine: v.owner === user.id }))] });
   if (!KEY()) {
     const near = lookalikes();
     console.error('no ElevenLabs key; secrets that look like one:', near.join(', ') || 'none');
@@ -175,17 +199,21 @@ Deno.serve(async (req) => {
     const voice = kind === 'say' ? (voiceOf(a.voice) ?? { name: 'narrator', id: VOICES.narrator }) : null;
     const secs = Number.isFinite(+a.seconds) && a.seconds != null
       ? (kind === 'sfx' ? Math.min(10, Math.max(0.5, +a.seconds)) : kind === 'music' ? Math.round(Math.min(60, Math.max(5, +a.seconds))) : null) : (kind === 'music' ? 30 : null);
-    const hash = await sha(kind === 'say' ? `say|${TTS_MODEL}|${voice!.id}|${text}` : `${kind}|${secs ?? 'auto'}|${text}`);
+    const model = kind === 'say' && TAGGED.test(text) ? TTS_V3 : TTS_MODEL;
+    const hash = await sha(kind === 'say' ? `say|${model}|${voice!.id}|${text}` : `${kind}|${secs ?? 'auto'}|${text}`);
     const path = `${kind}/${hash}.mp3`;
     const url = admin.storage.from('project-audio').getPublicUrl(path).data.publicUrl;
     const { data: have } = await admin.from('project_audio').select('id').eq('hash', hash).maybeSingle();
     if (have) return json({ url, cached: true, left: left() });
     if (over(kind === 'music' ? 'music' : 'clips')) return json({ error: kind === 'music' ? 'That’s all the new music for today. Tracks you’ve made still play. Back tomorrow!' : 'That’s all the new sounds for today. Ones you’ve made still play. Back tomorrow!', left: left() }, 429);
-    const r = kind === 'say'
-      ? await el(`/v1/text-to-speech/${voice!.id}?output_format=mp3_44100_128`, { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ text, model_id: TTS_MODEL }) })
+    const tts = (m: string, t: string) => el(`/v1/text-to-speech/${voice!.id}?output_format=mp3_44100_128`, { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ text: t, model_id: m }) });
+    let r = kind === 'say'
+      ? await tts(model, text)
       : kind === 'sfx'
       ? await el('/v1/sound-generation?output_format=mp3_44100_128', { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ text, prompt_influence: 0.4, ...(secs ? { duration_seconds: secs } : {}) }) })
       : await el('/v1/music?output_format=mp3_44100_128', { method: 'POST', headers: { accept: 'audio/mpeg' }, body: JSON.stringify({ prompt: text, music_length_ms: secs! * 1000, force_instrumental: true }) });
+    // the expressive model isn't on every plan: say it plainly instead
+    if (!r.ok && model === TTS_V3 && r.status < 500) { await failed('say (expressive)', r); why = null; r = await tts(TTS_MODEL, text.replace(new RegExp(TAGGED.source, 'gi'), '').replace(/\s+/g, ' ').trim() || text); }
     if (!r.ok) { await failed(kind, r); return json({ error: why ?? (kind === 'music' ? 'Couldn’t make that music just now. Try describing it another way.' : 'Couldn’t make that sound just now. Try again.') }, 502); }
     const audio = new Uint8Array(await r.arrayBuffer());
     const up = await admin.storage.from('project-audio').upload(path, audio, { contentType: 'audio/mpeg', upsert: true, cacheControl: '31536000' });
