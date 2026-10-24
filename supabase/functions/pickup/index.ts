@@ -3,8 +3,8 @@
 // while the pickup is on; this asks Google for the drive time to the pickup place, keeps only
 // the minutes (eta_at) and how far along the route (done_m), and forgets the position. The kid sees a card counting down, with
 // alerts when the parent sets off, is about 5 minutes away, is running late, and is here.
-// The card also shows the drive as a road (126): Google's route with its turns, and the traffic lights,
-// train crossings and landmarks on it from OpenStreetMap, with how far along it the car is (done_m).
+// The card also shows the drive as a road (126): Google's route with its turns and landmarks (Places along
+// the route), and the traffic lights and train crossings on it from OpenStreetMap, with how far along it the car is (done_m).
 // The route's line stays in pickup_lines, which only this reads.
 //
 // POST { start: { kid, place? | address?, name?, from: { lat, lng } }, ask? }  a parent sets off (ask: the kid's ask it answers)
@@ -18,7 +18,7 @@
 // Practice (125): start.test or ask.test from a parent (ask.kid: whose ask to play) makes a pickup only
 // that parent sees: no card in the chat, and the kid's alerts go to the parent, marked 🧪. The parent
 // may answer for the kid on it (note) to see both sides.
-// Secrets: GOOGLE_MAPS_KEY (Routes API and Geocoding API), the VAPID_* for alerts. SUPABASE_* are automatic.
+// Secrets: GOOGLE_MAPS_KEY (Routes, Geocoding and Places APIs), the VAPID_* for alerts. SUPABASE_* are automatic.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 import webpush from 'npm:web-push@3.6.7';
@@ -55,7 +55,7 @@ async function driveMin(a: Pos, b: Pos): Promise<number> {
 }
 type Pt = [number, number, number];   // lat, lng, metres from the start
 type Mark = { d: number; k: 'turn' | 'light' | 'spot' | 'rail'; e: string; n?: string };
-type Route = { min: number; m: number; line: Pt[]; marks: Mark[] };
+type Route = { min: number; m: number; line: Pt[]; marks: Mark[]; enc?: string };
 // The drive itself (126): minutes, the line, and the turns from Google's steps.
 async function routes(a: Pos, b: Pos, mask = 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction'): Promise<Route> {
   const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -92,7 +92,7 @@ async function routes(a: Pos, b: Pos, mask = 'routes.duration,routes.distanceMet
     }
     acc += (x.distanceMeters ?? 0) * scale;
   });
-  return { min, m, line, marks };
+  return { min, m, line, marks, enc };
 }
 // Google's encoded polyline.
 function decode(s: string): [number, number][] {
@@ -134,55 +134,72 @@ function simplify(line: Pt[], max = 300): Pt[] {
     if (out.length <= max) return out;
   }
 }
-const SPOT: Record<string, [string, number]> = {
-  'amenity=school': ['🏫', 3], 'amenity=college': ['🎓', 3], 'amenity=university': ['🎓', 3], 'amenity=hospital': ['🏥', 3], 'amenity=place_of_worship': ['⛪', 2],
-  'amenity=library': ['📚', 2], 'amenity=fire_station': ['🚒', 2], 'amenity=police': ['🚓', 2], 'amenity=fuel': ['⛽', 1.5], 'amenity=fast_food': ['🍔', 1.5],
-  'amenity=cafe': ['☕', 1], 'amenity=restaurant': ['🍽️', 1], 'amenity=ice_cream': ['🍦', 1.5], 'amenity=cinema': ['🎬', 2], 'amenity=bank': ['🏦', 0.5],
-  'amenity=pharmacy': ['💊', 1], 'amenity=post_office': ['🏤', 1], 'shop=supermarket': ['🛒', 2.5], 'shop=mall': ['🛍️', 3], 'shop=department_store': ['🛍️', 2.5],
-  'shop=*': ['🛍️', 0.5], 'leisure=park': ['🌳', 2.5], 'leisure=stadium': ['🏟️', 3], 'leisure=sports_centre': ['🏀', 1.5], 'leisure=playground': ['🛝', 1.5],
-  'leisure=golf_course': ['⛳', 2], 'tourism=museum': ['🏛️', 3], 'tourism=attraction': ['⭐', 2.5], 'tourism=hotel': ['🏨', 1], 'historic=*': ['🏛️', 2],
-};
-// The lights, train crossings and landmarks on the way, from OpenStreetMap. Lights within 25 m of the
-// line (one per crossing), landmarks with a name within 90 m, the best-known few, spread out.
-async function sights(line: Pt[], m: number): Promise<Mark[]> {
-  const pts = simplify(line).map(([a, b]) => `${a},${b}`).join(',');
-  // Everything near the line once, then sorted by kind (much quicker than asking per kind).
-  const kinds = ['amenity', 'shop', 'leisure', 'tourism', 'historic'];
-  const q = `[out:json][timeout:25];node(around:90,${pts})->.n;way(around:90,${pts})["name"]->.w;(node.n["highway"="traffic_signals"];node.n["railway"="level_crossing"];` +
-    kinds.map((k) => `node.n["name"]["${k}"];way.w["${k}"];`).join('') + ');out center tags;';
-  let els: { lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string>; type: string }[] = [];
-  for (const host of ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']) {
-    try {
-      const r = await fetch(host, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'r4box-pickup/1.0' }, body: 'data=' + encodeURIComponent(q), signal: AbortSignal.timeout(30000) });
-      if (r.ok) { els = (await r.json()).elements ?? []; break; }
-      console.error('overpass', host, r.status);
-    } catch (e) { console.error('overpass', host, e); }
+// The traffic lights and train crossings on the way, from OpenStreetMap: small boxes along the line (the
+// index makes those quick; "around" a long line is not), then only what's within 30 m of it, one per crossing.
+// The public servers are busy and overpass-api.de refuses Supabase, so all three mirrors are asked at once.
+async function lights(line: Pt[]): Promise<Mark[]> {
+  const boxes: number[][] = [];
+  let box: number[] | null = null, from = 0;
+  for (const [lat, lng, d] of line) {
+    box = box ? [Math.min(box[0], lat), Math.min(box[1], lng), Math.max(box[2], lat), Math.max(box[3], lng)] : [lat, lng, lat, lng];
+    if (d - from > 2000) { boxes.push(box); box = [lat, lng, lat, lng]; from = d; }
   }
-  const lights: number[] = [], rails: number[] = [], spots: (Mark & { s: number })[] = [];
+  if (box) boxes.push(box);
+  const bb = boxes.map((b) => { const dy = 0.0004, dx = dy / Math.cos(b[0] * Math.PI / 180); return [b[0] - dy, b[1] - dx, b[2] + dy, b[3] + dx].map((x) => x.toFixed(5)).join(','); });
+  const q = '[out:json][timeout:80];(' + bb.map((b) => `node["highway"="traffic_signals"](${b});node["railway"="level_crossing"](${b});`).join('') + ');out;';
+  const ask = (host: string) => fetch(host, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'r4box-pickup/1.0' }, body: 'data=' + encodeURIComponent(q), signal: AbortSignal.timeout(90_000) })
+    .then(async (r) => { if (!r.ok) throw new Error(`${host} ${r.status}`); const j = await r.json(); if (!Array.isArray(j.elements)) throw new Error(`${host} no elements`); return j.elements; });
+  const els = await Promise.any(['https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'].map(ask)) as { lat: number; lon: number; tags?: Record<string, string> }[];
+  const sig: number[] = [], rail: number[] = [];
   for (const el of els) {
-    const lat = el.lat ?? el.center?.lat, lng = el.lon ?? el.center?.lon, t = el.tags ?? {};
-    if (lat == null || lng == null) continue;
-    const { d, off } = along(line, { lat, lng });
-    if (t.highway === 'traffic_signals') { if (off <= 30) lights.push(d); continue; }
-    if (t.railway === 'level_crossing') { if (off <= 25) rails.push(d); continue; }
-    if (off > 100 || d < 120 || d > m - 120) continue;
-    const key = kinds.map((k) => t[k] ? (SPOT[`${k}=${t[k]}`] ? `${k}=${t[k]}` : SPOT[`${k}=*`] ? `${k}=*` : '') : '').find(Boolean);
-    if (!key) continue;
-    const [e, w] = SPOT[key];
-    const s = w + (t.wikidata ? 3 : 0) + (t.brand || t['brand:wikidata'] ? 1.5 : 0) + (el.type !== 'node' ? 1 : 0) - off / 100;
-    spots.push({ d, k: 'spot', e, n: t.name.slice(0, 50), s });
+    const { d, off } = along(line, { lat: el.lat, lng: el.lon });
+    if (el.tags?.highway === 'traffic_signals' && off <= 30) sig.push(d);
+    else if (el.tags?.railway === 'level_crossing' && off <= 25) rail.push(d);
   }
   // Signals at one crossing are several nodes: one light per 60 m.
-  const one = (ds: number[], gap: number) => ds.sort((a, b) => a - b).filter((d, i, a) => !i || d - a[i - 1] > gap);
-  const gap = Math.max(250, m * 0.12), picked: Mark[] = [];
-  for (const sp of spots.sort((a, b) => b.s - a.s)) {
+  const one = (ds: number[]) => ds.sort((a, b) => a - b).filter((d, i, a) => !i || d - a[i - 1] > 60);
+  return [...one(sig).map((d): Mark => ({ d, k: 'light', e: '🚦' })), ...one(rail).map((d): Mark => ({ d, k: 'rail', e: '🚂', n: 'train tracks' }))];
+}
+// Landmarks on the way, from Google Places along the route: what's within 150 m of the road, the best-known
+// (most reviewed, and the kinds you'd point at) six, spread out.
+const SPOT: [RegExp, string, number][] = [
+  [/school/, '🏫', 2], [/university|college/, '🎓', 2], [/hospital/, '🏥', 2], [/church|place_of_worship|mosque|synagogue|temple/, '⛪', 1.5],
+  [/stadium|arena/, '🏟️', 3], [/amusement_park/, '🎢', 3], [/zoo|aquarium/, '🦁', 3], [/park/, '🌳', 2], [/beach/, '🏖️', 3], [/airport/, '✈️', 3],
+  [/shopping_mall/, '🛍️', 2.5], [/supermarket|grocery/, '🛒', 1.5], [/gas_station/, '⛽', 1], [/fast_food|hamburger|pizza/, '🍔', 1.5],
+  [/coffee|cafe/, '☕', 1], [/ice_cream|dessert/, '🍦', 1.5], [/library/, '📚', 1.5], [/museum/, '🏛️', 2.5], [/tourist_attraction|landmark|monument/, '⭐', 3],
+  [/movie_theater/, '🎬', 2], [/fire_station/, '🚒', 1.5], [/police/, '🚓', 1], [/restaurant/, '🍽️', 0.5],
+];
+async function spots(enc: string, line: Pt[], m: number, after: number): Promise<Mark[]> {
+  const found = new Map<string, Mark & { s: number }>();
+  await Promise.all(['landmarks', 'parks and schools', 'shopping centers', 'fast food and gas stations'].map(async (textQuery) => {
+    try {
+      const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method: 'POST', signal: AbortSignal.timeout(15_000),
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY!, 'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.primaryType,places.types,places.userRatingCount' },
+        body: JSON.stringify({ textQuery, maxResultCount: 20, searchAlongRouteParameters: { polyline: { encodedPolyline: enc } } }),
+      });
+      if (!r.ok) { console.error('places', r.status, (await r.text()).slice(0, 200)); return; }
+      for (const pl of (await r.json()).places ?? []) {
+        const at = pl.location, name = pl.displayName?.text;
+        if (!at || !name || found.has(pl.id)) continue;
+        const { d, off } = along(line, { lat: at.latitude, lng: at.longitude });
+        if (off > 150 || d < after + 120 || d > m - 120) continue;
+        const types = [pl.primaryType ?? '', ...(pl.types ?? [])].join(' ');
+        const kind = SPOT.find(([re]) => re.test(types));
+        if (!kind) continue;
+        found.set(pl.id, { d, k: 'spot', e: kind[1], n: String(name).slice(0, 50), s: kind[2] + Math.log10((pl.userRatingCount ?? 0) + 1) * 1.5 - off / 100 });
+      }
+    } catch (e) { console.error('places', e); }
+  }));
+  const gap = Math.max(250, (m - after) * 0.12), picked: Mark[] = [];
+  for (const sp of [...found.values()].sort((a, b) => b.s - a.s)) {
     if (picked.length >= 6) break;
     if (picked.some((x) => Math.abs(x.d - sp.d) < gap || x.n === sp.n)) continue;
     picked.push({ d: sp.d, k: 'spot', e: sp.e, n: sp.n });
   }
-  return [...one(lights, 60).map((d): Mark => ({ d, k: 'light', e: '🚦' })), ...one(rails, 60).map((d): Mark => ({ d, k: 'rail', e: '🚂', n: 'train tracks' })), ...picked];
+  return picked;
 }
-// The route for the card: the turns now, the lights and landmarks once OpenStreetMap answers.
+// The route for the card: the turns now, then the landmarks and the lights as they come.
 // A new route on the way (they left the old one) carries on from where they are: what's behind stays.
 async function setRoute(id: string, ro: Route, from: Pos, prev?: { done: number; route: { from?: unknown; marks?: Mark[] } }) {
   if (!ro.line.length) return;
@@ -199,15 +216,19 @@ async function setRoute(id: string, ro: Route, from: Pos, prev?: { done: number;
   const base = { v, m: ro.m, from: start };
   await admin.from('pickup_lines').upsert({ pickup: id, pts: ro.line, at: new Date().toISOString() });
   await admin.from('pickups').update({ route: { ...base, marks: ro.marks, ready: false } }).eq('id', id);
-  EdgeRuntime.waitUntil((async () => {
-    let more: Mark[] = [];
-    try { more = (await sights(ro.line.filter((x) => x[2] >= off), ro.m)).filter((x) => x.d > off); } catch (e) { console.error('sights', e); }
+  // Landmarks (Google, quick) and lights (OpenStreetMap, slow) each go on the card as they come.
+  const got: { spots?: Mark[]; lights?: Mark[] } = {};
+  const put = async () => {
     const { data: now } = await admin.from('pickups').select('route').eq('id', id).maybeSingle();
     if (now?.route?.v !== v) return;   // re-routed since
-    // A turn at a light keeps the turn; the light shows too.
-    const marks = [...ro.marks, ...more].sort((a, b) => a.d - b.d);
-    await admin.from('pickups').update({ route: { ...base, marks, ready: true } }).eq('id', id);
-  })());
+    const marks = [...ro.marks, ...(got.spots ?? []), ...(got.lights ?? [])].sort((a, b) => a.d - b.d);
+    await admin.from('pickups').update({ route: { ...base, marks, ready: !!got.lights } }).eq('id', id);
+  };
+  const ahead = ro.line.filter((x) => x[2] >= off);
+  EdgeRuntime.waitUntil(Promise.all([
+    (ro.enc ? spots(ro.enc, ro.line, ro.m, off) : Promise.resolve([])).then((x) => { got.spots = x; return put(); }),
+    lights(ahead).catch((e) => { console.error('lights', e); return [] as Mark[]; }).then((x) => { got.lights = x.filter((y) => y.d > off); return put(); }),
+  ]).catch((e) => console.error('sights', e)));
 }
 async function geocode(address: string): Promise<(Pos & { address: string }) | null> {
   const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${KEY}`);
