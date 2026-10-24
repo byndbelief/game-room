@@ -300,7 +300,8 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   }
   const voiceNote = (made.length ? ` I made the voice${made.length > 1 ? 's' : ''} ${made.join(' and ')}: hear or remake ${made.length > 1 ? 'them' : 'it'} in Settings › Voices.` : '')
     + (missed.length ? ` I couldn’t make the voice ${missed.join(', ')}, so it’ll use the narrator until there is one by that name.` : '');
-  if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
+  // (not when the change it describes never happened: the notes would say it's done)
+  if (brief && brief !== p.brief && !cutOff) await admin.from('projects').update({ brief }).eq('id', p.id);
   // New files are saved here, so they're kept even if nobody is waiting for the answer any more.
   let saved: { versions: unknown[]; cur: number; name?: string } | null = null;
   if (newFiles) {
@@ -314,5 +315,5 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   }
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: fixing ? 'fix' : built ? (freeStart ? 'start' : 'build') : 'ask' });
   return json({ say: cutOff ? failNote : (say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?')) + voiceNote,
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, saved: saved ?? undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart && !fixing ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, saved: saved ?? undefined, brief: brief && brief !== p.brief && !cutOff ? brief : undefined, left: leftOf(builds + (built && !freeStart && !fixing ? 1 : 0)) });
 });
