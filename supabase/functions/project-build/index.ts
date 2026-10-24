@@ -200,11 +200,17 @@ Deno.serve(async (req) => {
     input_schema: { type: 'object', required: ['note', 'files'], properties: {
       note: { type: 'string', description: 'what changed, a few words, like a commit message' },
       files: { type: 'object', description: 'file name -> its whole new content', additionalProperties: { type: 'string' } }, name: NAME, voices: VOICES_NEW } } };
+  // Adding to a big file: change only the parts that change (a whole rewrite of a big project can run out of room)
+  const edit = { name: 'edit_files', description: 'Change the project by replacing exact pieces of its files; best for adding to or changing part of a file that is already long. Each find is copied exactly from the file as it is now (enough lines to appear only once) and is replaced by replace. New files go whole under files.',
+    input_schema: { type: 'object', required: ['note', 'edits'], properties: {
+      note: { type: 'string', description: 'what changed, a few words, like a commit message' },
+      edits: { type: 'array', items: { type: 'object', required: ['file', 'find', 'replace'], properties: { file: { type: 'string' }, find: { type: 'string', description: 'exact text from the file now, appearing once' }, replace: { type: 'string', description: 'what goes there instead' } } } },
+      files: { type: 'object', description: 'any brand-new files, whole', additionalProperties: { type: 'string' } }, name: NAME, voices: VOICES_NEW } } };
   const rebuild = { name: 'rebuild_as_code', description: 'When the settings can\'t do what they ask: rebuild the project as real code that does everything it does now plus what they asked. It becomes a code project from then on.',
     input_schema: { type: 'object', required: ['note', 'files'], properties: {
       note: { type: 'string', description: 'what changed, a few words, like "Added a lap counter"' },
       files: { type: 'object', description: 'index.html (the page, without its own script), style.css and main.js (runs after the page)', additionalProperties: { type: 'string' } }, name: NAME, voices: VOICES_NEW } } };
-  const tools = code ? [write] : [{ name: 'change_project', description: 'Change the project: give only the settings that change.',
+  const tools = code ? [write, edit] : [{ name: 'change_project', description: 'Change the project: give only the settings that change.',
         input_schema: { type: 'object', required: ['note', 'change'], properties: {
           note: { type: 'string', description: 'what changed, a few words, like "Faster, red background"' },
           change: { type: 'object', properties: Object.fromEntries(Object.entries(kit.fields).map(([k, f]) => [k,
@@ -214,11 +220,11 @@ Deno.serve(async (req) => {
 
   const system = `You help ${who} make things on their family's home app r4box. They're on the workbench of a project and asked you something. Reply in one or two short, friendly sentences, plain text.
 ${code
-  ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call write_files with each changed file in full; keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
+  ? `This is a code project: real files (index.html, style.css, main.js, maybe more) that run in a sandboxed preview. main.js runs after the page. To change it, call edit_files to replace just the parts that change (best for adding to a long file), or write_files with each changed file in full (best for a small file or a rewrite); either way keep their code and style, change only what's needed, and make sure it still runs. If they want it to become something completely different, that's fine: write the new files (and give it a new name). To explain or debug, just answer (point to the line). They're learning, so say what you changed and why in plain words.`
   : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
 It can talk, make sounds and music, and hold a conversation (all made by ElevenLabs, through the page): \`r4.say(text, voice)\` speaks a line, \`r4.sfx(description, seconds)\` plays a sound effect made from a short description like "cartoon boing" or "crowd cheering" (seconds optional, up to 10), and \`r4.music(description, seconds)\` plays a looping instrumental track like "chill 8-bit adventure" (5 to 60 seconds, default 30) and resolves with its Audio so you can \`.pause()\` it. say and sfx return a promise that resolves when the clip ends. Voices (pick by who's speaking; a voice's gender, age and accent matter): ${STOCK}${voiceNames ? `; and the family's own: ${voiceNames}` : ''}. When none of them fit what they want (a particular pitch, age, accent or a known character), make one: give it under voices in your tool call with a name and a full description of how it sounds, and use that name in the code (the app tells them it made the voice, so you needn't). Delivery tags in square brackets make a line expressive, like r4.say('[gasps] Oh no! [giggles] Just kidding!', 'bubbly'): [excited], [whispers], [laughs], [giggles], [sighs], [gasps], [shouting], [nervous]; use them for characters with big feelings. \`r4.talk({ persona, voice, first, onMessage, onMode })\` starts a live spoken conversation with a character (persona: who it is and how it acts, in a sentence or two; first: its opening line; onMessage gets { who: 'character' | 'me', text } for captions; onMode gets 'speaking' or 'listening', good for a mouth or glow); it resolves with every line when it ends, a talk bar on the page lets them hang up, and \`r4.hangup()\` ends it. Start it from a button they tap. Each new line, sound or track is made once and costs one of their daily new sounds, so keep the wording fixed (no scores or random numbers inside the text; say "Nice catch!" not "Score 12!"), call \`r4.load('sfx', text)\`, \`r4.load('music', text)\` or \`r4.load('say', text, voice)\` at the start for ones played often so they're instant, and only play sounds after the first tap. Use them when they ask for talking, a voice, narration, sound effects, music or a character to talk to; the tone() beep is still there for quick blips.
 ${start ? 'They just started this project from an idea, and its files are only the starter it began from. Build the whole idea they describe as a complete, polished, working thing in one go: write every file new (replace the starter entirely), make it feel finished and fun on a phone (touch controls first, keys too on a computer), give it a clear look with its own colours, and keep the code tidy and readable, with short comments, since they will learn from it and keep growing it. Keep it compact enough to write in one go: under about 350 lines in all, so it fits the time a build has. Say what you built and two or three things they could add next.\n' : ''}${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
-${fixing ? 'This is r4box checking your work, not them: it just ran the version you wrote (the files below) and it showed the errors below as it started. Fix them with write_files, changing only what is needed. Say in one short sentence, starting with "I tried it and", what was wrong and that it is fixed. No brief and no NEXT line this time.\n' : ''}What a project can and can't do on r4box (its preview is a sandboxed frame with no origin of its own; this is r4box's doing, not their code's):
+${fixing ? 'This is r4box checking your work, not them: it just ran the version you wrote (the files below) and it showed the errors below as it started. Fix them with edit_files (or write_files), changing only what is needed. Say in one short sentence, starting with "I tried it and", what was wrong and that it is fixed. No brief and no NEXT line this time.\n' : ''}What a project can and can't do on r4box (its preview is a sandboxed frame with no origin of its own; this is r4box's doing, not their code's):
 - Works: canvas, WebGL, Web Audio, touch and keys; the microphone for sound (getUserMedia({ audio: … }) from a tap: the page listens for it with a bar saying so, and gives it an ordinary stream; ask for echoCancellation, noiseSuppression and autoGainControl false for music or pitch); localStorage and sessionStorage (r4box keeps the project's own on this device); fetch to web APIs that allow any origin (CORS *), WebSockets; scripts, ES modules, images and fonts from CDNs like cdn.jsdelivr.net (plain code is still best for a small thing).
 - Doesn't work (it fails or does nothing): the camera; location; IndexedDB and cookies (beyond r4box's stand-in); the clipboard; fullscreen; pointer lock; the screen wake lock; navigator.share; downloads; window.open and pop-ups; links or forms to other pages (they stay put, with a note in the console); fetch to sites that don't allow other origins; speech recognition; notifications. alert, confirm and prompt work only on the workbench, nowhere else: draw your own dialogs.
 Plan around these from the start. When what they ask needs one of them, don't keep rewriting their code or only polish the error message: say plainly, in one sentence, that r4box doesn't let projects do that yet (it's not their code), offer what can be done instead, and on its own line write WALL: and, in a few words for the grown-up who runs r4box, what r4box would need to allow (like "WALL: the camera in project previews"). Write WALL only for a limit of r4box, never for a bug in their code.
@@ -230,10 +236,11 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
     ? `The files:\n${Object.entries(files!).map(([k, s]) => `--- ${k}\n${s}`).join('\n')}\n${logs ? `\nThe preview's console:\n${logs}\n` : ''}\nThey ask: ${ask}`
     : `The project "${p.name}" now: ${JSON.stringify(v.params)}${kitHtml ? `\n\nIts page as the kit builds it:\n${kitHtml}` : ''}\n\nThey ask: ${ask}`);
 
+  // a change gets about two minutes of writing (16000): the free plan stops a function at 150 s
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, system, max_tokens: code || kitHtml ? 12000 : 1200, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? tools : [] }),
+    body: JSON.stringify({ model: MODEL, system, max_tokens: code || kitHtml ? 16000 : 1200, messages: [{ role: 'user', content: img ? [{ type: 'image', source: { type: 'base64', media_type: 'image/' + img[1], data: img[2] } }, { type: 'text', text: content }] : content }], tools: canBuild ? tools : [] }),
   });
   if (!r.ok) { console.error('anthropic', r.status, (await r.text()).slice(0, 300)); return json({ error: 'Claude couldn’t answer just now. Try again.' }, 502); }
   const d = await r.json();
@@ -248,15 +255,32 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   const say = (nm ? words.slice(0, nm.index) : words).trim();
   const next = nm ? nm[1].split('|').map((x) => x.trim().replace(/^["'`]+|["'`.]+$/g, '')).filter((x) => x && x.length <= 40).slice(0, 3) : [];
   const use = (d.content ?? []).find((b: { type: string; name?: string }) => b.type === 'tool_use');
-  let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '', name = '';
+  let change: Record<string, unknown> | null = null, newFiles: Record<string, string> | null = null, note = '', name = '', missedEdit = '';
   if (use && canBuild) {
     note = String(use.input?.note ?? '').trim().slice(0, 80);
     name = typeof use.input?.name === 'string' ? use.input.name.trim().slice(0, 60) : '';
     if (use.name === 'write_files') { const f = cleanFiles(use.input?.files); if (f) newFiles = { ...files!, ...f }; }
+    else if (use.name === 'edit_files') {
+      const out: Record<string, string> = { ...files!, ...(cleanFiles(use.input?.files) ?? {}) };
+      const eds = Array.isArray(use.input?.edits) ? use.input.edits : [];
+      for (const e of eds) {
+        const f = String(e?.file ?? ''), find = String(e?.find ?? ''), at = find ? (out[f] ?? '').indexOf(find) : -1;
+        if (at < 0 || out[f].indexOf(find, at + 1) >= 0) { missedEdit = `${f}: ${find.split('\n')[0].slice(0, 60)}`; break; }
+        out[f] = out[f].slice(0, at) + String(e?.replace ?? '') + out[f].slice(at + find.length);
+      }
+      if (eds.length && !missedEdit && cleanFiles(out)) newFiles = cleanFiles(out);
+    }
     else if (use.name === 'rebuild_as_code') { const f = cleanFiles(use.input?.files); if (f && f['index.html'] != null) newFiles = { 'style.css': '', 'main.js': '', ...f }; }
     else { const c = clean(p.kit, use.input?.change ?? {}); if (Object.keys(c).length) change = c; }
   }
   const built = !!(change || newFiles);
+  // It meant to change it but nothing came of it: say so, instead of words written before the change that say it's done
+  const cutOff = !built && (d.stop_reason === 'max_tokens' || !!use || !!missedEdit);
+  if (cutOff) console.error('no change', d.stop_reason, use?.name, missedEdit);
+  const failNote = d.stop_reason === 'max_tokens'
+    ? 'That was too big to write in one go, so nothing changed (and no build was used). Ask for it in smaller steps, like the first part on its own.'
+    : missedEdit ? 'My change didn’t line up with the code, so nothing changed (and no build was used). Try asking again.'
+    : 'Nothing changed that time (and no build was used). Try asking again.';
   // New voices it asked for: designed and kept through project-voice as this person (their limits apply), first take.
   const made: string[] = [], missed: string[] = [];
   if (newFiles && Array.isArray(use?.input?.voices)) {
@@ -275,6 +299,6 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
     + (missed.length ? ` I couldn’t make the voice ${missed.join(', ')}, so it’ll use the narrator until there is one by that name.` : '');
   if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: fixing ? 'fix' : built ? (freeStart ? 'start' : 'build') : 'ask' });
-  return json({ say: (say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?')) + voiceNote,
+  return json({ say: cutOff ? failNote : (say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?')) + voiceNote,
     note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart && !fixing ? 1 : 0)) });
 });
