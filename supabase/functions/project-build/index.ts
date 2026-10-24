@@ -16,6 +16,9 @@
 //   chat:    the ✦ Vibes chat so far ([{ me, t }], last 10), so Claude doesn't repeat itself
 //   start:   a project just started from an idea (still its first version): Claude builds the whole idea;
 //            a kid's first START_FREE of those a day don't use a build (logged as 'start', 120)
+//   fix:     the page ran what Claude just wrote (files, unsaved yet) in a hidden preview and it threw these
+//            errors (logs) as it started: Claude fixes them. Up to two rounds after a build or start, within
+//            5 minutes; logged as 'fix', using no build or answer (121)
 //   next:    two or three short things to ask next, for where the project is (the page's chips)
 //   brief:   the project's brief, when Claude rewrote it (projects.brief, 112)
 //   wall:    what they asked hit a limit of r4box, not their code: what r4box would need, in a few words
@@ -112,14 +115,14 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: 'Sign in first.' }, 401);
   const role = user.app_metadata?.r4_role;
   if (role !== 'kid' && role !== 'parent') return json({ error: 'Not for this account.' }, 403);
-  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; chat?: unknown; start?: unknown; explain?: { file?: unknown; src?: unknown } };
+  let body: { project?: string; ask?: string; files?: unknown; logs?: unknown; image?: unknown; html?: unknown; chat?: unknown; start?: unknown; fix?: unknown; explain?: { file?: unknown; src?: unknown } };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
 
   // How many builds are left today (also what the page asks with no project).
   const { data: set } = await admin.from('tutor_settings').select('tz').eq('kid', user.id).maybeSingle();
   const since = local(set?.tz ?? 'America/New_York').toISOString();
   const { data: today } = await admin.from('project_builds').select('kind').eq('user_id', user.id).gte('at', since);
-  const builds = (today ?? []).filter((b) => b.kind === 'build').length, starts = (today ?? []).filter((b) => b.kind === 'start').length, asks = (today ?? []).length - builds - starts;
+  const builds = (today ?? []).filter((b) => b.kind === 'build').length, starts = (today ?? []).filter((b) => b.kind === 'start').length, asks = (today ?? []).filter((b) => b.kind === 'ask').length;
   const leftOf = (b: number) => (role === 'parent' ? null : Math.max(0, CAP - b));
   if (!body.project) return json({ left: leftOf(builds) });
 
@@ -163,10 +166,19 @@ Deno.serve(async (req) => {
   // a start: the first version of the person's own project, built whole; free for a kid's first few a day
   const start = !!body.start && p.owner === user.id && (p.versions ?? []).length === 1;
   const freeStart = start && (role === 'parent' || starts < START_FREE);
-  const canBuild = role === 'parent' || freeStart || builds < CAP;
+  // a fix round: right after this person's build or start on this project, at most two in a row
+  let fixing = false;
+  if (body.fix && cleanFiles(body.files)) {
+    const { data: lately } = await admin.from('project_builds').select('kind').eq('user_id', user.id).eq('project', p.id)
+      .gte('at', new Date(Date.now() - 5 * 60_000).toISOString()).order('at', { ascending: false }).limit(3);
+    const i = (lately ?? []).findIndex((b) => b.kind !== 'fix');
+    fixing = i >= 0 && i < 2 && ['build', 'start'].includes(lately![i].kind);
+    if (!fixing) return json({ error: 'Nothing to fix just now.' }, 400);
+  }
+  const canBuild = role === 'parent' || freeStart || fixing || builds < CAP;
 
   const v = p.versions[p.cur] ?? p.versions[p.versions.length - 1];
-  const code = p.kit === 'code' || !!v.files;   // a version with files: it already outgrew its kit
+  const code = p.kit === 'code' || !!v.files || fixing;   // a version with files: it already outgrew its kit (or just did)
   const kit = KITS[p.kit];
   const files = code ? (cleanFiles(body.files) ?? v.files ?? {}) : null;
   const logs = Array.isArray(body.logs) ? body.logs.slice(-12).map((l) => (Array.isArray(l) ? `${l[0]}: ${String(l[1]).slice(0, 300)}` : '')).join('\n') : '';
@@ -206,7 +218,7 @@ ${code
   : `It started as a "${kit.name}" made from a few settings. If the settings can do what they ask, call change_project with only the settings that change, within their bounds. If they can't (a new feature, a different layout, something completely different), don't say no: call rebuild_as_code with index.html, style.css and main.js that keep what it does now and add what they asked, and say it's now real code they can keep growing. The page as the kit builds it now is below; its script is inline, so move it into main.js. Everything runs in a sandboxed frame: no outside libraries, plain HTML, CSS and JavaScript, phone friendly.`}
 It can talk, make sounds and music, and hold a conversation (all made by ElevenLabs, through the page): \`r4.say(text, voice)\` speaks a line, \`r4.sfx(description, seconds)\` plays a sound effect made from a short description like "cartoon boing" or "crowd cheering" (seconds optional, up to 10), and \`r4.music(description, seconds)\` plays a looping instrumental track like "chill 8-bit adventure" (5 to 60 seconds, default 30) and resolves with its Audio so you can \`.pause()\` it. say and sfx return a promise that resolves when the clip ends. Voices (pick by who's speaking; a voice's gender, age and accent matter): ${STOCK}${voiceNames ? `; and the family's own: ${voiceNames}` : ''}. When none of them fit what they want (a particular pitch, age, accent or a known character), make one: give it under voices in your tool call with a name and a full description of how it sounds, and use that name in the code (the app tells them it made the voice, so you needn't). Delivery tags in square brackets make a line expressive, like r4.say('[gasps] Oh no! [giggles] Just kidding!', 'bubbly'): [excited], [whispers], [laughs], [giggles], [sighs], [gasps], [shouting], [nervous]; use them for characters with big feelings. \`r4.talk({ persona, voice, first, onMessage, onMode })\` starts a live spoken conversation with a character (persona: who it is and how it acts, in a sentence or two; first: its opening line; onMessage gets { who: 'character' | 'me', text } for captions; onMode gets 'speaking' or 'listening', good for a mouth or glow); it resolves with every line when it ends, a talk bar on the page lets them hang up, and \`r4.hangup()\` ends it. Start it from a button they tap. Each new line, sound or track is made once and costs one of their daily new sounds, so keep the wording fixed (no scores or random numbers inside the text; say "Nice catch!" not "Score 12!"), call \`r4.load('sfx', text)\`, \`r4.load('music', text)\` or \`r4.load('say', text, voice)\` at the start for ones played often so they're instant, and only play sounds after the first tap. Use them when they ask for talking, a voice, narration, sound effects, music or a character to talk to; the tone() beep is still there for quick blips.
 ${start ? 'They just started this project from an idea, and its files are only the starter it began from. Build the whole idea they describe as a complete, polished, working thing in one go: write every file new (replace the starter entirely), make it feel finished and fun on a phone (touch controls first, keys too on a computer), give it a clear look with its own colours, and keep the code tidy and readable, with short comments, since they will learn from it and keep growing it. Keep it compact enough to write in one go: under about 350 lines in all, so it fits the time a build has. Say what you built and two or three things they could add next.\n' : ''}${img ? 'They marked up a picture of the preview: red lines and circles point at what they mean. Read the marks with their words.\n' : ''}Don't repeat what you already said in the chat; build on it.
-What a project can and can't do on r4box (its preview is a sandboxed frame with no origin of its own; this is r4box's doing, not their code's):
+${fixing ? 'This is r4box checking your work, not them: it just ran the version you wrote (the files below) and it showed the errors below as it started. Fix them with write_files, changing only what is needed. Say in one short sentence, starting with "I tried it and", what was wrong and that it is fixed. No brief and no NEXT line this time.\n' : ''}What a project can and can't do on r4box (its preview is a sandboxed frame with no origin of its own; this is r4box's doing, not their code's):
 - Works: canvas, WebGL, Web Audio, touch and keys; the microphone for sound (getUserMedia({ audio: … }) from a tap: the page listens for it with a bar saying so, and gives it an ordinary stream; ask for echoCancellation, noiseSuppression and autoGainControl false for music or pitch); localStorage and sessionStorage (r4box keeps the project's own on this device); fetch to web APIs that allow any origin (CORS *), WebSockets; scripts, ES modules, images and fonts from CDNs like cdn.jsdelivr.net (plain code is still best for a small thing).
 - Doesn't work (it fails or does nothing): the camera; location; IndexedDB and cookies (beyond r4box's stand-in); the clipboard; fullscreen; pointer lock; the screen wake lock; navigator.share; downloads; window.open and pop-ups; links or forms to other pages (they stay put, with a note in the console); fetch to sites that don't allow other origins; speech recognition; notifications. alert, confirm and prompt work only on the workbench, nowhere else: draw your own dialogs.
 Plan around these from the start. When what they ask needs one of them, don't keep rewriting their code or only polish the error message: say plainly, in one sentence, that r4box doesn't let projects do that yet (it's not their code), offer what can be done instead, and on its own line write WALL: and, in a few words for the grown-up who runs r4box, what r4box would need to allow (like "WALL: the camera in project previews"). Write WALL only for a limit of r4box, never for a bug in their code.
@@ -262,7 +274,7 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   const voiceNote = (made.length ? ` I made the voice${made.length > 1 ? 's' : ''} ${made.join(' and ')}: hear or remake ${made.length > 1 ? 'them' : 'it'} in Settings › Voices.` : '')
     + (missed.length ? ` I couldn’t make the voice ${missed.join(', ')}, so it’ll use the narrator until there is one by that name.` : '');
   if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
-  await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: built ? (freeStart ? 'start' : 'build') : 'ask' });
+  await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: fixing ? 'fix' : built ? (freeStart ? 'start' : 'build') : 'ask' });
   return json({ say: (say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?')) + voiceNote,
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart && !fixing ? 1 : 0)) });
 });
