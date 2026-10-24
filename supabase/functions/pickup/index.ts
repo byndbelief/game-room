@@ -1,8 +1,11 @@
 // Pickups: "On my way" in the family chat (124). A parent picking up a kid shares how many
-// minutes away they are, never where they are. The parent's chat page sends its position here
+// minutes away they are and how far along the road (126), never a map. The parent's chat page sends its position here
 // while the pickup is on; this asks Google for the drive time to the pickup place, keeps only
-// the minutes (eta_at), and forgets the position. The kid sees a card counting down, with
+// the minutes (eta_at) and how far along the route (done_m), and forgets the position. The kid sees a card counting down, with
 // alerts when the parent sets off, is about 5 minutes away, is running late, and is here.
+// The card also shows the drive as a road (126): Google's route with its turns, and the traffic lights,
+// train crossings and landmarks on it from OpenStreetMap, with how far along it the car is (done_m).
+// The route's line stays in pickup_lines, which only this reads.
 //
 // POST { start: { kid, place? | address?, name?, from: { lat, lng } }, ask? }  a parent sets off (ask: the kid's ask it answers)
 // POST { ask: { to, place, when? } }                                        a kid asks a parent for a pickup
@@ -48,16 +51,163 @@ function metres(a: Pos, b: Pos) {
 }
 // Minutes of driving from a to b in today's traffic (Google Routes).
 async function driveMin(a: Pos, b: Pos): Promise<number> {
+  return (await routes(a, b, 'routes.duration')).min;
+}
+type Pt = [number, number, number];   // lat, lng, metres from the start
+type Mark = { d: number; k: 'turn' | 'light' | 'spot' | 'rail'; e: string; n?: string };
+type Route = { min: number; m: number; line: Pt[]; marks: Mark[] };
+// The drive itself (126): minutes, the line, and the turns from Google's steps.
+async function routes(a: Pos, b: Pos, mask = 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction'): Promise<Route> {
   const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY!, 'X-Goog-FieldMask': 'routes.duration' },
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY!, 'X-Goog-FieldMask': mask },
     body: JSON.stringify({ origin: { location: { latLng: { latitude: a.lat, longitude: a.lng } } }, destination: { location: { latLng: { latitude: b.lat, longitude: b.lng } } },
       travelMode: 'DRIVE', routingPreference: 'TRAFFIC_AWARE' }),
   });
   if (!r.ok) throw new Error(`routes ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const s = parseInt(String((await r.json()).routes?.[0]?.duration ?? ''), 10);
+  const ro = (await r.json()).routes?.[0];
+  const s = parseInt(String(ro?.duration ?? ''), 10);
   if (!Number.isFinite(s)) throw new Error('no route');
-  return Math.max(1, Math.round(s / 60));
+  const min = Math.max(1, Math.round(s / 60));
+  const enc = ro.polyline?.encodedPolyline;
+  if (!enc) return { min, m: 0, line: [], marks: [] };
+  const line: Pt[] = [];
+  for (const [lat, lng] of decode(enc)) {
+    const last = line[line.length - 1];
+    line.push([+lat.toFixed(5), +lng.toFixed(5), last ? Math.round(last[2] + metres({ lat: last[0], lng: last[1] }, { lat, lng })) : 0]);
+  }
+  const m = line[line.length - 1][2] || 1;
+  // A turn happens where its step starts; Google's step lengths are scaled to the line's.
+  const steps = (ro.legs ?? []).flatMap((l: { steps?: unknown[] }) => l.steps ?? []) as { distanceMeters?: number; navigationInstruction?: { maneuver?: string; instructions?: string } }[];
+  const scale = m / (steps.reduce((t, x) => t + (x.distanceMeters ?? 0), 0) || m);
+  const marks: Mark[] = [];
+  let acc = 0;
+  steps.forEach((x, i) => {
+    const mv = x.navigationInstruction?.maneuver ?? '', text = (x.navigationInstruction?.instructions ?? '').split('\n')[0];
+    const e = /UTURN/.test(mv) ? '↶' : /ROUNDABOUT/.test(mv) ? '⟳' : /LEFT/.test(mv) ? '↰' : /RIGHT/.test(mv) ? '↱' : /RAMP|MERGE/.test(mv) ? '⤴' : '';
+    if (i > 0 && e && acc > 30 && acc < m - 30) {
+      const road = text.match(/(?:onto|on|toward|to) (.+?)(?:\/|$)/)?.[1]?.trim();
+      const way = /UTURN/.test(mv) ? 'U-turn' : /ROUNDABOUT/.test(mv) ? 'roundabout' : /LEFT/.test(mv) ? 'left' : /RIGHT/.test(mv) ? 'right' : /MERGE/.test(mv) ? 'merge' : 'ramp';
+      marks.push({ d: Math.round(acc), k: 'turn', e, n: (road ? `${way} onto ${road}` : text || way).slice(0, 60) });
+    }
+    acc += (x.distanceMeters ?? 0) * scale;
+  });
+  return { min, m, line, marks };
+}
+// Google's encoded polyline.
+function decode(s: string): [number, number][] {
+  const out: [number, number][] = [];
+  let i = 0, lat = 0, lng = 0;
+  const next = () => { let r = 0, sh = 0, b; do { b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); return r & 1 ? ~(r >> 1) : r >> 1; };
+  while (i < s.length) { lat += next(); lng += next(); out.push([lat / 1e5, lng / 1e5]); }
+  return out;
+}
+// How far along the line a point is, and how far off it (metres).
+function along(line: Pt[], p: Pos): { d: number; off: number } {
+  const kx = 111320 * Math.cos(p.lat * Math.PI / 180), ky = 110540;
+  let best = { d: 0, off: Infinity };
+  for (let i = 1; i < line.length; i++) {
+    const [aLat, aLng, aD] = line[i - 1], [bLat, bLng, bD] = line[i];
+    const ax = (aLng - p.lng) * kx, ay = (aLat - p.lat) * ky, bx = (bLng - p.lng) * kx, by = (bLat - p.lat) * ky;
+    const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0;
+    const off = Math.hypot(ax + t * dx, ay + t * dy);
+    if (off < best.off) best = { d: aD + t * (bD - aD), off };
+  }
+  return { d: Math.round(best.d), off: best.off };
+}
+// Fewer points for the OpenStreetMap question (Douglas-Peucker, loosened until it's short).
+function simplify(line: Pt[], max = 300): Pt[] {
+  for (let tol = 8; ; tol *= 1.6) {
+    const keep = new Uint8Array(line.length); keep[0] = keep[line.length - 1] = 1;
+    const stack: [number, number][] = [[0, line.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop()!;
+      let worst = 0, at = -1;
+      for (let i = a + 1; i < b; i++) {
+        const off = along([line[a], line[b]], { lat: line[i][0], lng: line[i][1] }).off;
+        if (off > worst) { worst = off; at = i; }
+      }
+      if (worst > tol) { keep[at] = 1; stack.push([a, at], [at, b]); }
+    }
+    const out = line.filter((_, i) => keep[i]);
+    if (out.length <= max) return out;
+  }
+}
+const SPOT: Record<string, [string, number]> = {
+  'amenity=school': ['🏫', 3], 'amenity=college': ['🎓', 3], 'amenity=university': ['🎓', 3], 'amenity=hospital': ['🏥', 3], 'amenity=place_of_worship': ['⛪', 2],
+  'amenity=library': ['📚', 2], 'amenity=fire_station': ['🚒', 2], 'amenity=police': ['🚓', 2], 'amenity=fuel': ['⛽', 1.5], 'amenity=fast_food': ['🍔', 1.5],
+  'amenity=cafe': ['☕', 1], 'amenity=restaurant': ['🍽️', 1], 'amenity=ice_cream': ['🍦', 1.5], 'amenity=cinema': ['🎬', 2], 'amenity=bank': ['🏦', 0.5],
+  'amenity=pharmacy': ['💊', 1], 'amenity=post_office': ['🏤', 1], 'shop=supermarket': ['🛒', 2.5], 'shop=mall': ['🛍️', 3], 'shop=department_store': ['🛍️', 2.5],
+  'shop=*': ['🛍️', 0.5], 'leisure=park': ['🌳', 2.5], 'leisure=stadium': ['🏟️', 3], 'leisure=sports_centre': ['🏀', 1.5], 'leisure=playground': ['🛝', 1.5],
+  'leisure=golf_course': ['⛳', 2], 'tourism=museum': ['🏛️', 3], 'tourism=attraction': ['⭐', 2.5], 'tourism=hotel': ['🏨', 1], 'historic=*': ['🏛️', 2],
+};
+// The lights, train crossings and landmarks on the way, from OpenStreetMap. Lights within 25 m of the
+// line (one per crossing), landmarks with a name within 90 m, the best-known few, spread out.
+async function sights(line: Pt[], m: number): Promise<Mark[]> {
+  const pts = simplify(line).map(([a, b]) => `${a},${b}`).join(',');
+  // Everything near the line once, then sorted by kind (much quicker than asking per kind).
+  const kinds = ['amenity', 'shop', 'leisure', 'tourism', 'historic'];
+  const q = `[out:json][timeout:25];node(around:90,${pts})->.n;way(around:90,${pts})["name"]->.w;(node.n["highway"="traffic_signals"];node.n["railway"="level_crossing"];` +
+    kinds.map((k) => `node.n["name"]["${k}"];way.w["${k}"];`).join('') + ');out center tags;';
+  let els: { lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string>; type: string }[] = [];
+  for (const host of ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']) {
+    try {
+      const r = await fetch(host, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'r4box-pickup/1.0' }, body: 'data=' + encodeURIComponent(q), signal: AbortSignal.timeout(30000) });
+      if (r.ok) { els = (await r.json()).elements ?? []; break; }
+      console.error('overpass', host, r.status);
+    } catch (e) { console.error('overpass', host, e); }
+  }
+  const lights: number[] = [], rails: number[] = [], spots: (Mark & { s: number })[] = [];
+  for (const el of els) {
+    const lat = el.lat ?? el.center?.lat, lng = el.lon ?? el.center?.lon, t = el.tags ?? {};
+    if (lat == null || lng == null) continue;
+    const { d, off } = along(line, { lat, lng });
+    if (t.highway === 'traffic_signals') { if (off <= 30) lights.push(d); continue; }
+    if (t.railway === 'level_crossing') { if (off <= 25) rails.push(d); continue; }
+    if (off > 100 || d < 120 || d > m - 120) continue;
+    const key = kinds.map((k) => t[k] ? (SPOT[`${k}=${t[k]}`] ? `${k}=${t[k]}` : SPOT[`${k}=*`] ? `${k}=*` : '') : '').find(Boolean);
+    if (!key) continue;
+    const [e, w] = SPOT[key];
+    const s = w + (t.wikidata ? 3 : 0) + (t.brand || t['brand:wikidata'] ? 1.5 : 0) + (el.type !== 'node' ? 1 : 0) - off / 100;
+    spots.push({ d, k: 'spot', e, n: t.name.slice(0, 50), s });
+  }
+  // Signals at one crossing are several nodes: one light per 60 m.
+  const one = (ds: number[], gap: number) => ds.sort((a, b) => a - b).filter((d, i, a) => !i || d - a[i - 1] > gap);
+  const gap = Math.max(250, m * 0.12), picked: Mark[] = [];
+  for (const sp of spots.sort((a, b) => b.s - a.s)) {
+    if (picked.length >= 6) break;
+    if (picked.some((x) => Math.abs(x.d - sp.d) < gap || x.n === sp.n)) continue;
+    picked.push({ d: sp.d, k: 'spot', e: sp.e, n: sp.n });
+  }
+  return [...one(lights, 60).map((d): Mark => ({ d, k: 'light', e: '🚦' })), ...one(rails, 60).map((d): Mark => ({ d, k: 'rail', e: '🚂', n: 'train tracks' })), ...picked];
+}
+// The route for the card: the turns now, the lights and landmarks once OpenStreetMap answers.
+// A new route on the way (they left the old one) carries on from where they are: what's behind stays.
+async function setRoute(id: string, ro: Route, from: Pos, prev?: { done: number; route: { from?: unknown; marks?: Mark[] } }) {
+  if (!ro.line.length) return;
+  const v = Date.now(), off = prev?.done ?? 0;
+  if (off) { ro.line = ro.line.map(([a, b, d]) => [a, b, d + off]); ro.m += off; ro.marks = ro.marks.map((x) => ({ ...x, d: x.d + off })); }
+  const behind = (prev?.route?.marks ?? []).filter((x) => x.d <= off);
+  ro.marks = [...behind, ...ro.marks];
+  let start = prev?.route?.from ?? null;
+  if (!prev) {
+    const { data: pl } = await admin.from('family_places').select('name, emoji, lat, lng');
+    const near = (pl ?? []).map((x) => ({ x, m: metres(from, x) })).filter((x) => x.m < 250).sort((a, b) => a.m - b.m)[0]?.x;
+    start = near ? { e: near.emoji || '📍', n: near.name } : null;
+  }
+  const base = { v, m: ro.m, from: start };
+  await admin.from('pickup_lines').upsert({ pickup: id, pts: ro.line, at: new Date().toISOString() });
+  await admin.from('pickups').update({ route: { ...base, marks: ro.marks, ready: false } }).eq('id', id);
+  EdgeRuntime.waitUntil((async () => {
+    let more: Mark[] = [];
+    try { more = (await sights(ro.line.filter((x) => x[2] >= off), ro.m)).filter((x) => x.d > off); } catch (e) { console.error('sights', e); }
+    const { data: now } = await admin.from('pickups').select('route').eq('id', id).maybeSingle();
+    if (now?.route?.v !== v) return;   // re-routed since
+    // A turn at a light keeps the turn; the light shows too.
+    const marks = [...ro.marks, ...more].sort((a, b) => a.d - b.d);
+    await admin.from('pickups').update({ route: { ...base, marks, ready: true } }).eq('id', id);
+  })());
 }
 async function geocode(address: string): Promise<(Pos & { address: string }) | null> {
   const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${KEY}`);
@@ -173,8 +323,9 @@ Deno.serve(async (req) => {
     // One at a time per kid: a new one replaces what was going (a practice one, only your other practice).
     const old = admin.from('pickups').update({ status: 'ended', ended_at: new Date().toISOString() }).neq('status', 'ended').neq('id', asked?.id ?? '00000000-0000-0000-0000-000000000000');
     await (test ? old.eq('driver', user.id).eq('test', true) : old.eq('kid', kid.id).eq('test', false));
-    let min: number;
-    try { min = await driveMin(from, dest); } catch (e) { console.error(e); return json({ error: "Couldn't work out the drive just now. Try again." }, 502); }
+    let ro: Route;
+    try { ro = await routes(from, dest); } catch (e) { console.error(e); return json({ error: "Couldn't work out the drive just now. Try again." }, 502); }
+    const min = ro.min;
     const here = metres(from, dest) < HERE_M;
     const row = { driver: user.id, kid: kid.id, place: placeId, place_name: placeName, dest_lat: dest.lat, dest_lng: dest.lng, status: here ? 'here' : 'on_way',
       eta_at: new Date(Date.now() + min * 60_000).toISOString(), eta_first: min, started_at: new Date().toISOString(), updated_at: new Date().toISOString(), test };
@@ -182,7 +333,9 @@ Deno.serve(async (req) => {
     if (error) { console.error(error); return json({ error: 'Could not start the pickup.' }, 500); }
     if (!asked && !test) await card(user.id, `🚗 On my way to pick up ${kid.username} · ${placeName}`, p.id);
     tellKid(p, `🚗 ${name(user.id)} is on the way`, `About ${min} min to ${placeName}`);
-    return json({ pickup: p });
+    if (!here) { try { await setRoute(p.id, ro, from); } catch (e) { console.error('route', e); } }
+    const { data: q } = await admin.from('pickups').select('*').eq('id', p.id).single();
+    return json({ pickup: q ?? p });
   }
 
   // ---- the rest act on one pickup ----
@@ -203,8 +356,17 @@ Deno.serve(async (req) => {
       tellKid(p, `🚗 ${name(p.driver)} is here`, `At ${p.place_name}`);
       return json({ pickup: q });
     }
-    let min: number;
-    try { min = await driveMin(from, dest); } catch (e) { console.error(e); return json({ pickup: p }); }
+    // How far along the route they are; off it by 200 m or more, a new route from here (once a minute at most).
+    const { data: ln } = await admin.from('pickup_lines').select('pts, at').eq('pickup', p.id).maybeSingle();
+    const on = ln?.pts?.length ? along(ln.pts as Pt[], from) : null;
+    let min: number, done = on ? on.d : p.done_m;
+    try {
+      if (on && on.off > 200 && Date.now() - Date.parse(ln!.at) > 60_000 && p.route) {
+        const ro = await routes(from, dest);
+        min = ro.min; done = p.done_m ?? 0;
+        await setRoute(p.id, ro, from, { done, route: p.route });
+      } else min = await driveMin(from, dest);
+    } catch (e) { console.error(e); return json({ pickup: p }); }
     const eta = Date.now() + min * 60_000;
     // Later than first said, from where they set off: traffic.
     const late = Math.max(0, Math.round((eta - (Date.parse(p.started_at) + (p.eta_first ?? min) * 60_000)) / 60_000));
@@ -212,7 +374,7 @@ Deno.serve(async (req) => {
     const alerts: [string, string][] = [];
     if (min <= 5 && !told.five) { told.five = true; alerts.push([`🚗 ${name(p.driver)} is about ${min} min away`, `Get ready at ${p.place_name}`]); }
     else if (late >= 5 && late >= (told.late ?? 0) + 5) { told.late = late; alerts.push([`🚦 ${name(p.driver)} is running late`, `Traffic: now about ${min} min to ${p.place_name}`]); }
-    const { data: q } = await admin.from('pickups').update({ eta_at: new Date(eta).toISOString(), late_min: late, told, updated_at: now }).eq('id', p.id).select('*').single();
+    const { data: q } = await admin.from('pickups').update({ eta_at: new Date(eta).toISOString(), late_min: late, told, updated_at: now, done_m: done }).eq('id', p.id).select('*').single();
     for (const [t, b] of alerts) tellKid(p, t, b);
     return json({ pickup: q });
   }
