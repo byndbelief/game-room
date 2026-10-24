@@ -12,6 +12,9 @@
 // POST { place: { name, emoji?, address? | at: { lat, lng } } }             a parent saves a pickup spot
 // -> { pickup } (the row) or { place } or { error }
 // A pickup ends by itself an hour after it started. Positions are never written anywhere.
+// Practice (125): start.test or ask.test from a parent (ask.kid: whose ask to play) makes a pickup only
+// that parent sees: no card in the chat, and the kid's alerts go to the parent, marked 🧪. The parent
+// may answer for the kid on it (note) to see both sides.
 // Secrets: GOOGLE_MAPS_KEY (Routes API and Geocoding API), the VAPID_* for alerts. SUPABASE_* are automatic.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
@@ -90,6 +93,9 @@ Deno.serve(async (req) => {
   const name = (id: string) => fam.find((f) => f.id === id)?.username ?? 'someone';
   // Everything over an hour old ends now (a page closed mid-drive leaves nothing running).
   await admin.from('pickups').update({ status: 'ended', ended_at: new Date().toISOString() }).neq('status', 'ended').lt('started_at', new Date(Date.now() - MAX_MS).toISOString());
+  // The kid's alerts; on a practice pickup, the parent's phone gets them instead.
+  const tellKid = (p: { test?: boolean; kid: string; driver: string; id: string }, title: string, text: string) =>
+    EdgeRuntime.waitUntil(p.test ? push([p.driver], `🧪 ${title}`, `${text} (${name(p.kid)} would get this)`, 'pickup-' + p.id) : push([p.kid], title, text, 'pickup-' + p.id));
   const card = async (author: string, text: string, id: string) => {
     const { data: m } = await admin.from('chat_messages').insert({ author, body: text, ref: { type: 'pickup', id } }).select('id').single();
     if (m) await admin.from('pickups').update({ msg: m.id }).eq('id', id);
@@ -116,18 +122,25 @@ Deno.serve(async (req) => {
 
   // ---- a kid asks for a pickup ----
   if (body.ask && typeof body.ask === 'object') {
-    const a = body.ask as { to?: string; place?: string; when?: string };
-    const to = fam.find((f) => f.id === a.to && f.role === 'parent');
+    const a = body.ask as { to?: string; place?: string; when?: string; test?: boolean; kid?: string };
+    // Practice: a parent plays one of the kids asking them.
+    const test = a.test === true && role === 'parent';
+    const asker = test ? fam.find((f) => f.id === a.kid && f.role === 'kid') : fam.find((f) => f.id === user.id);
+    if (!asker) return json({ error: 'Pick whose ask to try.' }, 400);
+    const to = test ? fam.find((f) => f.id === user.id) : fam.find((f) => f.id === a.to && f.role === 'parent');
     if (!to) return json({ error: 'Ask a parent.' }, 400);
     const { data: pl } = await admin.from('family_places').select('*').eq('id', a.place ?? '').maybeSingle();
     if (!pl) return json({ error: 'Pick a place.' }, 400);
-    const { data: open } = await admin.from('pickups').select('id').eq('kid', user.id).neq('status', 'ended').limit(1);
-    if (open?.length) return json({ error: 'There is already a pickup going for you.' }, 409);
+    if (test) await admin.from('pickups').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('driver', user.id).eq('test', true).neq('status', 'ended');
+    else {
+      const { data: open } = await admin.from('pickups').select('id').eq('kid', user.id).eq('test', false).neq('status', 'ended').limit(1);
+      if (open?.length) return json({ error: 'There is already a pickup going for you.' }, 409);
+    }
     const when = String(a.when ?? 'now').trim().slice(0, 40) || 'now';
-    const { data: p, error } = await admin.from('pickups').insert({ driver: to.id, kid: user.id, place: pl.id, place_name: pl.name, dest_lat: pl.lat, dest_lng: pl.lng, status: 'asked', ask_when: when }).select('*').single();
+    const { data: p, error } = await admin.from('pickups').insert({ driver: to.id, kid: asker.id, place: pl.id, place_name: pl.name, dest_lat: pl.lat, dest_lng: pl.lng, status: 'asked', ask_when: when, test }).select('*').single();
     if (error) { console.error(error); return json({ error: 'Could not ask just now.' }, 500); }
-    await card(user.id, `🙋 Can you pick me up? ${pl.name}, ${when}`, p.id);
-    EdgeRuntime.waitUntil(push([to.id], `🙋 ${name(user.id)} asks for a pickup`, `${pl.name}, ${when}`, 'pickup-' + p.id));
+    if (!test) await card(user.id, `🙋 Can you pick me up? ${pl.name}, ${when}`, p.id);
+    EdgeRuntime.waitUntil(push([to.id], `${test ? '🧪 ' : ''}🙋 ${asker.username} asks for a pickup`, `${pl.name}, ${when}`, 'pickup-' + p.id));
     return json({ pickup: p });
   }
 
@@ -135,14 +148,15 @@ Deno.serve(async (req) => {
   if (body.start && typeof body.start === 'object') {
     if (role !== 'parent') return json({ error: 'A parent starts a pickup.' }, 403);
     if (!KEY) return json({ error: 'Pickups need the Google key first.' }, 503);
-    const s = body.start as { kid?: string; place?: string; address?: string; name?: string; from?: unknown };
+    const s = body.start as { kid?: string; place?: string; address?: string; name?: string; from?: unknown; test?: boolean };
     const from = pos(s.from);
     if (!from) return json({ error: 'Your phone needs to say where you are to work out the minutes.' }, 400);
     let asked = null;
     if (typeof body.ask === 'string') {
       ({ data: asked } = await admin.from('pickups').select('*').eq('id', body.ask).eq('status', 'asked').maybeSingle());
-      if (!asked) return json({ error: 'That ask is already taken care of.' }, 409);
+      if (!asked || (asked.test && asked.driver !== user.id)) return json({ error: 'That ask is already taken care of.' }, 409);
     }
+    const test = asked ? !!asked.test : s.test === true;
     const kid = fam.find((f) => f.id === (asked?.kid ?? s.kid) && f.role === 'kid');
     if (!kid) return json({ error: 'Pick who you are picking up.' }, 400);
     let dest: Pos, placeName: string, placeId: string | null = null;
@@ -156,17 +170,18 @@ Deno.serve(async (req) => {
       if (!g) return json({ error: "Couldn't find that address." }, 404);
       dest = g; placeName = String(s.name ?? '').trim().slice(0, 80) || g.address.split(',')[0];
     } else return json({ error: 'Pick where you are going.' }, 400);
-    // One at a time per kid: a new one replaces what was going.
-    await admin.from('pickups').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('kid', kid.id).neq('status', 'ended').neq('id', asked?.id ?? '00000000-0000-0000-0000-000000000000');
+    // One at a time per kid: a new one replaces what was going (a practice one, only your other practice).
+    const old = admin.from('pickups').update({ status: 'ended', ended_at: new Date().toISOString() }).neq('status', 'ended').neq('id', asked?.id ?? '00000000-0000-0000-0000-000000000000');
+    await (test ? old.eq('driver', user.id).eq('test', true) : old.eq('kid', kid.id).eq('test', false));
     let min: number;
     try { min = await driveMin(from, dest); } catch (e) { console.error(e); return json({ error: "Couldn't work out the drive just now. Try again." }, 502); }
     const here = metres(from, dest) < HERE_M;
     const row = { driver: user.id, kid: kid.id, place: placeId, place_name: placeName, dest_lat: dest.lat, dest_lng: dest.lng, status: here ? 'here' : 'on_way',
-      eta_at: new Date(Date.now() + min * 60_000).toISOString(), eta_first: min, started_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      eta_at: new Date(Date.now() + min * 60_000).toISOString(), eta_first: min, started_at: new Date().toISOString(), updated_at: new Date().toISOString(), test };
     const { data: p, error } = asked ? await admin.from('pickups').update(row).eq('id', asked.id).select('*').single() : await admin.from('pickups').insert(row).select('*').single();
     if (error) { console.error(error); return json({ error: 'Could not start the pickup.' }, 500); }
-    if (!asked) await card(user.id, `🚗 On my way to pick up ${kid.username} · ${placeName}`, p.id);
-    EdgeRuntime.waitUntil(push([kid.id], `🚗 ${name(user.id)} is on the way`, `About ${min} min to ${placeName}`, 'pickup-' + p.id));
+    if (!asked && !test) await card(user.id, `🚗 On my way to pick up ${kid.username} · ${placeName}`, p.id);
+    tellKid(p, `🚗 ${name(user.id)} is on the way`, `About ${min} min to ${placeName}`);
     return json({ pickup: p });
   }
 
@@ -185,7 +200,7 @@ Deno.serve(async (req) => {
     const dest = { lat: p.dest_lat, lng: p.dest_lng };
     if (metres(from, dest) < HERE_M) {
       const { data: q } = await admin.from('pickups').update({ status: 'here', eta_at: now, updated_at: now }).eq('id', p.id).select('*').single();
-      EdgeRuntime.waitUntil(push([p.kid], `🚗 ${name(p.driver)} is here`, `At ${p.place_name}`, 'pickup-' + p.id));
+      tellKid(p, `🚗 ${name(p.driver)} is here`, `At ${p.place_name}`);
       return json({ pickup: q });
     }
     let min: number;
@@ -198,24 +213,24 @@ Deno.serve(async (req) => {
     if (min <= 5 && !told.five) { told.five = true; alerts.push([`🚗 ${name(p.driver)} is about ${min} min away`, `Get ready at ${p.place_name}`]); }
     else if (late >= 5 && late >= (told.late ?? 0) + 5) { told.late = late; alerts.push([`🚦 ${name(p.driver)} is running late`, `Traffic: now about ${min} min to ${p.place_name}`]); }
     const { data: q } = await admin.from('pickups').update({ eta_at: new Date(eta).toISOString(), late_min: late, told, updated_at: now }).eq('id', p.id).select('*').single();
-    for (const [t, b] of alerts) EdgeRuntime.waitUntil(push([p.kid], t, b, 'pickup-' + p.id));
+    for (const [t, b] of alerts) tellKid(p, t, b);
     return json({ pickup: q });
   }
 
   if (body.note != null) {
-    if (p.kid !== user.id) return json({ error: 'Only the one being picked up answers here.' }, 403);
+    if (p.kid !== user.id && !(p.test && p.driver === user.id)) return json({ error: 'Only the one being picked up answers here.' }, 403);
     if (p.status === 'ended') return json({ error: 'That pickup is over.' }, 409);
     const t = String(body.text ?? '').trim().slice(0, 60);
     if (!t) return json({ error: 'Say something first.' }, 400);
     const { data: q } = await admin.from('pickups').update({ kid_note: t, updated_at: p.status === 'on_way' ? p.updated_at : now }).eq('id', p.id).select('*').single();
-    EdgeRuntime.waitUntil(push([p.driver], `${name(p.kid)}: ${t}`, `Pickup at ${p.place_name}`, 'pickup-note-' + p.id));
+    EdgeRuntime.waitUntil(push([p.driver], `${p.test ? '🧪 ' : ''}${name(p.kid)}: ${t}`, `Pickup at ${p.place_name}`, 'pickup-note-' + p.id));
     return json({ pickup: q });
   }
 
   if (body.here != null) {
     if (p.driver !== user.id || p.status !== 'on_way') return json({ pickup: p });
     const { data: q } = await admin.from('pickups').update({ status: 'here', eta_at: now, updated_at: now }).eq('id', p.id).select('*').single();
-    EdgeRuntime.waitUntil(push([p.kid], `🚗 ${name(p.driver)} is here`, `At ${p.place_name}`, 'pickup-' + p.id));
+    tellKid(p, `🚗 ${name(p.driver)} is here`, `At ${p.place_name}`);
     return json({ pickup: q });
   }
 
