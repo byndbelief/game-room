@@ -21,6 +21,9 @@
 //            5 minutes; logged as 'fix', using no build or answer (121)
 //   next:    two or three short things to ask next, for where the project is (the page's chips)
 //   brief:   the project's brief, when Claude rewrote it (projects.brief, 112)
+//   saved:   { versions, cur, name? }: a change to the files is saved here, as the project's next version (srv: true),
+//            so it's kept even if the page was closed or the phone locked while Claude worked; a fix round
+//            replaces the files of the version its build just saved. The page takes these instead of saving its own
 //   wall:    what they asked hit a limit of r4box, not their code: what r4box would need, in a few words
 //            (the page offers a parent to send it to Claude on r4box). Claude is told what a project can't do.
 // Claude also reads the project's commit notes and its brief (its own running note on the project:
@@ -298,7 +301,18 @@ Keep everything family friendly; decline anything unkind, scary or inappropriate
   const voiceNote = (made.length ? ` I made the voice${made.length > 1 ? 's' : ''} ${made.join(' and ')}: hear or remake ${made.length > 1 ? 'them' : 'it'} in Settings › Voices.` : '')
     + (missed.length ? ` I couldn’t make the voice ${missed.join(', ')}, so it’ll use the narrator until there is one by that name.` : '');
   if (brief && brief !== p.brief) await admin.from('projects').update({ brief }).eq('id', p.id);
+  // New files are saved here, so they're kept even if nobody is waiting for the answer any more.
+  let saved: { versions: unknown[]; cur: number; name?: string } | null = null;
+  if (newFiles) {
+    const { data: row } = await admin.from('projects').select('versions, cur').eq('id', p.id).maybeSingle();
+    let vs = (row?.versions ?? p.versions) as { v: number; at: number; by?: string; srv?: boolean; files?: unknown }[], at = row?.cur ?? p.cur;
+    const head = vs[at];
+    if (fixing && head?.srv && head.by === user.id && Date.now() - head.at < 5 * 60_000) vs = vs.map((x, i) => (i === at ? { ...x, files: newFiles } : x));
+    else { vs = [...vs.slice(0, at + 1), { v: Math.max(0, ...vs.map((x) => +x.v || 0)) + 1, at: Date.now(), note: note || 'Claude’s change', params: {}, files: newFiles, by: user.id, srv: true }]; at = vs.length - 1; }
+    const { error: se } = await admin.from('projects').update({ versions: vs, cur: at, updated_at: new Date().toISOString(), ...(name ? { name } : {}) }).eq('id', p.id);
+    if (se) console.error('save', se.message); else saved = { versions: vs, cur: at, name: name || undefined };
+  }
   await admin.from('project_builds').insert({ user_id: user.id, project: p.id, kind: fixing ? 'fix' : built ? (freeStart ? 'start' : 'build') : 'ask' });
   return json({ say: cutOff ? failNote : (say || (built ? `Done: ${note || 'changed it'}.` : 'Hmm, I’m not sure how to do that one. Try saying it another way?')) + voiceNote,
-    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart && !fixing ? 1 : 0)) });
+    note: built ? (note || 'Claude’s change') : undefined, change: change ?? undefined, files: newFiles ?? undefined, name: newFiles && name ? name : undefined, next: next.length ? next : undefined, wall: wall || undefined, saved: saved ?? undefined, brief: brief && brief !== p.brief ? brief : undefined, left: leftOf(builds + (built && !freeStart && !fixing ? 1 : 0)) });
 });
